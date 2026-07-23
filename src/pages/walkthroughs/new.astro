@@ -1,0 +1,26 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { findById } from '../../lib/sheets';
+import { propertyConfig } from '../../lib/models/property';
+import { clientConfig } from '../../lib/models/client';
+import WalkthroughWizard from '../../components/WalkthroughWizard';
+
+const propertyId = Astro.url.searchParams.get('propertyId') ?? '';
+const opportunityId = Astro.url.searchParams.get('opportunityId') ?? undefined;
+
+const property = propertyId ? await findById(env, propertyConfig, propertyId) : null;
+if (!property) {
+	return new Response('Property not found — start a walkthrough from a Property page.', { status: 404 });
+}
+const client = property['Client ID'] ? await findById(env, clientConfig, property['Client ID']) : null;
+---
+
+<BaseLayout title="Walkthrough">
+	<main>
+		<p><a href={`/properties/${propertyId}`}>← Property</a></p>
+		<h1>Walkthrough — {property['Street Address']}, {property.City}</h1>
+		{client && <p>{client['First Name']} {client['Last Name']}</p>}
+		<WalkthroughWizard client:load clientId={property['Client ID']} propertyId={propertyId} opportunityId={opportunityId} />
+	</main>
+</BaseLayout>

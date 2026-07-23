@@ -235,15 +235,44 @@ Price, Suggested Target Price, Suggested High Price, Owner Override
 Price, Pricing Config ID, Notes, Created At, Updated At, Archived At.
 
 A walkthrough-only visit is a standalone record — it never creates a Job
-just to have somewhere to live. The Suggested Low/Target/High Price and
-Pricing Config ID columns exist now but are only populated once the
-guided mobile walkthrough mode computes live pricing suggestions; the
-historical-entry wizard leaves them blank for past walkthroughs rather
-than reconstructing a price recommendation after the fact.
+just to have somewhere to live. The Suggested Low/Target/High Price,
+Estimated On-Site Labor Hours, and Pricing Config ID columns are now
+populated by the guided mobile walkthrough mode (`/walkthroughs/new`,
+`src/components/WalkthroughWizard.tsx`) — computed server-side via the
+same shared pricing engine the in-field quoter uses
+(`lib/pricing/walkthroughToQuote.ts`), never a second calculation path.
+The historical-entry wizard still leaves these blank for past
+walkthroughs rather than reconstructing a price recommendation after the
+fact.
 
 Condition values: Maintenance, Moderate Buildup, Heavy Buildup,
 Restoration Required, Unknown. Access values: Easy, Standard, Difficult,
 Specialty Access, Unknown.
+
+## WalkthroughItems
+Walkthrough Item ID, Walkthrough ID, Area (Front/Left/Rear/Right/
+Interior/Garage/Basement/Other), Item Type (Window/Sliding Door/
+Skylight), Quantity, Size Class (Standard/Oversized/French/Divided-Light
+— only meaningful for Window), Interior Included (Y/N), Exterior
+Included (Y/N), Screen Included (Y/N), Track Included (Y/N), Condition,
+Access Difficulty, Hard Water (Y/N), Construction Debris (Y/N),
+Estimated Labor Minutes, Notes, Sort Order, Created At, Updated At,
+Archived At.
+
+Item Type + Size Class + Interior/Exterior Included together select a
+Services Service Code exactly the way the in-field quoter's window/door
+counts do (e.g. Window + Oversized + Exterior Included ->
+WINDOW_EXT_OVERSIZED) — reusing the existing Services taxonomy rather
+than inventing a second one. Track Included always maps to the basic
+track service; the deep-track distinction isn't captured at the
+walkthrough-item level yet.
+
+A completed Walkthrough can be converted into a Quote
+(`createQuoteFromWalkthrough`), which reuses the walkthrough's item set
+and the PricingConfig actually active at walkthrough time — never
+re-resolved live, even if a newer config has since been activated, so
+the quote stays reproducible. Idempotent: converting the same walkthrough
+twice returns the existing Quote instead of creating a duplicate.
 
 ## ActivityLog
 Activity ID, Entity Type, Entity ID, Action, Previous Value, New Value,

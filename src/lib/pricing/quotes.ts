@@ -19,6 +19,9 @@ export interface CreateQuoteParams {
 	 * different one; nothing is auto-applied or locked. Falls back to the
 	 * property's own type when omitted. */
 	pricingConfigId?: string;
+	/** Set when this quote was generated from a completed Walkthrough —
+	 * see lib/pricing/walkthroughToQuote.ts. */
+	walkthroughId?: string;
 }
 
 export interface CreateQuoteResult {
@@ -55,6 +58,7 @@ export async function createQuote(env: SheetsEnv, params: CreateQuoteParams): Pr
 					'Client ID': params.clientId,
 					'Property ID': params.propertyId,
 					'Opportunity ID': params.opportunityId ?? '',
+					'Walkthrough ID': params.walkthroughId ?? '',
 					'Pricing Config ID': result.pricingConfigId,
 					'Calculator Version': result.calculatorVersion,
 					'Input Snapshot': JSON.stringify(params.input),

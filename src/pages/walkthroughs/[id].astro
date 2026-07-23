@@ -1,0 +1,112 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { findById, listActiveRows } from '../../lib/sheets';
+import { walkthroughConfig } from '../../lib/models/walkthrough';
+import { walkthroughItemConfig } from '../../lib/models/walkthroughItem';
+import { propertyConfig } from '../../lib/models/property';
+import { clientConfig } from '../../lib/models/client';
+
+const { id } = Astro.params;
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	try {
+		const res = await fetch(new URL('/api/walkthrough', Astro.url.origin), {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ action: 'create-quote', walkthroughId: id }),
+		});
+		const body = (await res.json()) as { ok: boolean; quote?: { 'Quote ID': string }; error?: string };
+		if (body.ok && body.quote) {
+			return Astro.redirect(`/quotes/${body.quote['Quote ID']}`);
+		}
+		error = body.error ?? 'Could not create a quote from this walkthrough.';
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const walkthrough = await findById(env, walkthroughConfig, id!);
+if (!walkthrough) {
+	return new Response('Walkthrough not found', { status: 404 });
+}
+
+const property = walkthrough['Property ID'] ? await findById(env, propertyConfig, walkthrough['Property ID']) : null;
+const client = walkthrough['Client ID'] ? await findById(env, clientConfig, walkthrough['Client ID']) : null;
+const allItems = await listActiveRows(env, walkthroughItemConfig);
+const items = allItems.filter((i) => i['Walkthrough ID'] === id);
+---
+
+<BaseLayout title="Walkthrough">
+	<main>
+		{property && <p><a href={`/properties/${property['Property ID']}`}>← Property</a></p>}
+		<h1>
+			Walkthrough — {property ? `${property['Street Address']}, ${property.City}` : walkthrough['Property ID']}
+		</h1>
+		<p>
+			<span class="badge badge-accent">{walkthrough.Status}</span>
+			{client && <> — {client['First Name']} {client['Last Name']}</>}
+			{' '}— {walkthrough['Walkthrough Date']}
+		</p>
+		{error && <p role="alert">{error}</p>}
+
+		<section class="card">
+			<h2>Summary</h2>
+			<ul>
+				<li>Stories observed: {walkthrough['Story Count Observed']}</li>
+				<li>Exterior condition: {walkthrough['Exterior Condition']}</li>
+				<li>Interior condition: {walkthrough['Interior Condition']}</li>
+				<li>Access difficulty: {walkthrough['Access Difficulty']}</li>
+				<li>Hard water present: {walkthrough['Hard Water Present (Y/N)']}</li>
+				<li>Construction debris present: {walkthrough['Construction Debris Present (Y/N)']}</li>
+				<li>Water-fed pole suitable: {walkthrough['Water-Fed Pole Suitable (Y/N)']}</li>
+				{walkthrough['Ladder Required'] && <li>Ladder requirement: {walkthrough['Ladder Required']}</li>}
+			</ul>
+			{walkthrough.Notes && <p>{walkthrough.Notes}</p>}
+		</section>
+
+		<section class="card">
+			<h2>Pricing summary</h2>
+			<p>Estimated on-site labor: {walkthrough['Estimated On-Site Labor Hours']} hours</p>
+			<p>
+				Suggested low: ${walkthrough['Suggested Low Price']} — Suggested target:{' '}
+				<strong>${walkthrough['Suggested Target Price']}</strong> — Suggested high: ${walkthrough['Suggested High Price']}
+			</p>
+			{walkthrough['Owner Override Price'] && <p>Owner-selected price: ${walkthrough['Owner Override Price']}</p>}
+			<p>Pricing Config used: {walkthrough['Pricing Config ID']}</p>
+		</section>
+
+		<section class="card">
+			<h2>Items ({items.length})</h2>
+			<table>
+				<thead>
+					<tr><th>Area</th><th>Type</th><th>Qty</th><th>Ext</th><th>Int</th><th>Screen</th><th>Track</th><th>Condition</th></tr>
+				</thead>
+				<tbody>
+					{items.map((i) => (
+						<tr>
+							<td>{i.Area}</td>
+							<td>{i['Item Type']}{i['Item Type'] === 'Window' ? ` (${i['Size Class']})` : ''}</td>
+							<td>{i.Quantity}</td>
+							<td>{i['Exterior Included']}</td>
+							<td>{i['Interior Included']}</td>
+							<td>{i['Screen Included']}</td>
+							<td>{i['Track Included']}</td>
+							<td>{i.Condition}</td>
+						</tr>
+					))}
+					{items.length === 0 && <tr><td colspan="8">No items recorded.</td></tr>}
+				</tbody>
+			</table>
+		</section>
+
+		{walkthrough['Quote ID'] ? (
+			<p><a href={`/quotes/${walkthrough['Quote ID']}`}>View quote →</a></p>
+		) : (
+			<form method="POST">
+				<button type="submit">Create quote from this walkthrough</button>
+			</form>
+		)}
+	</main>
+</BaseLayout>

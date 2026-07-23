@@ -15,6 +15,7 @@ import {
 	checkboxValueSelected,
 } from '../../lib/models/property';
 import { clientConfig } from '../../lib/models/client';
+import { walkthroughConfig } from '../../lib/models/walkthrough';
 import { quoteConfig } from '../../lib/models/quote';
 import { jobConfig, type Job } from '../../lib/models/job';
 import { pipelineConfig, type Opportunity } from '../../lib/models/pipeline';
@@ -90,13 +91,15 @@ if (!property) {
 
 const client = property['Client ID'] ? await findById(env, clientConfig, property['Client ID']) : null;
 
-const [allQuotes, allJobs, allOpportunities, pricingConfig, activityRows] = await Promise.all([
+const [allQuotes, allJobs, allOpportunities, allWalkthroughs, pricingConfig, activityRows] = await Promise.all([
 	listActiveRows(env, quoteConfig),
 	listActiveRows(env, jobConfig),
 	listActiveRows(env, pipelineConfig),
+	listActiveRows(env, walkthroughConfig),
 	property['Property Type'] ? getActivePricingConfig(env, property['Property Type']) : Promise.resolve(null),
 	readRows(env, 'ActivityLog', { idColumn: 'Activity ID' }),
 ]);
+const propertyWalkthroughs = allWalkthroughs.filter((w) => w['Property ID'] === id);
 
 const streetAddress = property['Street Address'].toLowerCase();
 const propertyQuotes = allQuotes.filter((q) => q['Property ID'] === id);
@@ -132,6 +135,7 @@ const relevantIds = new Set<string>([
 	...propertyQuotes.map((q) => q['Quote ID']),
 	...propertyJobs.map((j) => j['Job ID']),
 	...propertyOpportunities.map((o) => o['Opportunity ID']),
+	...propertyWalkthroughs.map((w) => w['Walkthrough ID']),
 ]);
 const quoteIdByJobId = Object.fromEntries(propertyJobs.map((j) => [j['Job ID'], j['Quote ID']]));
 
@@ -139,6 +143,7 @@ function timelineLink(entityType: string, entityId: string): string | null {
 	if (entityType === 'Quote') return `/quotes/${entityId}`;
 	if (entityType === 'Job') return quoteIdByJobId[entityId] ? `/quotes/${quoteIdByJobId[entityId]}` : null;
 	if (entityType === 'Client') return `/clients/${entityId}`;
+	if (entityType === 'Walkthrough') return `/walkthroughs/${entityId}`;
 	if (entityType === 'Opportunity') return '/pipeline';
 	if (entityType === 'PricingConfig') return '/pricing-config';
 	if (entityType === 'CalibrationSnapshot') return '/calibration';
@@ -184,6 +189,8 @@ const timeline = activityRows
 			{client?.['Referral Source'] && <p>Referral source: {client['Referral Source']}</p>}
 			<p>Created {property['Created At']} · Updated {property['Updated At']}</p>
 			<p>
+				<a href={`/walkthroughs/new?propertyId=${property['Property ID']}`}>Start walkthrough</a>
+				{' · '}
 				<a href={`/quoter?propertyId=${property['Property ID']}&clientId=${property['Client ID']}`}>Create quote</a>
 				{' · '}
 				<a href={`/clients/${property['Client ID']}`}>Edit client</a>
@@ -373,6 +380,26 @@ const timeline = activityRows
 				})}
 				{timeline.length === 0 && <li>No activity recorded yet.</li>}
 			</ul>
+		</section>
+
+		<section class="card">
+			<h2>Walkthroughs</h2>
+			<table>
+				<thead>
+					<tr><th>Date</th><th>Status</th><th>Suggested target</th><th></th></tr>
+				</thead>
+				<tbody>
+					{propertyWalkthroughs.map((w) => (
+						<tr>
+							<td>{w['Walkthrough Date']}</td>
+							<td><span class="badge">{w.Status}</span></td>
+							<td>{w['Suggested Target Price'] && `$${w['Suggested Target Price']}`}</td>
+							<td><a href={`/walkthroughs/${w['Walkthrough ID']}`}>View</a></td>
+						</tr>
+					))}
+					{propertyWalkthroughs.length === 0 && <tr><td colspan="4">No walkthroughs yet.</td></tr>}
+				</tbody>
+			</table>
 		</section>
 
 		<section class="card">

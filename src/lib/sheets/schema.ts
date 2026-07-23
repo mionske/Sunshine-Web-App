@@ -261,6 +261,28 @@ export const TAB_SCHEMAS: Record<string, string[]> = {
 		'Updated At',
 		'Archived At',
 	],
+	WalkthroughItems: [
+		'Walkthrough Item ID',
+		'Walkthrough ID',
+		'Area',
+		'Item Type',
+		'Quantity',
+		'Size Class',
+		'Interior Included',
+		'Exterior Included',
+		'Screen Included',
+		'Track Included',
+		'Condition',
+		'Access Difficulty',
+		'Hard Water',
+		'Construction Debris',
+		'Estimated Labor Minutes',
+		'Notes',
+		'Sort Order',
+		'Created At',
+		'Updated At',
+		'Archived At',
+	],
 };
 
 /** Creates any tab from TAB_SCHEMAS that doesn't exist yet, with its header
