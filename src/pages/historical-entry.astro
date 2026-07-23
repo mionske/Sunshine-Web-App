@@ -1,0 +1,15 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import HistoricalEntryWizard from '../components/HistoricalEntryWizard';
+
+const clientId = Astro.url.searchParams.get('clientId') ?? undefined;
+const propertyId = Astro.url.searchParams.get('propertyId') ?? undefined;
+---
+
+<BaseLayout title="Add historical record">
+	<main>
+		<h1>Add historical record</h1>
+		<p>For entering properties/jobs that already happened, before this app existed.</p>
+		<HistoricalEntryWizard client:load clientId={clientId} propertyId={propertyId} />
+	</main>
+</BaseLayout>

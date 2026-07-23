@@ -237,7 +237,7 @@ const JOBS_HEADERS = [
 	'CALIBRATION SUMMARY (auto-updates)', '',
 	'Window Count', 'Quote ID', 'Opportunity ID', 'Job Status', 'Arrival Timestamp',
 	'Start Timestamp', 'Finish Timestamp', 'Departure Timestamp', 'Travel Time', 'Setup Time',
-	'Cleaning Time', 'Pack-up Time', 'Supplies Cost', 'Gas', 'Other Expenses', 'Total Job Cost',
+	'Cleaning Time', 'Inspection Time', 'Pack-up Time', 'Off-Site Admin Time', 'Callback Labor Minutes', 'Callback Cost', 'Supplies Cost', 'Gas', 'Other Expenses', 'Total Job Cost',
 	'Net Profit', 'Customer Rating', 'Callback Required (Y/N)', 'Photos', 'Version', 'Archived At',
 	'Property ID',
 	'Record Classification',

@@ -109,9 +109,12 @@ Property ID (link — reliable join to Properties, added after the original
 free-text "Property Address" column proved too fragile to match on),
 Job Status (Unscheduled/Scheduled/In Progress/Completed/Invoiced/Paid/
 Cancelled), Arrival/Start/Finish/Departure Timestamps,
-Travel/Setup/Cleaning/Pack-up Time, Supplies Cost, Gas, Other Expenses,
-Total Job Cost, Net Profit, Customer Rating, Callback Required (Y/N),
-Photos (link), Version, Archived At, Record Classification (Customer Job/
+Travel/Setup/Cleaning/Inspection/Pack-up Time (the four Inspection/Setup/
+Cleaning/Pack-up categories are what count as on-site labor toward the
+$150/hr target — Travel and Off-Site Admin Time never do), Off-Site Admin
+Time, Supplies Cost, Gas, Other Expenses, Total Job Cost, Net Profit,
+Customer Rating, Callback Required (Y/N), Callback Labor Minutes,
+Callback Cost, Photos (link), Version, Archived At, Record Classification (Customer Job/
 Discounted Customer Job/Test Job/Practice Job/Owner Property/Historical
 Import — a walkthrough-only visit never becomes a Job at all), Revenue
 Treatment (Full Price/Discounted/No Charge/Test Price/Unknown),
@@ -174,6 +177,20 @@ Specialty Access, Unknown.
 ## ActivityLog
 Activity ID, Entity Type, Entity ID, Action, Previous Value, New Value,
 User, Timestamp, Request ID, Notes.
+
+## Historical-entry wizard
+`/historical-entry` (linked from the Dashboard and each Property detail
+page) — a guided multi-step form for entering properties/jobs that
+predate this app: Record Type → Client & Property (with duplicate
+detection by phone/email/exact address/name+ZIP before creating new
+records) → Property Characteristics → Walkthrough Details → Quote Details
+→ Job Details → Review (shows exactly what will be created/reused and the
+calibration-inclusion outcome) → Save. One `createRelatedRows()` call per
+submission, so the whole thing is a single Write-Operation-ID-tagged,
+idempotent-by-ID unit — safe to retry after a network error without
+creating duplicates. A walkthrough-only visit never creates a fake Job;
+Job Details only appears for record types where work was actually
+performed.
 
 ## SystemTest
 Dedicated scratch tab for live Sheets round-trip verification. Never used

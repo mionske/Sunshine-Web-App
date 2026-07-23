@@ -163,6 +163,8 @@ const timeline = activityRows
 				<a href={`/quoter?propertyId=${property['Property ID']}&clientId=${property['Client ID']}`}>Create quote</a>
 				{' · '}
 				<a href={`/clients/${property['Client ID']}`}>Edit client</a>
+				{' · '}
+				<a href={`/historical-entry?propertyId=${property['Property ID']}&clientId=${property['Client ID']}`}>Add historical record</a>
 			</p>
 		</section>
 

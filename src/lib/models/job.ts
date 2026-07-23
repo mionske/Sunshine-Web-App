@@ -72,7 +72,14 @@ export const jobSchema = z
 		'Travel Time': blank(),
 		'Setup Time': blank(),
 		'Cleaning Time': blank(),
+		'Inspection Time': blank(),
 		'Pack-up Time': blank(),
+		'Off-Site Admin Time': blank(),
+		'Callback Labor Minutes': blank(),
+		// Was already read by calibration.ts's computeJobPerformance() but
+		// never actually declared here or added to the live sheet — this
+		// closes that gap rather than introducing a new one.
+		'Callback Cost': blank(),
 		'Supplies Cost': blank(),
 		Gas: blank(),
 		'Other Expenses': blank(),
