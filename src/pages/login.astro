@@ -1,0 +1,55 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import {
+	checkPassword,
+	clearLoginAttempts,
+	createSessionToken,
+	isRateLimited,
+	recordLoginAttempt,
+	SESSION_COOKIE_NAME,
+	sessionCookieOptions,
+} from '../lib/auth';
+
+const nextParam = Astro.url.searchParams.get('next');
+const next = nextParam && nextParam.startsWith('/') ? nextParam : '/';
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const clientKey = Astro.request.headers.get('cf-connecting-ip') ?? 'local';
+
+	if (isRateLimited(clientKey)) {
+		error = 'Too many attempts. Wait a minute and try again.';
+	} else if (!env.AUTH_PASSWORD || !env.SESSION_SIGNING_SECRET) {
+		error = 'Server misconfigured.';
+	} else {
+		const form = await Astro.request.formData();
+		const password = String(form.get('password') ?? '');
+
+		if (checkPassword(password, env.AUTH_PASSWORD)) {
+			clearLoginAttempts(clientKey);
+			const token = await createSessionToken(env.SESSION_SIGNING_SECRET);
+			Astro.cookies.set(SESSION_COOKIE_NAME, token, sessionCookieOptions());
+			return Astro.redirect(next);
+		}
+
+		recordLoginAttempt(clientKey);
+		error = 'Incorrect password.';
+	}
+}
+---
+
+<BaseLayout title="Log in" nav={false}>
+	<main>
+		<h1>Sunshine Window Works — Internal</h1>
+		<form method="POST">
+			<label>
+				Password
+				<input type="password" name="password" autofocus required />
+			</label>
+			<button type="submit">Log in</button>
+		</form>
+		{error && <p role="alert">{error}</p>}
+	</main>
+</BaseLayout>

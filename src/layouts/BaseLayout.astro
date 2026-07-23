@@ -1,0 +1,49 @@
+---
+import '../styles/global.css';
+
+interface Props {
+	title: string;
+	nav?: boolean;
+}
+const { title, nav = true } = Astro.props;
+
+const NAV_LINKS = [
+	{ href: '/', label: 'Dashboard' },
+	{ href: '/clients', label: 'Clients' },
+	{ href: '/pipeline', label: 'Pipeline' },
+	{ href: '/quoter', label: 'Quoter' },
+	{ href: '/calibration', label: 'Calibration' },
+	{ href: '/pricing-config', label: 'Pricing Config' },
+];
+
+const currentPath = Astro.url.pathname;
+---
+
+<!doctype html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>{title} — Sunshine Window Works</title>
+	</head>
+	<body>
+		{nav && (
+			<header class="app-nav">
+				<strong>Sunshine Window Works</strong>
+				<nav>
+					<ul>
+						{NAV_LINKS.map((link) => (
+							<li>
+								<a href={link.href} aria-current={currentPath === link.href ? 'page' : undefined}>
+									{link.label}
+								</a>
+							</li>
+						))}
+						<li><a href="/logout">Log out</a></li>
+					</ul>
+				</nav>
+			</header>
+		)}
+		<slot />
+	</body>
+</html>

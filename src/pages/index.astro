@@ -1,0 +1,81 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { listActiveRows } from '../lib/sheets';
+import { pipelineConfig } from '../lib/models/pipeline';
+import { clientConfig } from '../lib/models/client';
+import { propertyConfig } from '../lib/models/property';
+import { jobConfig } from '../lib/models/job';
+import { getLatestCalibrationSnapshot } from '../lib/pricing/calibration';
+import { getActivePricingConfig } from '../lib/pricing/config';
+
+const today = new Date().toISOString().slice(0, 10);
+const currentMonthPrefix = today.slice(0, 7); // YYYY-MM
+
+const [opportunities, clients, properties, jobs, snapshot, pricingConfig] = await Promise.all([
+	listActiveRows(env, pipelineConfig),
+	listActiveRows(env, clientConfig),
+	listActiveRows(env, propertyConfig),
+	listActiveRows(env, jobConfig),
+	getLatestCalibrationSnapshot(env),
+	getActivePricingConfig(env),
+]);
+
+const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
+const propertyById = Object.fromEntries(properties.map((p) => [p['Property ID'], p]));
+
+const OPEN_STAGES = new Set(['New Lead', 'Contacted', 'Walkthrough Scheduled', 'Quote Draft', 'Quote Sent', 'Follow-up']);
+const followUps = opportunities
+	.filter((o) => OPEN_STAGES.has(o.Stage) && o['Next Follow-up Date'] && o['Next Follow-up Date'] <= today)
+	.sort((a, b) => a['Next Follow-up Date'].localeCompare(b['Next Follow-up Date']))
+	.map((o) => ({
+		opportunity: o,
+		clientName: clientById[o['Client ID']]
+			? `${clientById[o['Client ID']]['First Name']} ${clientById[o['Client ID']]['Last Name']}`
+			: o['Client ID'],
+		propertyAddress: propertyById[o['Property ID']]?.['Street Address'] ?? o['Property ID'],
+	}));
+
+const thisMonthJobs = jobs.filter((j) => (j['Date Completed'] || '').startsWith(currentMonthPrefix));
+const thisMonthRevenue = thisMonthJobs.reduce((sum, j) => {
+	const revenue = Number(j['Final Price ($)']) || Number((j as Record<string, string>)['Total Revenue ($)']) || 0;
+	return sum + revenue;
+}, 0);
+
+const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
+---
+
+<BaseLayout title="Dashboard">
+	<main>
+		<h1>Dashboard</h1>
+
+		<h2>Follow-ups needed ({followUps.length})</h2>
+		{followUps.length === 0 ? (
+			<p>Nothing overdue.</p>
+		) : (
+			<ul>
+				{followUps.map(({ opportunity, clientName, propertyAddress }) => (
+					<li>
+						<strong>{opportunity['Next Follow-up Date']}</strong> — {propertyAddress} ({clientName}) — {opportunity.Stage}
+					</li>
+				))}
+			</ul>
+		)}
+
+		<h2>This month</h2>
+		<ul>
+			<li>{thisMonthJobs.length} job{thisMonthJobs.length === 1 ? '' : 's'} completed</li>
+			<li>${thisMonthRevenue.toFixed(2)} revenue</li>
+		</ul>
+
+		<h2>Calibration</h2>
+		{snapshot ? (
+			<ul>
+				<li>{snapshot['Confidence Level']} ({snapshot['Comparable Job Count']} comparable jobs)</li>
+				<li>Target: ${targetHourlyRate}/on-site hour — Observed: ${Number(snapshot['Observed Revenue Per Hour']).toFixed(2)}/hour</li>
+			</ul>
+		) : (
+			<p>No calibration data yet — <a href="/calibration">recalculate</a> once jobs are completed.</p>
+		)}
+	</main>
+</BaseLayout>

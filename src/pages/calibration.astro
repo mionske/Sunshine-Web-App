@@ -1,0 +1,104 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { listActiveRows } from '../lib/sheets';
+import { jobConfig } from '../lib/models/job';
+import { getActivePricingConfig } from '../lib/pricing/config';
+import {
+	computeJobPerformance,
+	getLatestCalibrationSnapshot,
+	isCalibrationEligible,
+	recalculateCalibration,
+} from '../lib/pricing/calibration';
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	try {
+		await recalculateCalibration(env);
+		return Astro.redirect('/calibration');
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const [snapshot, pricingConfig, jobs] = await Promise.all([
+	getLatestCalibrationSnapshot(env),
+	getActivePricingConfig(env),
+	listActiveRows(env, jobConfig),
+]);
+
+const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
+const completedJobs = jobs.filter(isCalibrationEligible);
+const rows = completedJobs.map((job) => ({ job, perf: computeJobPerformance(job, targetHourlyRate) }));
+---
+
+<BaseLayout title="Calibration">
+	<main>
+		<h1>Calibration</h1>
+		{error && <p role="alert">{error}</p>}
+
+		{snapshot ? (
+			<>
+				<p>
+					<strong>{snapshot['Confidence Level']}</strong> — {snapshot['Comparable Job Count']} comparable
+					completed job{snapshot['Comparable Job Count'] === '1' ? '' : 's'}
+					(generated {snapshot['Generated At']})
+				</p>
+				<ul>
+					<li>Target: ${targetHourlyRate}/on-site hour</li>
+					<li>Observed revenue/hour: ${Number(snapshot['Observed Revenue Per Hour']).toFixed(2)}</li>
+					<li>Median revenue/hour: ${Number(snapshot['Median Revenue Per Hour']).toFixed(2)}</li>
+					<li>Average estimate variance: {(Number(snapshot['Average Estimate Variance']) * 100).toFixed(1)}%</li>
+					<li>Average minutes/window: {Number(snapshot['Average Minutes Per Window']).toFixed(1)}</li>
+					<li>Average minutes/pane: {Number(snapshot['Average Minutes Per Pane']).toFixed(1)}</li>
+					<li>Windows-to-panes ratio: {Number(snapshot['Average Windows-to-Panes Ratio']).toFixed(2)}</li>
+				</ul>
+				<p>
+					Recommendation: {snapshot['Confidence Level'] === 'Insufficient data'
+						? 'Continue collecting completed-job data before drawing conclusions.'
+						: Number(snapshot['Observed Revenue Per Hour']) < targetHourlyRate
+							? 'Observed revenue per hour is below target — review recent underestimation before considering a pricing change.'
+							: 'Observed revenue per hour meets or exceeds target.'}
+				</p>
+			</>
+		) : (
+			<p>No calibration snapshot yet.</p>
+		)}
+
+		<form method="POST">
+			<button type="submit">Recalculate calibration</button>
+		</form>
+
+		<h2>Completed jobs — target vs. actual (${targetHourlyRate}/hr target)</h2>
+		<table>
+			<thead>
+				<tr>
+					<th>Property</th>
+					<th>Quoted $/est. hr</th>
+					<th>Actual $/labor hr</th>
+					<th>Variance</th>
+					<th>Est. hrs</th>
+					<th>Actual hrs</th>
+					<th>Time variance</th>
+					<th>Net contribution</th>
+				</tr>
+			</thead>
+			<tbody>
+				{rows.map(({ job, perf }) => (
+					<tr>
+						<td>{job['Property Address']}</td>
+						<td>${perf.quotedRevenuePerEstimatedHour.toFixed(2)}</td>
+						<td>${perf.actualRevenuePerLaborHour.toFixed(2)}</td>
+						<td>{perf.varianceFromTarget >= 0 ? '+' : ''}${perf.varianceFromTarget.toFixed(2)}</td>
+						<td>{perf.estimatedHours.toFixed(2)}</td>
+						<td>{perf.actualHours.toFixed(2)}</td>
+						<td>{perf.timeVarianceHours >= 0 ? '+' : ''}{perf.timeVarianceHours.toFixed(2)}</td>
+						<td>${perf.netContribution.toFixed(2)}</td>
+					</tr>
+				))}
+				{rows.length === 0 && <tr><td colspan="8">No completed jobs yet.</td></tr>}
+			</tbody>
+		</table>
+	</main>
+</BaseLayout>

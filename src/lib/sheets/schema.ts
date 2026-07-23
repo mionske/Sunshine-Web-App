@@ -1,0 +1,259 @@
+// Source of truth for every tab's name + header row, mirroring
+// docs/data-dictionary.md. Used to bootstrap brand-new tabs (never touches
+// Jobs — that tab is extended separately, under its own preservation
+// protocol).
+import { addSheetTab, ensureGridSize, listSheetTitles, updateValues } from './client';
+import { columnLetterAt, readHeaders } from './rows';
+import type { SheetsEnv } from './types';
+
+export const TAB_SCHEMAS: Record<string, string[]> = {
+	Clients: [
+		'Client ID',
+		'First Name',
+		'Last Name',
+		'Phone',
+		'Email',
+		'Address',
+		'Referral Source',
+		'First Contact Date',
+		'Customer Since',
+		'Preferred Contact Method',
+		'Notes',
+		'Created At',
+		'Updated At',
+		'Archived At',
+	],
+	Properties: [
+		'Property ID',
+		'Client ID',
+		'Street Address',
+		'City',
+		'Zip',
+		'Year Built',
+		'Square Footage',
+		'Stories',
+		'Roof Access Difficulty',
+		'Overall Access Difficulty',
+		'Water Access',
+		'Equipment Suitability',
+		'Hard Water History (Y/N)',
+		'Construction Debris (Y/N)',
+		'Window Condition',
+		'Total Window Units',
+		'Total Glass Panes',
+		'Count - Double Hung',
+		'Count - Casement',
+		'Count - Picture',
+		'Count - Sliding',
+		'Count - French',
+		'Count - Awning',
+		'Count - Skylights',
+		'Count - Solar Panels',
+		'Screen Count',
+		'Track Count',
+		'Desired Maintenance Frequency',
+		'Next Scheduled Visit',
+		'Last Review Requested Date',
+		'Last Review Received Date',
+		'Created At',
+		'Updated At',
+		'Archived At',
+	],
+	Pipeline: [
+		'Opportunity ID',
+		'Client ID',
+		'Property ID',
+		'Primary Quote ID',
+		'Stage',
+		'Status',
+		'Estimated Value',
+		'Referral Source',
+		'Next Follow-up Date',
+		'Last Contact Date',
+		'Created At',
+		'Updated At',
+		'Closed At',
+		'Archived At',
+		'Lost Reason',
+		'Notes',
+	],
+	Quotes: [
+		'Quote ID',
+		'Quote Type',
+		'Client ID',
+		'Property ID',
+		'Opportunity ID',
+		'Pricing Config ID',
+		'Calculator Version',
+		'Input Snapshot',
+		'Calculation Result Snapshot',
+		'Rounding Policy',
+		'Currency',
+		'Calculated Base Amount',
+		'Calculated Add-ons',
+		'Calculated Surcharges',
+		'Estimated Labor Hours',
+		'Target Hourly Rate',
+		'Target Price Before Adjustments',
+		'Manual Adjustment',
+		'Discount',
+		'Final Quoted Price',
+		'Expected Revenue Per Labor Hour',
+		'Override Reason',
+		'Quote Status',
+		'Created At',
+		'Updated At',
+		'Sent At',
+		'Accepted At',
+		'Declined At',
+		'Expired At',
+		'Archived At',
+		'Created By',
+		'Notes',
+	],
+	Services: [
+		'Service Code',
+		'Service Name',
+		'Service Category',
+		'Default Unit',
+		'Default Labor Minutes',
+		'Pricing Method',
+		'Publicly Available',
+		'Internally Available',
+		'Active',
+		'Sort Order',
+		'Created At',
+		'Updated At',
+		'Archived At',
+		'Notes',
+	],
+	QuoteItems: [
+		'Quote Item ID',
+		'Quote ID',
+		'Service Code',
+		'Service Category',
+		'Description',
+		'Quantity',
+		'Unit',
+		'Unit Price',
+		'Estimated Labor Minutes',
+		'Line Total',
+		'Taxable',
+		'Sort Order',
+		'Created At',
+		'Updated At',
+		'Archived At',
+		'Internal Notes',
+	],
+	PricingConfig: [
+		'Pricing Config ID',
+		'Config Name',
+		'Effective Date',
+		'End Date',
+		'Status',
+		'Calculator Version',
+		'Target Hourly Rate',
+		'Minimum Job Price',
+		'Exterior Labor Weight',
+		'Interior Labor Weight',
+		'Screen Unit Price',
+		'Track Unit Price',
+		'Deep Track Unit Price',
+		'Skylight Unit Price',
+		'Sliding Door Unit Price',
+		'French Pane Unit Price',
+		'Oversized Glass Unit Price',
+		'Second Story Factor',
+		'Third Story Factor',
+		'Moderate Condition Factor',
+		'Heavy Condition Factor',
+		'First-Time Cleaning Factor',
+		'Hard Water Minimum',
+		'Construction Debris Minimum',
+		'Access Surcharge Minimum',
+		'Estimate Low Variance',
+		'Estimate High Variance',
+		'Created At',
+		'Updated At',
+		'Archived At',
+		'Notes',
+	],
+	JobItems: [
+		'Job Item ID',
+		'Job ID',
+		'Source Quote Item ID',
+		'Service Code',
+		'Description',
+		'Actual Quantity',
+		'Unit',
+		'Final Unit Price',
+		'Actual Labor Minutes',
+		'Line Total',
+		'Created At',
+		'Updated At',
+		'Archived At',
+		'Notes',
+	],
+	CalibrationSnapshot: [
+		'Calibration Snapshot ID',
+		'Generated At',
+		'Calculator Version',
+		'Completed Job Count',
+		'Comparable Job Count',
+		'Observed Revenue Per Hour',
+		'Median Revenue Per Hour',
+		'Average Estimate Variance',
+		'Median Estimate Variance',
+		'Average Minutes Per Pane',
+		'Average Minutes Per Window',
+		'Average Windows-to-Panes Ratio',
+		'Confidence Level',
+		'Date Range Start',
+		'Date Range End',
+		'Notes',
+	],
+	ActivityLog: [
+		'Activity ID',
+		'Entity Type',
+		'Entity ID',
+		'Action',
+		'Previous Value',
+		'New Value',
+		'User',
+		'Timestamp',
+		'Request ID',
+		'Notes',
+	],
+};
+
+/** Creates any tab from TAB_SCHEMAS that doesn't exist yet, with its header
+ * row. Never touches Jobs or SystemTest — both are managed separately. Safe
+ * to call repeatedly; a no-op for tabs that already exist. */
+export async function bootstrapMissingTabs(env: SheetsEnv): Promise<{ created: string[] }> {
+	const existing = new Set(await listSheetTitles(env));
+	const created: string[] = [];
+
+	for (const [tab, headers] of Object.entries(TAB_SCHEMAS)) {
+		if (existing.has(tab)) continue;
+		await addSheetTab(env, tab);
+		await updateValues(env, `'${tab}'!A1:${columnLetterAt(headers.length)}1`, [headers]);
+		created.push(tab);
+	}
+
+	return { created };
+}
+
+/** Appends a single new column to an app-owned tab's header row if it isn't
+ * already present — for adding a field to a tab this app fully controls
+ * (never for Jobs, which has its own preservation protocol and a much more
+ * careful placement process; see extend-jobs-tab.ts). Column order doesn't
+ * matter functionally (every read/write goes by header name), so this is
+ * always a safe plain append at the end. */
+export async function ensureColumn(env: SheetsEnv, tab: string, columnName: string): Promise<boolean> {
+	const headers = await readHeaders(env, tab, { fresh: true });
+	if (headers.includes(columnName)) return false;
+	const nextCol = headers.length + 1;
+	await ensureGridSize(env, tab, { minColumns: nextCol });
+	await updateValues(env, `'${tab}'!${columnLetterAt(nextCol)}1`, [[columnName]]);
+	return true;
+}

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/gregmionske/Claude/Projects/**)",
+      "Read(//Users/gregmionske/**)"
+    ]
+  }
+}

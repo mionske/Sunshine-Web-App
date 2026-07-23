@@ -1,0 +1,87 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { findById, updateRow } from '../../lib/sheets';
+import { readRows } from '../../lib/sheets/rows';
+import { propertyConfig } from '../../lib/models/property';
+
+const { id } = Astro.params;
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	try {
+		await updateRow(env, propertyConfig, id!, {
+			'Street Address': String(form.get('streetAddress') ?? ''),
+			City: String(form.get('city') ?? ''),
+			Zip: String(form.get('zip') ?? ''),
+			Stories: String(form.get('stories') ?? ''),
+			'Overall Access Difficulty': String(form.get('overallAccessDifficulty') ?? ''),
+			'Roof Access Difficulty': String(form.get('roofAccessDifficulty') ?? ''),
+			'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
+			'Total Glass Panes': String(form.get('totalGlassPanes') ?? ''),
+			'Desired Maintenance Frequency': String(form.get('desiredMaintenanceFrequency') ?? ''),
+			'Next Scheduled Visit': String(form.get('nextScheduledVisit') ?? ''),
+		});
+		return Astro.redirect(`/properties/${id}`);
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const property = await findById(env, propertyConfig, id!);
+if (!property) {
+	return new Response('Property not found', { status: 404 });
+}
+
+// Jobs doesn't have a Property ID link yet (legacy tab, extended-in-place
+// column additions are still pending confirmation) — matched loosely by
+// address text for now. Revisit once Jobs carries a real Property ID.
+const jobRows = await readRows(env, 'Jobs');
+const streetAddress = property['Street Address'].toLowerCase();
+const jobHistory = jobRows.filter((r) =>
+	String(r.data['Property Address'] ?? '').toLowerCase().includes(streetAddress)
+);
+---
+
+<BaseLayout title={property['Street Address']}>
+	<main>
+		<p><a href={`/clients/${property['Client ID']}`}>← Client</a></p>
+		<h1>{property['Street Address']}, {property.City}</h1>
+		{error && <p role="alert">{error}</p>}
+
+		<form method="POST">
+			<label>Street address <input type="text" name="streetAddress" value={property['Street Address']} required /></label>
+			<label>City <input type="text" name="city" value={property.City} /></label>
+			<label>Zip <input type="text" name="zip" value={property.Zip} /></label>
+			<label>Stories <input type="text" name="stories" value={property.Stories} /></label>
+			<label>Overall access difficulty <input type="text" name="overallAccessDifficulty" value={property['Overall Access Difficulty']} /></label>
+			<label>Roof access difficulty <input type="text" name="roofAccessDifficulty" value={property['Roof Access Difficulty']} /></label>
+			<label>Total window units <input type="text" name="totalWindowUnits" value={property['Total Window Units']} /></label>
+			<label>Total glass panes <input type="text" name="totalGlassPanes" value={property['Total Glass Panes']} /></label>
+			<label>Desired maintenance frequency <input type="text" name="desiredMaintenanceFrequency" value={property['Desired Maintenance Frequency']} /></label>
+			<label>Next scheduled visit <input type="date" name="nextScheduledVisit" value={property['Next Scheduled Visit']} /></label>
+			<button type="submit">Save</button>
+		</form>
+
+		<h2>Job history</h2>
+		<table>
+			<thead>
+				<tr><th>Date</th><th>Job Type</th><th>Quoted</th><th>Final</th><th>Est. Time</th><th>Actual Time</th></tr>
+			</thead>
+			<tbody>
+				{jobHistory.map((r) => (
+					<tr>
+						<td>{r.data['Date Completed']}</td>
+						<td>{r.data['Job Type']}</td>
+						<td>{r.data['Quoted Price ($)']}</td>
+						<td>{r.data['Final Price ($)']}</td>
+						<td>{r.data['Estimated Time (hrs)']}</td>
+						<td>{r.data['Actual Time (hrs)']}</td>
+					</tr>
+				))}
+				{jobHistory.length === 0 && <tr><td colspan="6">No jobs logged yet.</td></tr>}
+			</tbody>
+		</table>
+	</main>
+</BaseLayout>

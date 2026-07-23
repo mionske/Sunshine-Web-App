@@ -1,0 +1,96 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import {
+	activatePricingConfig,
+	createPricingConfig,
+	listPricingConfigs,
+	seedInitialPricingConfig,
+} from '../lib/pricing/config';
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	try {
+		if (action === 'create') {
+			await createPricingConfig(env, {
+				id: String(form.get('id') ?? ''),
+				'Config Name': String(form.get('configName') ?? ''),
+				'Target Hourly Rate': String(form.get('targetHourlyRate') ?? ''),
+				'Minimum Job Price': String(form.get('minimumJobPrice') ?? ''),
+				Notes: String(form.get('notes') ?? ''),
+			});
+		} else if (action === 'activate') {
+			await activatePricingConfig(env, String(form.get('id') ?? ''));
+		}
+		return Astro.redirect('/pricing-config');
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+await seedInitialPricingConfig(env);
+const configs = await listPricingConfigs(env);
+configs.sort((a, b) => b['Created At'].localeCompare(a['Created At']));
+const newId = crypto.randomUUID();
+---
+
+<BaseLayout title="Pricing Config">
+	<main>
+		<h1>Pricing Config</h1>
+		<p>
+			The <strong>Active</strong> config is what controls quote calculations today. Historical
+			performance never changes this automatically — activating a new config is always an explicit
+			action taken here.
+		</p>
+		{error && <p role="alert">{error}</p>}
+
+		<table>
+			<thead>
+				<tr>
+					<th>Name</th>
+					<th>Status</th>
+					<th>Target $/hr</th>
+					<th>Min job price</th>
+					<th>Effective</th>
+					<th>End</th>
+					<th></th>
+				</tr>
+			</thead>
+			<tbody>
+				{configs.map((c) => (
+					<tr>
+						<td>{c['Config Name']}</td>
+						<td>{c.Status}</td>
+						<td>{c['Target Hourly Rate']}</td>
+						<td>{c['Minimum Job Price']}</td>
+						<td>{c['Effective Date']}</td>
+						<td>{c['End Date']}</td>
+						<td>
+							{c.Status !== 'Active' && (
+								<form method="POST">
+									<input type="hidden" name="_action" value="activate" />
+									<input type="hidden" name="id" value={c['Pricing Config ID']} />
+									<button type="submit">Activate</button>
+								</form>
+							)}
+						</td>
+					</tr>
+				))}
+			</tbody>
+		</table>
+
+		<h2>New pricing config (draft)</h2>
+		<form method="POST">
+			<input type="hidden" name="_action" value="create" />
+			<input type="hidden" name="id" value={newId} />
+			<label>Config name <input type="text" name="configName" required /></label>
+			<label>Target hourly rate <input type="text" name="targetHourlyRate" required /></label>
+			<label>Minimum job price <input type="text" name="minimumJobPrice" /></label>
+			<label>Notes <textarea name="notes"></textarea></label>
+			<button type="submit">Save as draft</button>
+		</form>
+	</main>
+</BaseLayout>

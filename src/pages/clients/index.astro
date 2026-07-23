@@ -1,0 +1,84 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { createRow, listActiveRows } from '../../lib/sheets';
+import { clientConfig } from '../../lib/models/client';
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	try {
+		await createRow(env, clientConfig, {
+			id: String(form.get('id') ?? ''),
+			'First Name': String(form.get('firstName') ?? ''),
+			'Last Name': String(form.get('lastName') ?? ''),
+			Phone: String(form.get('phone') ?? ''),
+			Email: String(form.get('email') ?? ''),
+			Address: String(form.get('address') ?? ''),
+			'Referral Source': String(form.get('referralSource') ?? ''),
+			'First Contact Date': String(form.get('firstContactDate') ?? ''),
+			'Customer Since': '',
+			'Preferred Contact Method': String(form.get('preferredContactMethod') ?? ''),
+			Notes: String(form.get('notes') ?? ''),
+		});
+		return Astro.redirect('/clients');
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const clients = await listActiveRows(env, clientConfig);
+clients.sort((a, b) => a['Last Name'].localeCompare(b['Last Name']));
+const newId = crypto.randomUUID();
+---
+
+<BaseLayout title="Clients">
+	<main>
+		<h1>Clients</h1>
+
+		<table>
+			<thead>
+				<tr>
+					<th>Name</th>
+					<th>Phone</th>
+					<th>Email</th>
+					<th>Referral Source</th>
+				</tr>
+			</thead>
+			<tbody>
+				{
+					clients.map((c) => (
+						<tr>
+							<td>
+								<a href={`/clients/${c['Client ID']}`}>
+									{c['First Name']} {c['Last Name']}
+								</a>
+							</td>
+							<td>{c.Phone}</td>
+							<td>{c.Email}</td>
+							<td>{c['Referral Source']}</td>
+						</tr>
+					))
+				}
+				{clients.length === 0 && <tr><td colspan="4">No clients yet.</td></tr>}
+			</tbody>
+		</table>
+
+		<h2>Add client</h2>
+		{error && <p role="alert">{error}</p>}
+		<form method="POST">
+			<input type="hidden" name="id" value={newId} />
+			<label>First name <input type="text" name="firstName" required /></label>
+			<label>Last name <input type="text" name="lastName" required /></label>
+			<label>Phone <input type="text" name="phone" /></label>
+			<label>Email <input type="email" name="email" /></label>
+			<label>Address <input type="text" name="address" /></label>
+			<label>Referral source <input type="text" name="referralSource" /></label>
+			<label>First contact date <input type="date" name="firstContactDate" /></label>
+			<label>Preferred contact method <input type="text" name="preferredContactMethod" /></label>
+			<label>Notes <textarea name="notes"></textarea></label>
+			<button type="submit">Add client</button>
+		</form>
+	</main>
+</BaseLayout>

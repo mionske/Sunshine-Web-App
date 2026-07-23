@@ -1,0 +1,140 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { listActiveRows } from '../lib/sheets';
+import { clientConfig } from '../lib/models/client';
+import { propertyConfig } from '../lib/models/property';
+import { seedInitialServices } from '../lib/pricing/services';
+import { createQuote } from '../lib/pricing/quotes';
+import type { QuoteCounts } from '../lib/pricing/types';
+
+let error: string | null = null;
+
+function num(form: FormData, key: string): number {
+	const value = Number(form.get(key));
+	return Number.isFinite(value) ? value : 0;
+}
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	try {
+		const counts: QuoteCounts = {
+			windowExtStandard: num(form, 'windowExtStandard'),
+			windowIntStandard: num(form, 'windowIntStandard'),
+			windowExtOversized: num(form, 'windowExtOversized'),
+			windowIntOversized: num(form, 'windowIntOversized'),
+			windowExtFrenchPane: num(form, 'windowExtFrenchPane'),
+			windowIntFrenchPane: num(form, 'windowIntFrenchPane'),
+			slidingDoorExt: num(form, 'slidingDoorExt'),
+			slidingDoorInt: num(form, 'slidingDoorInt'),
+			screenClean: num(form, 'screenClean'),
+			trackBasic: num(form, 'trackBasic'),
+			trackDeep: num(form, 'trackDeep'),
+			skylightExt: num(form, 'skylightExt'),
+			skylightInt: num(form, 'skylightInt'),
+		};
+
+		const { quote } = await createQuote(env, {
+			clientId: String(form.get('clientId') ?? ''),
+			propertyId: String(form.get('propertyId') ?? ''),
+			input: {
+				stories: (Number(form.get('stories')) || 1) as 1 | 2 | 3,
+				condition: String(form.get('condition') ?? 'light') as 'light' | 'moderate' | 'heavy' | 'firstTime',
+				counts,
+				hardWater: form.get('hardWater') === 'on',
+				constructionDebris: form.get('constructionDebris') === 'on',
+				difficultAccess: form.get('difficultAccess') === 'on',
+				manualAdjustment: num(form, 'manualAdjustment'),
+				discount: num(form, 'discount'),
+				overrideReason: String(form.get('overrideReason') ?? ''),
+			},
+		});
+		return Astro.redirect(`/quotes/${quote['Quote ID']}`);
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+await seedInitialServices(env);
+const [clients, properties] = await Promise.all([
+	listActiveRows(env, clientConfig),
+	listActiveRows(env, propertyConfig),
+]);
+const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
+---
+
+<BaseLayout title="In-field quoter">
+	<main>
+		<h1>In-field quoter</h1>
+		{error && <p role="alert">{error}</p>}
+
+		<form method="POST">
+			<label>
+				Client
+				<select name="clientId" required>
+					{clients.map((c) => <option value={c['Client ID']}>{c['First Name']} {c['Last Name']}</option>)}
+				</select>
+			</label>
+			<label>
+				Property
+				<select name="propertyId" required>
+					{properties.map((p) => (
+						<option value={p['Property ID']}>
+							{p['Street Address']} ({clientById[p['Client ID']]?.['Last Name'] ?? '?'})
+						</option>
+					))}
+				</select>
+			</label>
+
+			<fieldset>
+				<legend>Property conditions</legend>
+				<label>
+					Stories
+					<select name="stories">
+						<option value="1">1</option>
+						<option value="2">2</option>
+						<option value="3">3</option>
+					</select>
+				</label>
+				<label>
+					Condition
+					<select name="condition">
+						<option value="light">Light / maintenance</option>
+						<option value="moderate">Moderate</option>
+						<option value="heavy">Heavy</option>
+						<option value="firstTime">First-time / deep clean</option>
+					</select>
+				</label>
+				<label><input type="checkbox" name="hardWater" /> Hard water treatment needed</label>
+				<label><input type="checkbox" name="constructionDebris" /> Construction debris cleanup</label>
+				<label><input type="checkbox" name="difficultAccess" /> Difficult access</label>
+			</fieldset>
+
+			<fieldset>
+				<legend>Window &amp; door counts</legend>
+				<label>Standard windows — exterior <input type="number" name="windowExtStandard" min="0" value="0" /></label>
+				<label>Standard windows — interior <input type="number" name="windowIntStandard" min="0" value="0" /></label>
+				<label>Oversized windows — exterior <input type="number" name="windowExtOversized" min="0" value="0" /></label>
+				<label>Oversized windows — interior <input type="number" name="windowIntOversized" min="0" value="0" /></label>
+				<label>French/grid pane windows — exterior <input type="number" name="windowExtFrenchPane" min="0" value="0" /></label>
+				<label>French/grid pane windows — interior <input type="number" name="windowIntFrenchPane" min="0" value="0" /></label>
+				<label>Sliding doors — exterior <input type="number" name="slidingDoorExt" min="0" value="0" /></label>
+				<label>Sliding doors — interior <input type="number" name="slidingDoorInt" min="0" value="0" /></label>
+				<label>Screens <input type="number" name="screenClean" min="0" value="0" /></label>
+				<label>Tracks — basic <input type="number" name="trackBasic" min="0" value="0" /></label>
+				<label>Tracks — deep <input type="number" name="trackDeep" min="0" value="0" /></label>
+				<label>Skylights — exterior <input type="number" name="skylightExt" min="0" value="0" /></label>
+				<label>Skylights — interior <input type="number" name="skylightInt" min="0" value="0" /></label>
+			</fieldset>
+
+			<fieldset>
+				<legend>Adjustments</legend>
+				<label>Manual adjustment ($) <input type="number" name="manualAdjustment" value="0" /></label>
+				<label>Discount ($) <input type="number" name="discount" value="0" /></label>
+				<label>Override reason <input type="text" name="overrideReason" /></label>
+			</fieldset>
+
+			<button type="submit">Calculate quote</button>
+		</form>
+	</main>
+</BaseLayout>

@@ -1,0 +1,96 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { createRow, findById, listActiveRows, updateRow } from '../../lib/sheets';
+import { clientConfig } from '../../lib/models/client';
+import { propertyConfig } from '../../lib/models/property';
+
+const { id } = Astro.params;
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	try {
+		if (action === 'update-client') {
+			await updateRow(env, clientConfig, id!, {
+				'First Name': String(form.get('firstName') ?? ''),
+				'Last Name': String(form.get('lastName') ?? ''),
+				Phone: String(form.get('phone') ?? ''),
+				Email: String(form.get('email') ?? ''),
+				Address: String(form.get('address') ?? ''),
+				'Referral Source': String(form.get('referralSource') ?? ''),
+				'Preferred Contact Method': String(form.get('preferredContactMethod') ?? ''),
+				Notes: String(form.get('notes') ?? ''),
+			});
+		} else if (action === 'add-property') {
+			await createRow(env, propertyConfig, {
+				id: String(form.get('id') ?? ''),
+				'Client ID': id!,
+				'Street Address': String(form.get('streetAddress') ?? ''),
+				City: String(form.get('city') ?? ''),
+				Zip: String(form.get('zip') ?? ''),
+				Stories: String(form.get('stories') ?? ''),
+				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
+				'Desired Maintenance Frequency': String(form.get('desiredMaintenanceFrequency') ?? ''),
+			});
+		}
+		return Astro.redirect(`/clients/${id}`);
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const client = await findById(env, clientConfig, id!);
+if (!client) {
+	return new Response('Client not found', { status: 404 });
+}
+
+const allProperties = await listActiveRows(env, propertyConfig);
+const properties = allProperties.filter((p) => p['Client ID'] === id);
+const newPropertyId = crypto.randomUUID();
+---
+
+<BaseLayout title={`${client['First Name']} ${client['Last Name']}`}>
+	<main>
+		<p><a href="/clients">← Clients</a></p>
+		<h1>{client['First Name']} {client['Last Name']}</h1>
+		{error && <p role="alert">{error}</p>}
+
+		<form method="POST">
+			<input type="hidden" name="_action" value="update-client" />
+			<label>First name <input type="text" name="firstName" value={client['First Name']} required /></label>
+			<label>Last name <input type="text" name="lastName" value={client['Last Name']} required /></label>
+			<label>Phone <input type="text" name="phone" value={client.Phone} /></label>
+			<label>Email <input type="email" name="email" value={client.Email} /></label>
+			<label>Address <input type="text" name="address" value={client.Address} /></label>
+			<label>Referral source <input type="text" name="referralSource" value={client['Referral Source']} /></label>
+			<label>Preferred contact method <input type="text" name="preferredContactMethod" value={client['Preferred Contact Method']} /></label>
+			<label>Notes <textarea name="notes">{client.Notes}</textarea></label>
+			<button type="submit">Save</button>
+		</form>
+
+		<h2>Properties</h2>
+		<ul>
+			{properties.map((p) => (
+				<li>
+					<a href={`/properties/${p['Property ID']}`}>{p['Street Address']}, {p.City}</a>
+				</li>
+			))}
+			{properties.length === 0 && <li>No properties yet.</li>}
+		</ul>
+
+		<h3>Add property</h3>
+		<form method="POST">
+			<input type="hidden" name="_action" value="add-property" />
+			<input type="hidden" name="id" value={newPropertyId} />
+			<label>Street address <input type="text" name="streetAddress" required /></label>
+			<label>City <input type="text" name="city" /></label>
+			<label>Zip <input type="text" name="zip" /></label>
+			<label>Stories <input type="text" name="stories" /></label>
+			<label>Total window units <input type="text" name="totalWindowUnits" /></label>
+			<label>Desired maintenance frequency <input type="text" name="desiredMaintenanceFrequency" /></label>
+			<button type="submit">Add property</button>
+		</form>
+	</main>
+</BaseLayout>

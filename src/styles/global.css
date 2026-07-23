@@ -1,0 +1,55 @@
+.app-nav {
+	display: flex;
+	align-items: center;
+	gap: 1.5rem;
+	padding: 0.75rem 1rem;
+	border-bottom: 1px solid #ccc;
+	background: #fafafa;
+	margin-bottom: 1rem;
+}
+
+.app-nav nav ul {
+	display: flex;
+	gap: 1rem;
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.app-nav nav a[aria-current='page'] {
+	font-weight: 600;
+	text-decoration: underline;
+}
+
+.pipeline-board {
+	display: flex;
+	gap: 1rem;
+	overflow-x: auto;
+	padding-bottom: 1rem;
+}
+
+.pipeline-column {
+	min-width: 220px;
+	flex: 0 0 220px;
+	border: 1px solid #ccc;
+	border-radius: 6px;
+	padding: 0.5rem;
+	background: #f5f5f5;
+}
+
+.pipeline-card {
+	border: 1px solid #999;
+	border-radius: 4px;
+	padding: 0.5rem;
+	margin-bottom: 0.5rem;
+	background: #fff;
+	cursor: grab;
+}
+
+.pipeline-card-address {
+	font-weight: 600;
+}
+
+.pipeline-card-client {
+	color: #555;
+}

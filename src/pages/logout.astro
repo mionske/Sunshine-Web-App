@@ -1,0 +1,15 @@
+---
+// Reachable only with a currently-valid session (middleware gates it like
+// any other internal page). Clears the session cookie so the browser can no
+// longer present it.
+//
+// Known limitation: sessions are stateless signed tokens with no
+// server-side store, so this cannot revoke a copy of the token captured
+// elsewhere before its natural expiry (max 12 hours) — acceptable for a
+// single-user internal tool; would need a KV-backed revocation list to close
+// that gap properly.
+import { SESSION_COOKIE_NAME } from '../lib/auth';
+
+Astro.cookies.delete(SESSION_COOKIE_NAME, { path: '/' });
+return Astro.redirect('/login');
+---

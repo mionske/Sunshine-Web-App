@@ -1,0 +1,112 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { findById, listActiveRows } from '../../lib/sheets';
+import { quoteConfig } from '../../lib/models/quote';
+import { quoteItemConfig } from '../../lib/models/quoteItem';
+import { clientConfig } from '../../lib/models/client';
+import { propertyConfig } from '../../lib/models/property';
+import { acceptQuote, findJobByQuoteId, updateJobStatus, JOB_STATUSES } from '../../lib/pricing/jobLifecycle';
+
+const { id } = Astro.params;
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	try {
+		if (action === 'accept') {
+			const scheduledDate = String(form.get('scheduledDate') ?? '');
+			await acceptQuote(env, id!, { scheduledDate: scheduledDate || undefined });
+		} else if (action === 'update-job-status') {
+			const jobId = String(form.get('jobId') ?? '');
+			const status = String(form.get('status') ?? '') as (typeof JOB_STATUSES)[number];
+			await updateJobStatus(env, jobId, status, {
+				'Actual Time (hrs)': String(form.get('actualTime') ?? ''),
+				'Final Price ($)': String(form.get('finalPrice') ?? ''),
+			});
+		}
+		return Astro.redirect(`/quotes/${id}`);
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const quote = await findById(env, quoteConfig, id!);
+if (!quote) {
+	return new Response('Quote not found', { status: 404 });
+}
+
+const allItems = await listActiveRows(env, quoteItemConfig);
+const items = allItems.filter((i) => i['Quote ID'] === id).sort((a, b) => Number(a['Sort Order']) - Number(b['Sort Order']));
+
+const client = await findById(env, clientConfig, quote['Client ID']);
+const property = await findById(env, propertyConfig, quote['Property ID']);
+const job = await findJobByQuoteId(env, id!);
+
+const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] === 'Sent';
+---
+
+<BaseLayout title="Quote">
+	<main>
+		<p><a href="/quoter">← New quote</a></p>
+		<h1>Quote for {property ? `${property['Street Address']}, ${property.City}` : quote['Property ID']}</h1>
+		<p>
+			Client: {client ? `${client['First Name']} ${client['Last Name']}` : quote['Client ID']}<br />
+			Status: {quote['Quote Status']}
+		</p>
+		{error && <p role="alert">{error}</p>}
+
+		<table>
+			<thead>
+				<tr><th>Service</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr>
+			</thead>
+			<tbody>
+				{items.map((i) => (
+					<tr>
+						<td>{i.Description}</td>
+						<td>{i.Quantity}</td>
+						<td>${Number(i['Unit Price']).toFixed(2)}</td>
+						<td>${Number(i['Line Total']).toFixed(2)}</td>
+					</tr>
+				))}
+			</tbody>
+		</table>
+
+		<h2>Final quoted price: ${Number(quote['Final Quoted Price']).toFixed(2)}</h2>
+		<p>
+			Estimated labor hours: {Number(quote['Estimated Labor Hours']).toFixed(2)}<br />
+			Expected revenue per labor hour: ${Number(quote['Expected Revenue Per Labor Hour']).toFixed(2)}<br />
+			Target hourly rate: ${quote['Target Hourly Rate']}<br />
+			Pricing Config: {quote['Pricing Config ID']} (calculator v{quote['Calculator Version']})
+		</p>
+
+		{canAccept && (
+			<form method="POST">
+				<input type="hidden" name="_action" value="accept" />
+				<label>Scheduled date (optional) <input type="date" name="scheduledDate" /></label>
+				<button type="submit">Accept quote</button>
+			</form>
+		)}
+
+		{job && (
+			<>
+				<h2>Job</h2>
+				<p>Status: {job['Job Status']}</p>
+				<form method="POST">
+					<input type="hidden" name="_action" value="update-job-status" />
+					<input type="hidden" name="jobId" value={job['Job ID']} />
+					<label>
+						New status
+						<select name="status">
+							{JOB_STATUSES.map((s) => <option value={s} selected={s === job['Job Status']}>{s}</option>)}
+						</select>
+					</label>
+					<label>Actual time (hrs) <input type="text" name="actualTime" value={job['Actual Time (hrs)']} /></label>
+					<label>Final price ($) <input type="text" name="finalPrice" value={job['Final Price ($)']} /></label>
+					<button type="submit">Update job</button>
+				</form>
+			</>
+		)}
+	</main>
+</BaseLayout>

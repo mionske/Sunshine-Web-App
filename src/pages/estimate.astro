@@ -1,0 +1,60 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout title="Get a ballpark estimate" nav={false}>
+	<main>
+		<h1>Get a ballpark window cleaning estimate</h1>
+		<p>Tell us a bit about your property and we'll give you a price range. Final pricing is confirmed after we take a look at the property in person.</p>
+
+		<form id="estimate-form">
+			<label>First name <input type="text" name="firstName" required /></label>
+			<label>Last name <input type="text" name="lastName" required /></label>
+			<label>Email <input type="email" name="email" /></label>
+			<label>Phone <input type="tel" name="phone" /></label>
+			<label>Property address <input type="text" name="streetAddress" required /></label>
+			<label>City <input type="text" name="city" /></label>
+			<label>
+				Stories
+				<select name="stories">
+					<option value="1">1</option>
+					<option value="2">2</option>
+					<option value="3">3</option>
+				</select>
+			</label>
+			<label>Approximate number of windows <input type="number" name="approxWindowCount" min="1" required /></label>
+			<label>
+				Property type
+				<select name="propertyType">
+					<option value="residential">Residential</option>
+					<option value="commercial">Commercial</option>
+				</select>
+			</label>
+			<label>How did you hear about us? <input type="text" name="referralSource" /></label>
+			<button type="submit">Get my estimate</button>
+		</form>
+
+		<div id="estimate-result" role="status"></div>
+	</main>
+
+	<script>
+		const form = document.getElementById('estimate-form') as HTMLFormElement;
+		const result = document.getElementById('estimate-result')!;
+
+		form.addEventListener('submit', async (e) => {
+			e.preventDefault();
+			result.textContent = 'Calculating…';
+
+			const res = await fetch('/api/estimate', { method: 'POST', body: new FormData(form) });
+			const body = await res.json();
+
+			if (!res.ok) {
+				result.textContent = body.error ?? 'Something went wrong. Please try again.';
+				return;
+			}
+
+			result.innerHTML = `<h2>Estimated range: $${body.low.toLocaleString()}–$${body.high.toLocaleString()}</h2><p>${body.message}</p>`;
+			form.reset();
+		});
+	</script>
+</BaseLayout>

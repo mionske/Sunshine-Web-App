@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sww-web-app-dev",
+      "runtimeExecutable": "/bin/bash",
+      "runtimeArgs": ["/Users/gregmionske/Claude/Projects/SWW Web App/scripts/dev.sh"],
+      "port": 4321
+    }
+  ]
+}
