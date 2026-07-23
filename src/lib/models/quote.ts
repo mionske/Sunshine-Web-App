@@ -12,6 +12,7 @@ export const quoteSchema = z.object({
 	'Client ID': blank(),
 	'Property ID': blank(),
 	'Opportunity ID': blank(),
+	'Walkthrough ID': blank(),
 	'Pricing Config ID': blank(),
 	'Calculator Version': blank(),
 	'Input Snapshot': blank(),

@@ -25,6 +25,11 @@ const JOBS_HEADERS = [
 	'Cleaning Time', 'Pack-up Time', 'Supplies Cost', 'Gas', 'Other Expenses', 'Total Job Cost',
 	'Net Profit', 'Customer Rating', 'Callback Required (Y/N)', 'Photos', 'Version', 'Archived At',
 	'Property ID',
+	'Record Classification',
+	'Revenue Treatment',
+	'Standard Price Equivalent',
+	'Data Quality',
+	'Data Quality Notes',
 ];
 
 const ACTIVITY_LOG_HEADERS = [

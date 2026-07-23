@@ -48,7 +48,8 @@ Quote Sent → Follow-up → Accepted → Lost. Paid is never a pipeline stage �
 Accepted closes the opportunity and starts the Job workflow.
 
 ## Quotes
-Quote ID, Client ID, Property ID, Opportunity ID, Pricing Config ID,
+Quote ID, Client ID, Property ID, Opportunity ID, Walkthrough ID (link —
+set when the quote was generated from a completed Walkthrough), Pricing Config ID,
 Calculator Version, Input Snapshot (JSON), Calculation Result Snapshot
 (JSON), Rounding Policy, Currency, Calculated Base Amount,
 Calculated Add-ons, Calculated Surcharges, Estimated Labor Hours,
@@ -110,11 +111,26 @@ Job Status (Unscheduled/Scheduled/In Progress/Completed/Invoiced/Paid/
 Cancelled), Arrival/Start/Finish/Departure Timestamps,
 Travel/Setup/Cleaning/Pack-up Time, Supplies Cost, Gas, Other Expenses,
 Total Job Cost, Net Profit, Customer Rating, Callback Required (Y/N),
-Photos (link), Version, Archived At.
+Photos (link), Version, Archived At, Record Classification (Customer Job/
+Discounted Customer Job/Test Job/Practice Job/Owner Property/Historical
+Import — a walkthrough-only visit never becomes a Job at all), Revenue
+Treatment (Full Price/Discounted/No Charge/Test Price/Unknown),
+Standard Price Equivalent (only meaningful together with a non-"Full
+Price" Revenue Treatment — what a standard customer price would have
+been; never blended with actual Final Revenue in the same calibration
+metric), Data Quality (Complete/Mostly Complete/Partial/Estimate Only),
+Data Quality Notes. These five are free-text columns, not enforced
+enums — unlike Job Status, most existing rows simply won't have them set,
+and forcing a default value would fabricate false completeness on legacy
+data; the allowed-value lists only constrain what forms offer.
 
 A Job counts toward calibration only once Status is Completed/Invoiced/Paid
-AND actual labor time, final revenue, direct costs (where applicable), and
-callback info are all entered.
+AND actual labor time, final revenue, and callback info are all entered
+(`calibrationExclusionReasons()` in `lib/pricing/calibration.ts` explains
+exactly what's missing when it doesn't qualify). Record Classification
+does not by itself exclude a job from calibration — reports can filter by
+it, but a fully-documented Test Job is still informative data, just kept
+visually separate from real customer performance.
 
 ## JobItems
 Job Item ID, Job ID, Source Quote Item ID, Service Code, Description,
@@ -132,6 +148,28 @@ Date Range End, Notes.
 Confidence thresholds (by **comparable** completed jobs): 0–9 Insufficient
 data, 10–24 Early directional data, 25–49 Moderate confidence, 50+ Strong
 internal benchmark.
+
+## Walkthroughs
+Walkthrough ID, Client ID, Property ID, Opportunity ID, Quote ID
+(link — set once the walkthrough produces a quote), Walkthrough Date,
+Status (Draft/In Progress/Completed/Converted to Quote/Cancelled),
+Conducted By, Exterior Condition, Interior Condition, Story Count
+Observed, Access Difficulty, Hard Water Present (Y/N), Construction
+Debris Present (Y/N), Water-Fed Pole Suitable (Y/N), Ladder Required,
+Roof Access Required, Estimated On-Site Labor Hours, Suggested Low
+Price, Suggested Target Price, Suggested High Price, Owner Override
+Price, Pricing Config ID, Notes, Created At, Updated At, Archived At.
+
+A walkthrough-only visit is a standalone record — it never creates a Job
+just to have somewhere to live. The Suggested Low/Target/High Price and
+Pricing Config ID columns exist now but are only populated once the
+guided mobile walkthrough mode computes live pricing suggestions; the
+historical-entry wizard leaves them blank for past walkthroughs rather
+than reconstructing a price recommendation after the fact.
+
+Condition values: Maintenance, Moderate Buildup, Heavy Buildup,
+Restoration Required, Unknown. Access values: Easy, Standard, Difficult,
+Specialty Access, Unknown.
 
 ## ActivityLog
 Activity ID, Entity Type, Entity ID, Action, Previous Value, New Value,

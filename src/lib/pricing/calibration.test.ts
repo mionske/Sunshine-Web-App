@@ -5,6 +5,7 @@ import { createRow } from '../sheets';
 import { jobConfig, type Job } from '../models/job';
 import { calibrationSnapshotSchema } from '../models/calibrationSnapshot';
 import {
+	calibrationExclusionReasons,
 	computeCalibrationStats,
 	computeJobPerformance,
 	computePropertyPerformance,
@@ -74,6 +75,25 @@ describe('isCalibrationEligible', () => {
 	it('accepts Invoiced and Paid the same as Completed', () => {
 		expect(isCalibrationEligible(job({ 'Job Status': 'Invoiced' }))).toBe(true);
 		expect(isCalibrationEligible(job({ 'Job Status': 'Paid' }))).toBe(true);
+	});
+});
+
+describe('calibrationExclusionReasons', () => {
+	it('is empty for a job that qualifies', () => {
+		expect(calibrationExclusionReasons(job())).toEqual([]);
+	});
+
+	it('lists every missing field, not just the first', () => {
+		const reasons = calibrationExclusionReasons(
+			job({ 'Actual Time (hrs)': '0', 'Final Price ($)': '0', 'Callback Required (Y/N)': '' })
+		);
+		expect(reasons).toHaveLength(3);
+	});
+
+	it('stays in sync with isCalibrationEligible for the same job', () => {
+		const incomplete = job({ 'Callback Required (Y/N)': '' });
+		expect(isCalibrationEligible(incomplete)).toBe(false);
+		expect(calibrationExclusionReasons(incomplete).length).toBeGreaterThan(0);
 	});
 });
 
@@ -220,6 +240,11 @@ const JOBS_HEADERS = [
 	'Cleaning Time', 'Pack-up Time', 'Supplies Cost', 'Gas', 'Other Expenses', 'Total Job Cost',
 	'Net Profit', 'Customer Rating', 'Callback Required (Y/N)', 'Photos', 'Version', 'Archived At',
 	'Property ID',
+	'Record Classification',
+	'Revenue Treatment',
+	'Standard Price Equivalent',
+	'Data Quality',
+	'Data Quality Notes',
 ];
 
 describe('recalculateCalibration (Sheets-backed)', () => {

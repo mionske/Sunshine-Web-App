@@ -14,19 +14,29 @@ function num(value: string | undefined): number {
 }
 
 /**
- * A Job counts toward calibration only once it's Completed/Invoiced/Paid
- * *and* has actual labor time, final revenue, and callback info entered —
- * never while still Unscheduled/Scheduled/In Progress. Direct costs are
- * checked "where applicable" in the plan's wording (inherently fuzzy), so
- * they're not a hard gate here.
+ * Every reason a job currently fails to qualify for calibration — empty
+ * when it qualifies. A job only counts toward calibration once it's
+ * Completed/Invoiced/Paid *and* has actual labor time, final revenue, and
+ * callback info entered — never while still Unscheduled/Scheduled/In
+ * Progress. Direct costs are checked "where applicable" in the plan's
+ * wording (inherently fuzzy), so they're not a hard gate here.
+ *
+ * `isCalibrationEligible` is defined in terms of this list (not the other
+ * way around) so the two can never drift out of sync — the eligibility
+ * check and the human-readable explanation always agree.
  */
-export function isCalibrationEligible(job: Job): boolean {
-	if (!COMPLETED_JOB_STATUSES.has(job['Job Status'])) return false;
-	if (num(job['Actual Time (hrs)']) <= 0) return false;
+export function calibrationExclusionReasons(job: Job): string[] {
+	const reasons: string[] = [];
+	if (!COMPLETED_JOB_STATUSES.has(job['Job Status'])) reasons.push('Job is not yet Completed/Invoiced/Paid');
+	if (num(job['Actual Time (hrs)']) <= 0) reasons.push('Actual on-site labor time is missing');
 	const finalRevenue = job['Final Price ($)'] || (job as Record<string, string>)['Total Revenue ($)'];
-	if (num(finalRevenue) <= 0) return false;
-	if (!job['Callback Required (Y/N)']) return false;
-	return true;
+	if (num(finalRevenue) <= 0) reasons.push('Final revenue is missing');
+	if (!job['Callback Required (Y/N)']) reasons.push('Callback status is missing');
+	return reasons;
+}
+
+export function isCalibrationEligible(job: Job): boolean {
+	return calibrationExclusionReasons(job).length === 0;
 }
 
 export function confidenceLevel(comparableJobCount: number): (typeof CONFIDENCE_LEVELS)[number] {

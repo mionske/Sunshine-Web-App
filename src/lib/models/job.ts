@@ -13,6 +13,21 @@ export const JOB_STATUSES = [
 	'Cancelled',
 ] as const;
 
+// Walkthrough-only visits never create a Job at all (see the Walkthroughs
+// tab) — a Job row always means work was, or will be, actually performed.
+export const RECORD_CLASSIFICATIONS = [
+	'Customer Job',
+	'Discounted Customer Job',
+	'Test Job',
+	'Practice Job',
+	'Owner Property',
+	'Historical Import',
+] as const;
+
+export const REVENUE_TREATMENTS = ['Full Price', 'Discounted', 'No Charge', 'Test Price', 'Unknown'] as const;
+
+export const DATA_QUALITY_LEVELS = ['Complete', 'Mostly Complete', 'Partial', 'Estimate Only'] as const;
+
 // The Jobs tab is the pre-existing, hand-edited legacy sheet (see the Jobs-
 // preservation protocol) — it has many columns this app never touches
 // (Windows - Small/Medium/..., Total Panes, the calibration block, etc.).
@@ -37,6 +52,19 @@ export const jobSchema = z
 		'Opportunity ID': blank(),
 		'Property ID': blank(),
 		'Job Status': z.enum(JOB_STATUSES).default('Unscheduled'),
+		// Free strings rather than a strict z.enum (unlike Job Status): these
+		// are informational classification fields most existing rows will
+		// simply lack, and defaulting them to a specific enum value would
+		// silently mislabel every un-set legacy/historical row as e.g.
+		// "Customer Job"/"Full Price"/"Complete" — exactly the fabricated-
+		// completeness the historical-entry workflow is designed to avoid.
+		// The RECORD_CLASSIFICATIONS/REVENUE_TREATMENTS/DATA_QUALITY_LEVELS
+		// constants still constrain the <select> options offered in forms.
+		'Record Classification': blank(),
+		'Revenue Treatment': blank(),
+		'Standard Price Equivalent': blank(),
+		'Data Quality': blank(),
+		'Data Quality Notes': blank(),
 		'Arrival Timestamp': blank(),
 		'Start Timestamp': blank(),
 		'Finish Timestamp': blank(),
