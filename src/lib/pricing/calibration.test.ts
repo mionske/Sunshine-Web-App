@@ -7,6 +7,7 @@ import { calibrationSnapshotSchema } from '../models/calibrationSnapshot';
 import {
 	computeCalibrationStats,
 	computeJobPerformance,
+	computePropertyPerformance,
 	confidenceLevel,
 	isCalibrationEligible,
 	recalculateCalibration,
@@ -133,6 +134,47 @@ describe('computeCalibrationStats', () => {
 		const stats = computeCalibrationStats(jobs);
 		expect(stats.dateRangeStart).toBe('2026-01-15');
 		expect(stats.dateRangeEnd).toBe('2026-03-01');
+	});
+});
+
+describe('computePropertyPerformance', () => {
+	it('returns all zeros for a property with no completed jobs', () => {
+		const perf = computePropertyPerformance([job({ 'Job Status': 'Scheduled' })]);
+		expect(perf.completedJobCount).toBe(0);
+		expect(perf.includedCount).toBe(0);
+		expect(perf.excludedCount).toBe(0);
+		expect(perf.mostRecentServiceDate).toBe('');
+	});
+
+	it('separates calibration-eligible completed jobs from excluded ones', () => {
+		const eligible = job({ 'Final Price ($)': '300', 'Actual Time (hrs)': '2' });
+		const excluded = job({ 'Callback Required (Y/N)': '' }); // missing callback info
+		const perf = computePropertyPerformance([eligible, excluded]);
+		expect(perf.completedJobCount).toBe(2);
+		expect(perf.includedCount).toBe(1);
+		expect(perf.excludedCount).toBe(1);
+	});
+
+	it('averages on-site hours and revenue across only the eligible jobs', () => {
+		const a = job({ 'Final Price ($)': '300', 'Actual Time (hrs)': '2' });
+		const b = job({ 'Final Price ($)': '150', 'Actual Time (hrs)': '1' });
+		const perf = computePropertyPerformance([a, b]);
+		expect(perf.averageOnSiteHours).toBeCloseTo(1.5);
+		expect(perf.averageFinalRevenue).toBeCloseTo(225);
+		expect(perf.averageRevenuePerOnSiteHour).toBeCloseTo(150);
+	});
+
+	it('counts callbacks across all completed jobs, not just eligible ones', () => {
+		const withCallback = job({ 'Callback Required (Y/N)': 'Y' });
+		const perf = computePropertyPerformance([withCallback]);
+		expect(perf.totalCallbacks).toBe(1);
+	});
+
+	it('reports the most recent service date among completed jobs', () => {
+		const older = job({ 'Date Completed': '2026-01-01' });
+		const newer = job({ 'Date Completed': '2026-03-15' });
+		const perf = computePropertyPerformance([older, newer]);
+		expect(perf.mostRecentServiceDate).toBe('2026-03-15');
 	});
 });
 

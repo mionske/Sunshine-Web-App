@@ -17,14 +17,26 @@ Notes, Created At, Updated At, Archived At.
 ## Properties
 Property ID, Client ID, Street Address, City, State, Zip, Year Built,
 Square Footage, Stories, Roof Access Difficulty, Overall Access Difficulty,
-Water Access, Equipment Suitability, Hard Water History (Y/N),
-Construction Debris (Y/N), Window Condition, Total Window Units,
-Total Glass Panes, Count — Double Hung, Count — Casement, Count — Picture,
-Count — Sliding, Count — French, Count — Awning, Count — Skylights,
+Water Access, Equipment Suitability, Hard Water History (Y/N) (background
+flag — is this property in a hard-water area — distinct from a given
+visit's observed severity, which is job-specific), Construction Debris
+(Y/N), Window Condition, Total Window Units, Total Glass Panes,
+Count — Double Hung, Count — Casement, Count — Picture, Count — Sliding
+(sliding *windows* — a window type, like Double Hung/Casement), Count —
+French (divided-light/grid-pane windows — same concept the quoter calls
+"French/grid pane"), Count — Awning, Count — Skylights,
 Count — Solar Panels, Screen Count, Track Count,
 Desired Maintenance Frequency, Next Scheduled Visit,
-Last Review Requested Date, Last Review Received Date, Created At,
-Updated At, Archived At.
+Last Review Requested Date, Last Review Received Date,
+Sliding Glass Door Pane Count (sliding *doors* — a distinct pricing-catalog
+service from sliding windows, so tracked separately from Count — Sliding),
+Water-Fed Pole Suitable (Y/N), Ladder Requirement, Access Notes (exterior/
+interior/parking/gate/water-source access, consolidated into one field),
+Pet Notes, General Notes, Created At, Updated At, Archived At.
+
+The Property is the operational center for a physical location's service
+history — Client, Pipeline, Quotes, and Jobs all reference it by Property
+ID rather than duplicating address/characteristic data.
 
 ## Pipeline (sales opportunities only — not job operations)
 Opportunity ID, Client ID, Property ID, Primary Quote ID, Stage, Status,

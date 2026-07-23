@@ -175,6 +175,54 @@ export async function getLatestCalibrationSnapshot(env: SheetsEnv): Promise<Cali
 	return snapshots.reduce((latest, s) => (s['Generated At'] > latest['Generated At'] ? s : latest));
 }
 
+// --- Historical Property Performance --------------------------------------
+// A property-scoped view of the same underlying eligibility rule used for
+// the app-wide calibration snapshot. Purely informational/directional —
+// never feeds back into PricingConfig — see the Property detail page.
+
+export interface PropertyPerformance {
+	completedJobCount: number;
+	includedCount: number;
+	excludedCount: number;
+	averageOnSiteHours: number;
+	averageFinalRevenue: number;
+	averageRevenuePerOnSiteHour: number;
+	totalCallbacks: number;
+	mostRecentServiceDate: string;
+}
+
+export function computePropertyPerformance(jobs: Job[]): PropertyPerformance {
+	const completed = jobs.filter((j) => COMPLETED_JOB_STATUSES.has(j['Job Status']));
+	const eligible = completed.filter(isCalibrationEligible);
+
+	const hours: number[] = [];
+	const revenues: number[] = [];
+	const perHour: number[] = [];
+	for (const job of eligible) {
+		const actualHours = num(job['Actual Time (hrs)']);
+		const finalRevenue = num(job['Final Price ($)'] || (job as Record<string, string>)['Total Revenue ($)']);
+		if (actualHours > 0) {
+			hours.push(actualHours);
+			perHour.push(finalRevenue / actualHours);
+		}
+		revenues.push(finalRevenue);
+	}
+
+	const callbacks = completed.filter((j) => j['Callback Required (Y/N)']?.toUpperCase() === 'Y').length;
+	const dates = completed.map((j) => j['Date Completed']).filter(Boolean).sort();
+
+	return {
+		completedJobCount: completed.length,
+		includedCount: eligible.length,
+		excludedCount: completed.length - eligible.length,
+		averageOnSiteHours: mean(hours),
+		averageFinalRevenue: mean(revenues),
+		averageRevenuePerOnSiteHour: mean(perHour),
+		totalCallbacks: callbacks,
+		mostRecentServiceDate: dates[dates.length - 1] ?? '',
+	};
+}
+
 // --- Target-vs-actual, per completed job ---------------------------------
 
 export interface JobPerformance {

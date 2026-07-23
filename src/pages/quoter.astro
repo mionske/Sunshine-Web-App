@@ -61,6 +61,8 @@ const [clients, properties] = await Promise.all([
 	listActiveRows(env, propertyConfig),
 ]);
 const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
+const preselectedPropertyId = Astro.url.searchParams.get('propertyId') ?? '';
+const preselectedClientId = Astro.url.searchParams.get('clientId') ?? '';
 ---
 
 <BaseLayout title="In-field quoter">
@@ -72,14 +74,18 @@ const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
 			<label>
 				Client
 				<select name="clientId" required>
-					{clients.map((c) => <option value={c['Client ID']}>{c['First Name']} {c['Last Name']}</option>)}
+					{clients.map((c) => (
+						<option value={c['Client ID']} selected={c['Client ID'] === preselectedClientId}>
+							{c['First Name']} {c['Last Name']}
+						</option>
+					))}
 				</select>
 			</label>
 			<label>
 				Property
 				<select name="propertyId" required>
 					{properties.map((p) => (
-						<option value={p['Property ID']}>
+						<option value={p['Property ID']} selected={p['Property ID'] === preselectedPropertyId}>
 							{p['Street Address']} ({clientById[p['Client ID']]?.['Last Name'] ?? '?'})
 						</option>
 					))}

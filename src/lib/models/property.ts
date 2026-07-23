@@ -36,6 +36,16 @@ export const propertySchema = z.object({
 	'Next Scheduled Visit': blank(),
 	'Last Review Requested Date': blank(),
 	'Last Review Received Date': blank(),
+	// Distinct from "Count - Sliding" (a sliding *window* type, alongside
+	// Double Hung/Casement/etc.) — sliding glass doors are a separate
+	// service in the pricing catalog (SLIDING_DOOR_EXT/INT), so they get
+	// their own count rather than being folded into the window counts.
+	'Sliding Glass Door Pane Count': blank(),
+	'Water-Fed Pole Suitable (Y/N)': blank(),
+	'Ladder Requirement': blank(),
+	'Access Notes': blank(),
+	'Pet Notes': blank(),
+	'General Notes': blank(),
 	'Created At': blank(),
 	'Updated At': blank(),
 	'Archived At': blank(),

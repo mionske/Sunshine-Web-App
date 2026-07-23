@@ -1,29 +1,68 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
-import { findById, updateRow } from '../../lib/sheets';
+import { createRow, findById, listActiveRows, logActivity, updateRow } from '../../lib/sheets';
 import { readRows } from '../../lib/sheets/rows';
 import { propertyConfig } from '../../lib/models/property';
+import { clientConfig } from '../../lib/models/client';
+import { quoteConfig } from '../../lib/models/quote';
+import { jobConfig, type Job } from '../../lib/models/job';
+import { pipelineConfig, type Opportunity } from '../../lib/models/pipeline';
+import { getActivePricingConfig } from '../../lib/pricing/config';
+import { computeJobPerformance, computePropertyPerformance } from '../../lib/pricing/calibration';
 
 const { id } = Astro.params;
 let error: string | null = null;
 
 if (Astro.request.method === 'POST') {
 	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
 	try {
-		await updateRow(env, propertyConfig, id!, {
-			'Street Address': String(form.get('streetAddress') ?? ''),
-			City: String(form.get('city') ?? ''),
-			State: String(form.get('state') ?? ''),
-			Zip: String(form.get('zip') ?? ''),
-			Stories: String(form.get('stories') ?? ''),
-			'Overall Access Difficulty': String(form.get('overallAccessDifficulty') ?? ''),
-			'Roof Access Difficulty': String(form.get('roofAccessDifficulty') ?? ''),
-			'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
-			'Total Glass Panes': String(form.get('totalGlassPanes') ?? ''),
-			'Desired Maintenance Frequency': String(form.get('desiredMaintenanceFrequency') ?? ''),
-			'Next Scheduled Visit': String(form.get('nextScheduledVisit') ?? ''),
-		});
+		if (action === 'update-property') {
+			await updateRow(env, propertyConfig, id!, {
+				'Street Address': String(form.get('streetAddress') ?? ''),
+				City: String(form.get('city') ?? ''),
+				State: String(form.get('state') ?? ''),
+				Zip: String(form.get('zip') ?? ''),
+				'Year Built': String(form.get('yearBuilt') ?? ''),
+				'Square Footage': String(form.get('squareFootage') ?? ''),
+				Stories: String(form.get('stories') ?? ''),
+				'Overall Access Difficulty': String(form.get('overallAccessDifficulty') ?? ''),
+				'Roof Access Difficulty': String(form.get('roofAccessDifficulty') ?? ''),
+				'Water Access': String(form.get('waterAccess') ?? ''),
+				'Equipment Suitability': String(form.get('equipmentSuitability') ?? ''),
+				'Water-Fed Pole Suitable (Y/N)': String(form.get('waterFedPoleSuitable') ?? ''),
+				'Ladder Requirement': String(form.get('ladderRequirement') ?? ''),
+				'Hard Water History (Y/N)': String(form.get('hardWaterHistory') ?? ''),
+				'Construction Debris (Y/N)': String(form.get('constructionDebris') ?? ''),
+				'Window Condition': String(form.get('windowCondition') ?? ''),
+				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
+				'Total Glass Panes': String(form.get('totalGlassPanes') ?? ''),
+				'Count - Double Hung': String(form.get('countDoubleHung') ?? ''),
+				'Count - Casement': String(form.get('countCasement') ?? ''),
+				'Count - Picture': String(form.get('countPicture') ?? ''),
+				'Count - Sliding': String(form.get('countSliding') ?? ''),
+				'Count - French': String(form.get('countFrench') ?? ''),
+				'Count - Awning': String(form.get('countAwning') ?? ''),
+				'Count - Skylights': String(form.get('countSkylights') ?? ''),
+				'Count - Solar Panels': String(form.get('countSolarPanels') ?? ''),
+				'Sliding Glass Door Pane Count': String(form.get('slidingGlassDoorPaneCount') ?? ''),
+				'Screen Count': String(form.get('screenCount') ?? ''),
+				'Track Count': String(form.get('trackCount') ?? ''),
+				'Desired Maintenance Frequency': String(form.get('desiredMaintenanceFrequency') ?? ''),
+				'Next Scheduled Visit': String(form.get('nextScheduledVisit') ?? ''),
+				'Last Review Requested Date': String(form.get('lastReviewRequestedDate') ?? ''),
+				'Last Review Received Date': String(form.get('lastReviewReceivedDate') ?? ''),
+				'Access Notes': String(form.get('accessNotes') ?? ''),
+				'Pet Notes': String(form.get('petNotes') ?? ''),
+				'General Notes': String(form.get('generalNotes') ?? ''),
+			});
+		} else if (action === 'add-note') {
+			const note = String(form.get('note') ?? '').trim();
+			if (note) {
+				await logActivity(env, { entityType: 'Property', entityId: id!, action: 'Note added', notes: note });
+			}
+		}
 		return Astro.redirect(`/properties/${id}`);
 	} catch (e) {
 		error = (e as Error).message;
@@ -35,56 +74,260 @@ if (!property) {
 	return new Response('Property not found', { status: 404 });
 }
 
-// Matched primarily by Property ID; falls back to address-substring matching
-// for jobs created before that column existed.
-const jobRows = await readRows(env, 'Jobs');
+const client = property['Client ID'] ? await findById(env, clientConfig, property['Client ID']) : null;
+
+const [allQuotes, allJobs, allOpportunities, pricingConfig, activityRows] = await Promise.all([
+	listActiveRows(env, quoteConfig),
+	listActiveRows(env, jobConfig),
+	listActiveRows(env, pipelineConfig),
+	getActivePricingConfig(env),
+	readRows(env, 'ActivityLog', { idColumn: 'Activity ID' }),
+]);
+
 const streetAddress = property['Street Address'].toLowerCase();
-const jobHistory = jobRows.filter((r) =>
-	r.data['Property ID']
-		? r.data['Property ID'] === id
-		: String(r.data['Property Address'] ?? '').toLowerCase().includes(streetAddress)
+const propertyQuotes = allQuotes.filter((q) => q['Property ID'] === id);
+const propertyOpportunities = allOpportunities.filter((o) => o['Property ID'] === id);
+// Matched primarily by Property ID; falls back to address-substring matching
+// for jobs that predate that column.
+const propertyJobs: Job[] = allJobs.filter((j) =>
+	j['Property ID'] ? j['Property ID'] === id : j['Property Address'].toLowerCase().includes(streetAddress)
 );
+
+const OPEN_OPPORTUNITY_STAGES = new Set(['New Lead', 'Contacted', 'Walkthrough Scheduled', 'Quote Draft', 'Quote Sent', 'Follow-up']);
+const ACTIVE_JOB_STATUSES = new Set(['Scheduled', 'In Progress']);
+const COMPLETED_JOB_STATUSES = new Set(['Completed', 'Invoiced', 'Paid']);
+
+function derivePropertyStatus(opportunities: Opportunity[], jobs: Job[]): string {
+	if (property!['Archived At']) return 'Archived';
+	if (jobs.some((j) => COMPLETED_JOB_STATUSES.has(j['Job Status']))) return 'Established Client';
+	if (jobs.some((j) => ACTIVE_JOB_STATUSES.has(j['Job Status']))) return 'Active — Job Scheduled';
+	if (opportunities.some((o) => OPEN_OPPORTUNITY_STAGES.has(o.Stage))) return 'Prospect';
+	return 'New';
+}
+const propertyStatus = derivePropertyStatus(propertyOpportunities, propertyJobs);
+
+const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
+const jobRows = propertyJobs.map((job) => ({ job, perf: computeJobPerformance(job, targetHourlyRate) }));
+const performance = computePropertyPerformance(propertyJobs);
+
+// Timeline: every ActivityLog entry whose Entity ID belongs to this
+// property — directly, or via its client/quotes/jobs/opportunities.
+const relevantIds = new Set<string>([
+	id!,
+	...(client ? [client['Client ID']] : []),
+	...propertyQuotes.map((q) => q['Quote ID']),
+	...propertyJobs.map((j) => j['Job ID']),
+	...propertyOpportunities.map((o) => o['Opportunity ID']),
+]);
+const quoteIdByJobId = Object.fromEntries(propertyJobs.map((j) => [j['Job ID'], j['Quote ID']]));
+
+function timelineLink(entityType: string, entityId: string): string | null {
+	if (entityType === 'Quote') return `/quotes/${entityId}`;
+	if (entityType === 'Job') return quoteIdByJobId[entityId] ? `/quotes/${quoteIdByJobId[entityId]}` : null;
+	if (entityType === 'Client') return `/clients/${entityId}`;
+	if (entityType === 'Opportunity') return '/pipeline';
+	if (entityType === 'PricingConfig') return '/pricing-config';
+	if (entityType === 'CalibrationSnapshot') return '/calibration';
+	return null;
+}
+
+const timeline = activityRows
+	.map((r) => r.data)
+	.filter((entry) => relevantIds.has(String(entry['Entity ID'] ?? '')))
+	.sort((a, b) => String(b.Timestamp ?? '').localeCompare(String(a.Timestamp ?? '')));
 ---
 
 <BaseLayout title={property['Street Address']}>
 	<main>
 		<p><a href={`/clients/${property['Client ID']}`}>← Client</a></p>
 		<h1>{property['Street Address']}, {property.City}</h1>
+		<p><span class="badge badge-accent">{propertyStatus}</span></p>
 		{error && <p role="alert">{error}</p>}
 
-		<form method="POST">
-			<label>Street address <input type="text" name="streetAddress" value={property['Street Address']} required /></label>
-			<label>City <input type="text" name="city" value={property.City} /></label>
-			<label>State <input type="text" name="state" maxlength="2" value={property.State} placeholder="CO" /></label>
-			<label>Zip <input type="text" name="zip" value={property.Zip} /></label>
-			<label>Stories <input type="text" name="stories" value={property.Stories} /></label>
-			<label>Overall access difficulty <input type="text" name="overallAccessDifficulty" value={property['Overall Access Difficulty']} /></label>
-			<label>Roof access difficulty <input type="text" name="roofAccessDifficulty" value={property['Roof Access Difficulty']} /></label>
-			<label>Total window units <input type="text" name="totalWindowUnits" value={property['Total Window Units']} /></label>
-			<label>Total glass panes <input type="text" name="totalGlassPanes" value={property['Total Glass Panes']} /></label>
-			<label>Desired maintenance frequency <input type="text" name="desiredMaintenanceFrequency" value={property['Desired Maintenance Frequency']} /></label>
-			<label>Next scheduled visit <input type="date" name="nextScheduledVisit" value={property['Next Scheduled Visit']} /></label>
-			<button type="submit">Save</button>
-		</form>
+		<section class="card">
+			<h2>Summary</h2>
+			<p>
+				{property['Street Address']}, {property.City}, {property.State} {property.Zip}
+			</p>
+			{client && (
+				<p>
+					<a href={`/clients/${client['Client ID']}`}>{client['First Name']} {client['Last Name']}</a>
+					{client.Phone && <> — {client.Phone}</>}
+					{client.Email && <> — {client.Email}</>}
+					{client['Preferred Contact Method'] && <> (prefers {client['Preferred Contact Method']})</>}
+				</p>
+			)}
+			{client?.['Referral Source'] && <p>Referral source: {client['Referral Source']}</p>}
+			<p>Created {property['Created At']} · Updated {property['Updated At']}</p>
+			<p>
+				<a href={`/quoter?propertyId=${property['Property ID']}&clientId=${property['Client ID']}`}>Create quote</a>
+				{' · '}
+				<a href={`/clients/${property['Client ID']}`}>Edit client</a>
+			</p>
+		</section>
 
-		<h2>Job history</h2>
-		<table>
-			<thead>
-				<tr><th>Date</th><th>Job Type</th><th>Quoted</th><th>Final</th><th>Est. Time</th><th>Actual Time</th></tr>
-			</thead>
-			<tbody>
-				{jobHistory.map((r) => (
-					<tr>
-						<td>{r.data['Date Completed']}</td>
-						<td>{r.data['Job Type']}</td>
-						<td>{r.data['Quoted Price ($)']}</td>
-						<td>{r.data['Final Price ($)']}</td>
-						<td>{r.data['Estimated Time (hrs)']}</td>
-						<td>{r.data['Actual Time (hrs)']}</td>
-					</tr>
-				))}
-				{jobHistory.length === 0 && <tr><td colspan="6">No jobs logged yet.</td></tr>}
-			</tbody>
-		</table>
+		<section class="card">
+			<h2>Add a note</h2>
+			<form method="POST">
+				<input type="hidden" name="_action" value="add-note" />
+				<label>Note <textarea name="note" required></textarea></label>
+				<button type="submit">Add note</button>
+			</form>
+		</section>
+
+		<section class="card">
+			<h2>Property characteristics</h2>
+			<form method="POST">
+				<input type="hidden" name="_action" value="update-property" />
+
+				<fieldset>
+					<legend>Address</legend>
+					<label>Street address <input type="text" name="streetAddress" value={property['Street Address']} required /></label>
+					<label>City <input type="text" name="city" value={property.City} /></label>
+					<label>State <input type="text" name="state" maxlength="2" value={property.State} placeholder="CO" /></label>
+					<label>Zip <input type="text" name="zip" value={property.Zip} /></label>
+					<label>Year built <input type="text" name="yearBuilt" value={property['Year Built']} /></label>
+					<label>Square footage <input type="text" name="squareFootage" value={property['Square Footage']} /></label>
+					<label>Stories <input type="text" name="stories" value={property.Stories} /></label>
+				</fieldset>
+
+				<fieldset>
+					<legend>Access &amp; equipment</legend>
+					<label>Overall access difficulty <input type="text" name="overallAccessDifficulty" value={property['Overall Access Difficulty']} /></label>
+					<label>Roof access difficulty <input type="text" name="roofAccessDifficulty" value={property['Roof Access Difficulty']} /></label>
+					<label>Water access <input type="text" name="waterAccess" value={property['Water Access']} /></label>
+					<label>Equipment suitability <input type="text" name="equipmentSuitability" value={property['Equipment Suitability']} /></label>
+					<label>Water-fed pole suitable (Y/N) <input type="text" name="waterFedPoleSuitable" value={property['Water-Fed Pole Suitable (Y/N)']} /></label>
+					<label>Ladder requirement <input type="text" name="ladderRequirement" value={property['Ladder Requirement']} placeholder="e.g. 28-ft ladder" /></label>
+				</fieldset>
+
+				<fieldset>
+					<legend>Conditions</legend>
+					<label>Hard water history (Y/N) <input type="text" name="hardWaterHistory" value={property['Hard Water History (Y/N)']} /></label>
+					<label>Construction debris (Y/N) <input type="text" name="constructionDebris" value={property['Construction Debris (Y/N)']} /></label>
+					<label>Window condition <input type="text" name="windowCondition" value={property['Window Condition']} /></label>
+				</fieldset>
+
+				<fieldset>
+					<legend>Windows &amp; doors</legend>
+					<label>Total window units <input type="text" name="totalWindowUnits" value={property['Total Window Units']} /></label>
+					<label>Total glass panes <input type="text" name="totalGlassPanes" value={property['Total Glass Panes']} /></label>
+					<label>Double hung <input type="text" name="countDoubleHung" value={property['Count - Double Hung']} /></label>
+					<label>Casement <input type="text" name="countCasement" value={property['Count - Casement']} /></label>
+					<label>Picture <input type="text" name="countPicture" value={property['Count - Picture']} /></label>
+					<label>Sliding windows <input type="text" name="countSliding" value={property['Count - Sliding']} /></label>
+					<label>French / divided-light <input type="text" name="countFrench" value={property['Count - French']} /></label>
+					<label>Awning <input type="text" name="countAwning" value={property['Count - Awning']} /></label>
+					<label>Skylights <input type="text" name="countSkylights" value={property['Count - Skylights']} /></label>
+					<label>Solar panels <input type="text" name="countSolarPanels" value={property['Count - Solar Panels']} /></label>
+					<label>Sliding glass door panes <input type="text" name="slidingGlassDoorPaneCount" value={property['Sliding Glass Door Pane Count']} /></label>
+					<label>Screens <input type="text" name="screenCount" value={property['Screen Count']} /></label>
+					<label>Tracks <input type="text" name="trackCount" value={property['Track Count']} /></label>
+				</fieldset>
+
+				<fieldset>
+					<legend>Maintenance</legend>
+					<label>Desired maintenance frequency <input type="text" name="desiredMaintenanceFrequency" value={property['Desired Maintenance Frequency']} /></label>
+					<label>Next scheduled visit <input type="date" name="nextScheduledVisit" value={property['Next Scheduled Visit']} /></label>
+					<label>Last review requested date <input type="date" name="lastReviewRequestedDate" value={property['Last Review Requested Date']} /></label>
+					<label>Last review received date <input type="date" name="lastReviewReceivedDate" value={property['Last Review Received Date']} /></label>
+				</fieldset>
+
+				<fieldset>
+					<legend>Notes</legend>
+					<label>Access notes <textarea name="accessNotes" placeholder="Parking, gate, water source, exterior/interior access">{property['Access Notes']}</textarea></label>
+					<label>Pet notes <textarea name="petNotes">{property['Pet Notes']}</textarea></label>
+					<label>General notes <textarea name="generalNotes">{property['General Notes']}</textarea></label>
+				</fieldset>
+
+				<button type="submit">Save</button>
+			</form>
+		</section>
+
+		<section class="card">
+			<h2>Activity timeline</h2>
+			<ul>
+				{timeline.map((entry) => {
+					const link = timelineLink(String(entry['Entity Type'] ?? ''), String(entry['Entity ID'] ?? ''));
+					return (
+						<li>
+							<strong>{String(entry.Timestamp ?? '')}</strong> —{' '}
+							<span class="badge">{String(entry['Entity Type'] ?? '')}</span>{' '}
+							{String(entry.Action ?? '')}
+							{entry.Notes ? ` — ${entry.Notes}` : ''}
+							{link && <> (<a href={link}>view</a>)</>}
+						</li>
+					);
+				})}
+				{timeline.length === 0 && <li>No activity recorded yet.</li>}
+			</ul>
+		</section>
+
+		<section class="card">
+			<h2>Quotes</h2>
+			<table>
+				<thead>
+					<tr><th>Quote</th><th>Created</th><th>Status</th><th>Total</th><th>Calculator</th><th>Sent</th><th>Accepted</th><th></th></tr>
+				</thead>
+				<tbody>
+					{propertyQuotes.map((q) => (
+						<tr>
+							<td>{q['Quote ID'].slice(0, 8)}</td>
+							<td>{q['Created At']}</td>
+							<td><span class="badge">{q['Quote Status']}</span></td>
+							<td>${q['Final Quoted Price']}</td>
+							<td>{q['Calculator Version']}</td>
+							<td>{q['Sent At']}</td>
+							<td>{q['Accepted At']}</td>
+							<td><a href={`/quotes/${q['Quote ID']}`}>View</a></td>
+						</tr>
+					))}
+					{propertyQuotes.length === 0 && <tr><td colspan="8">No quotes yet.</td></tr>}
+				</tbody>
+			</table>
+		</section>
+
+		<section class="card">
+			<h2>Jobs</h2>
+			<table>
+				<thead>
+					<tr><th>Date</th><th>Status</th><th>Final revenue</th><th>On-site hrs</th><th>$/on-site hr</th><th>Callback</th><th></th></tr>
+				</thead>
+				<tbody>
+					{jobRows.map(({ job, perf }) => (
+						<tr>
+							<td>{job['Date Completed']}</td>
+							<td><span class="badge">{job['Job Status']}</span></td>
+							<td>${perf.finalRevenue.toFixed(2)}</td>
+							<td>{perf.actualHours.toFixed(2)}</td>
+							<td>${perf.actualRevenuePerLaborHour.toFixed(2)}</td>
+							<td>{job['Callback Required (Y/N)']}</td>
+							<td>{job['Quote ID'] && <a href={`/quotes/${job['Quote ID']}`}>View quote</a>}</td>
+						</tr>
+					))}
+					{jobRows.length === 0 && <tr><td colspan="7">No jobs logged yet.</td></tr>}
+				</tbody>
+			</table>
+		</section>
+
+		{performance.completedJobCount > 0 && (
+			<section class="card">
+				<h2>Historical property performance</h2>
+				{performance.completedJobCount <= 2 && <p><em>Limited history. Treat as directional only.</em></p>}
+				<p>
+					<span class="stat-label">Completed jobs</span>
+					<span class="stat">{performance.completedJobCount}</span>
+				</p>
+				<ul>
+					<li>Included in calibration: {performance.includedCount}</li>
+					<li>Excluded from calibration: {performance.excludedCount}</li>
+					<li>Average on-site hours: {performance.averageOnSiteHours.toFixed(2)}</li>
+					<li>Average final revenue: ${performance.averageFinalRevenue.toFixed(2)}</li>
+					<li>Average revenue per on-site hour: ${performance.averageRevenuePerOnSiteHour.toFixed(2)}</li>
+					<li>Total callbacks: {performance.totalCallbacks}</li>
+					<li>Most recent service date: {performance.mostRecentServiceDate || 'unknown'}</li>
+				</ul>
+			</section>
+		)}
 	</main>
 </BaseLayout>
