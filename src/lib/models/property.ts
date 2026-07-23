@@ -38,6 +38,14 @@ export const LADDER_REQUIREMENT_OPTIONS = [
 ] as const;
 export const WINDOW_CONDITION_OPTIONS = ['Maintenance', 'Moderate Buildup', 'Heavy Buildup', 'Restoration Required'] as const;
 
+// Phase 9 (recurring-maintenance prep): reminders/planning only — nothing
+// here ever auto-creates a future Job. "Desired Maintenance Frequency"
+// already existed as a free-text field (reused rather than duplicated with
+// a new "Preferred Service Frequency" column); this just gives it the
+// defined option set the spec calls for.
+export const MAINTENANCE_FREQUENCY_OPTIONS = ['One Time', 'Quarterly', 'Twice Yearly', 'Yearly', 'Custom', 'Unknown'] as const;
+export const PREFERRED_SERVICE_SEASON_OPTIONS = ['Spring', 'Summer', 'Fall', 'Winter', 'No preference', 'Unknown'] as const;
+
 /** Joins checked checkbox values into the single comma-separated string
  * the Sheets column stores. */
 export function joinCheckboxValues(values: string[]): string {
@@ -84,6 +92,12 @@ export const propertySchema = z.object({
 	'Screen Count': blank(),
 	'Track Count': blank(),
 	'Desired Maintenance Frequency': blank(),
+	// Distinct from "Next Scheduled Visit" below: that one is a confirmed
+	// date once something is actually on the calendar; this is a planning/
+	// reminder estimate — informational only, never auto-creates a Job.
+	'Preferred Service Season': blank(),
+	'Next Recommended Service Date': blank(),
+	'Maintenance Notes': blank(),
 	'Next Scheduled Visit': blank(),
 	'Last Review Requested Date': blank(),
 	'Last Review Received Date': blank(),

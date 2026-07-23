@@ -11,6 +11,8 @@ import {
 	EQUIPMENT_SUITABILITY_OPTIONS,
 	LADDER_REQUIREMENT_OPTIONS,
 	WINDOW_CONDITION_OPTIONS,
+	MAINTENANCE_FREQUENCY_OPTIONS,
+	PREFERRED_SERVICE_SEASON_OPTIONS,
 	joinCheckboxValues,
 	checkboxValueSelected,
 } from '../../lib/models/property';
@@ -63,6 +65,9 @@ if (Astro.request.method === 'POST') {
 				'Screen Count': String(form.get('screenCount') ?? ''),
 				'Track Count': String(form.get('trackCount') ?? ''),
 				'Desired Maintenance Frequency': String(form.get('desiredMaintenanceFrequency') ?? ''),
+				'Preferred Service Season': String(form.get('preferredServiceSeason') ?? ''),
+				'Next Recommended Service Date': String(form.get('nextRecommendedServiceDate') ?? ''),
+				'Maintenance Notes': String(form.get('maintenanceNotes') ?? ''),
 				'Next Scheduled Visit': String(form.get('nextScheduledVisit') ?? ''),
 				'Last Review Requested Date': String(form.get('lastReviewRequestedDate') ?? ''),
 				'Last Review Received Date': String(form.get('lastReviewReceivedDate') ?? ''),
@@ -346,7 +351,22 @@ const timeline = activityRows
 
 				<fieldset>
 					<legend>Maintenance</legend>
-					<label>Desired maintenance frequency <input type="text" name="desiredMaintenanceFrequency" value={property['Desired Maintenance Frequency']} /></label>
+					<label>
+						Desired maintenance frequency
+						<select name="desiredMaintenanceFrequency">
+							<option value="" selected={!property['Desired Maintenance Frequency']} />
+							{MAINTENANCE_FREQUENCY_OPTIONS.map((v) => <option value={v} selected={v === property['Desired Maintenance Frequency']}>{v}</option>)}
+						</select>
+					</label>
+					<label>
+						Preferred service season
+						<select name="preferredServiceSeason">
+							<option value="" selected={!property['Preferred Service Season']} />
+							{PREFERRED_SERVICE_SEASON_OPTIONS.map((v) => <option value={v} selected={v === property['Preferred Service Season']}>{v}</option>)}
+						</select>
+					</label>
+					<label>Next recommended service date (planning estimate only) <input type="date" name="nextRecommendedServiceDate" value={property['Next Recommended Service Date']} /></label>
+					<label>Maintenance notes <textarea name="maintenanceNotes">{property['Maintenance Notes']}</textarea></label>
 					<label>Next scheduled visit <input type="date" name="nextScheduledVisit" value={property['Next Scheduled Visit']} /></label>
 					<label>Last review requested date <input type="date" name="lastReviewRequestedDate" value={property['Last Review Requested Date']} /></label>
 					<label>Last review received date <input type="date" name="lastReviewReceivedDate" value={property['Last Review Received Date']} /></label>

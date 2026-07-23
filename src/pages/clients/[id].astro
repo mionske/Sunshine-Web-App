@@ -3,7 +3,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { createRow, findById, listActiveRows, updateRow } from '../../lib/sheets';
 import { clientConfig } from '../../lib/models/client';
-import { propertyConfig, PROPERTY_TYPES } from '../../lib/models/property';
+import { propertyConfig, PROPERTY_TYPES, MAINTENANCE_FREQUENCY_OPTIONS } from '../../lib/models/property';
 import { formatPhoneDigits } from '../../lib/phoneFormat';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
 
@@ -109,7 +109,13 @@ const newPropertyId = crypto.randomUUID();
 			<label>Stories <input type="number" class="field-numeric" name="stories" /></label>
 			<label>Total window units (subjective — what counts as one "window" varies) <input type="number" class="field-numeric" name="totalWindowUnits" /></label>
 			<label>Total panes (all glass — objective count) <input type="number" class="field-numeric" name="totalGlassPanes" /></label>
-			<label>Desired maintenance frequency <input type="text" name="desiredMaintenanceFrequency" /></label>
+			<label>
+			Desired maintenance frequency
+			<select name="desiredMaintenanceFrequency">
+				<option value="" selected />
+				{MAINTENANCE_FREQUENCY_OPTIONS.map((v) => <option value={v}>{v}</option>)}
+			</select>
+		</label>
 			<label>Building/complex name (optional — groups units in the same building) <input type="text" name="buildingComplexName" /></label>
 			<label>Unit identifier (optional) <input type="text" name="unitIdentifier" /></label>
 			<button type="submit">Add property</button>

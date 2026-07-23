@@ -28,8 +28,15 @@ Count — Double Hung, Count — Casement, Count — Picture, Count — Sliding
 French (divided-light/grid-pane windows — same concept the quoter calls
 "French/grid pane"), Count — Awning, Count — Skylights,
 Count — Solar Panels, Screen Count, Track Count,
-Desired Maintenance Frequency, Next Scheduled Visit,
-Last Review Requested Date, Last Review Received Date,
+Desired Maintenance Frequency (One Time/Quarterly/Twice Yearly/Yearly/
+Custom/Unknown — Phase 9 gave this pre-existing free-text field a defined
+option set rather than adding a duplicate "Preferred Service Frequency"
+column), Preferred Service Season (Spring/Summer/Fall/Winter/No
+preference/Unknown), Next Recommended Service Date (a planning/reminder
+estimate — distinct from Next Scheduled Visit below, which is a confirmed
+date once something is actually on the calendar; this never auto-creates
+a Job, it's read-only input for reminders), Maintenance Notes, Next
+Scheduled Visit, Last Review Requested Date, Last Review Received Date,
 Sliding Glass Door Pane Count (sliding *doors* — a distinct pricing-catalog
 service from sliding windows, so tracked separately from Count — Sliding),
 Water-Fed Pole Suitable (Y/N), Ladder Requirement, Access Notes (exterior/
