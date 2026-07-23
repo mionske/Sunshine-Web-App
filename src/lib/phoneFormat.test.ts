@@ -17,8 +17,8 @@ describe('formatPhoneDigits', () => {
 		expect(formatPhoneDigits('3039313903')).toBe('303-931-3903');
 	});
 
-	it('caps at 10 digits, ignoring anything typed after', () => {
-		expect(formatPhoneDigits('30393139035551234')).toBe('303-931-3903');
+	it('leaves a run well past 10 digits unformatted rather than silently truncating it', () => {
+		expect(formatPhoneDigits('30393139035551234')).toBe('30393139035551234');
 	});
 
 	it('strips non-digit characters before formatting', () => {
@@ -28,5 +28,20 @@ describe('formatPhoneDigits', () => {
 
 	it('handles an empty string', () => {
 		expect(formatPhoneDigits('')).toBe('');
+	});
+
+	it('drops a leading US country code (11 digits starting with 1)', () => {
+		expect(formatPhoneDigits('1-303-931-3903')).toBe('303-931-3903');
+		expect(formatPhoneDigits('13039313903')).toBe('303-931-3903');
+	});
+
+	it('does not truncate or misgroup a non-US-country-code number over 10 digits', () => {
+		// A genuine 11-digit number NOT starting with 1 (e.g. international)
+		// must never be silently cut down to a fake-looking 10-digit US number.
+		expect(formatPhoneDigits('44207946095')).toBe('44207946095');
+	});
+
+	it('leaves an international number with a + prefix as plain digits', () => {
+		expect(formatPhoneDigits('+44 20 7946 0958')).toBe('442079460958');
 	});
 });
