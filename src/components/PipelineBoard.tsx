@@ -59,7 +59,11 @@ export default function PipelineBoard({ stages, cards: initialCards }: Props) {
 							if (id) moveCard(id, stage);
 						}}
 					>
-						<h3>{stage}</h3>
+						<h3>
+							<span className={`badge${stage === 'Accepted' ? ' badge-accent' : ''}${stage === 'Lost' ? ' badge-lost' : ''}`}>
+								{stage}
+							</span>
+						</h3>
 						{cards
 							.filter((c) => c.stage === stage)
 							.map((c) => (

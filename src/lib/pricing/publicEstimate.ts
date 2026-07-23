@@ -9,6 +9,7 @@ import { pipelineConfig } from '../models/pipeline';
 import { quoteConfig } from '../models/quote';
 import { getActivePricingConfig } from './config';
 import { calculateEstimate, CALCULATOR_VERSION } from './engine';
+import { formatPhoneDigits } from '../phoneFormat';
 import type { EstimateRange } from './types';
 
 export interface PublicEstimateInput {
@@ -17,6 +18,8 @@ export interface PublicEstimateInput {
 	propertyType?: string;
 	streetAddress: string;
 	city?: string;
+	state?: string;
+	zip?: string;
 	firstName: string;
 	lastName: string;
 	email?: string;
@@ -56,7 +59,7 @@ export async function createPublicEstimate(
 					'First Name': input.firstName,
 					'Last Name': input.lastName,
 					Email: input.email ?? '',
-					Phone: input.phone ?? '',
+					Phone: formatPhoneDigits(input.phone ?? ''),
 					'Referral Source': input.referralSource ?? '',
 					'First Contact Date': new Date().toISOString().slice(0, 10),
 				},
@@ -70,6 +73,8 @@ export async function createPublicEstimate(
 					'Client ID': clientId,
 					'Street Address': input.streetAddress,
 					City: input.city ?? '',
+					State: input.state ?? '',
+					Zip: input.zip ?? '',
 					Stories: String(input.stories),
 					'Total Window Units': String(input.approxWindowCount),
 					'Window Condition': 'Client-reported (ballpark estimate) — not yet measured',

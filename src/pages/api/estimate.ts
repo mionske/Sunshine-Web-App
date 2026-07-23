@@ -32,6 +32,8 @@ export const POST: APIRoute = async ({ request }) => {
 			propertyType: String(form.get('propertyType') ?? ''),
 			streetAddress,
 			city: String(form.get('city') ?? ''),
+			state: String(form.get('state') ?? ''),
+			zip: String(form.get('zip') ?? ''),
 			firstName,
 			lastName,
 			email: String(form.get('email') ?? ''),

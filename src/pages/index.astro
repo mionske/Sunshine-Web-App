@@ -49,33 +49,45 @@ const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
 	<main>
 		<h1>Dashboard</h1>
 
-		<h2>Follow-ups needed ({followUps.length})</h2>
-		{followUps.length === 0 ? (
-			<p>Nothing overdue.</p>
-		) : (
-			<ul>
-				{followUps.map(({ opportunity, clientName, propertyAddress }) => (
-					<li>
-						<strong>{opportunity['Next Follow-up Date']}</strong> — {propertyAddress} ({clientName}) — {opportunity.Stage}
-					</li>
-				))}
-			</ul>
-		)}
+		<div class="card">
+			<h2>Follow-ups needed ({followUps.length})</h2>
+			{followUps.length === 0 ? (
+				<p>Nothing overdue.</p>
+			) : (
+				<ul>
+					{followUps.map(({ opportunity, clientName, propertyAddress }) => (
+						<li>
+							<strong>{opportunity['Next Follow-up Date']}</strong> — {propertyAddress} ({clientName}) — <span class="badge">{opportunity.Stage}</span>
+						</li>
+					))}
+				</ul>
+			)}
+		</div>
 
-		<h2>This month</h2>
-		<ul>
-			<li>{thisMonthJobs.length} job{thisMonthJobs.length === 1 ? '' : 's'} completed</li>
-			<li>${thisMonthRevenue.toFixed(2)} revenue</li>
-		</ul>
+		<div class="card">
+			<h2>This month</h2>
+			<div style="display: flex; gap: 3rem;">
+				<div>
+					<span class="stat">{thisMonthJobs.length}</span>
+					<span class="stat-label">Job{thisMonthJobs.length === 1 ? '' : 's'} completed</span>
+				</div>
+				<div>
+					<span class="stat">${thisMonthRevenue.toFixed(0)}</span>
+					<span class="stat-label">Revenue</span>
+				</div>
+			</div>
+		</div>
 
-		<h2>Calibration</h2>
-		{snapshot ? (
-			<ul>
-				<li>{snapshot['Confidence Level']} ({snapshot['Comparable Job Count']} comparable jobs)</li>
-				<li>Target: ${targetHourlyRate}/on-site hour — Observed: ${Number(snapshot['Observed Revenue Per Hour']).toFixed(2)}/hour</li>
-			</ul>
-		) : (
-			<p>No calibration data yet — <a href="/calibration">recalculate</a> once jobs are completed.</p>
-		)}
+		<div class="card">
+			<h2>Calibration</h2>
+			{snapshot ? (
+				<>
+					<p><span class="badge badge-accent">{snapshot['Confidence Level']}</span> — {snapshot['Comparable Job Count']} comparable jobs</p>
+					<p>Target: ${targetHourlyRate}/on-site hour — Observed: ${Number(snapshot['Observed Revenue Per Hour']).toFixed(2)}/hour</p>
+				</>
+			) : (
+				<p>No calibration data yet — <a href="/calibration">recalculate</a> once jobs are completed.</p>
+			)}
+		</div>
 	</main>
 </BaseLayout>

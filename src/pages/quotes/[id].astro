@@ -53,46 +53,49 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 		<h1>Quote for {property ? `${property['Street Address']}, ${property.City}` : quote['Property ID']}</h1>
 		<p>
 			Client: {client ? `${client['First Name']} ${client['Last Name']}` : quote['Client ID']}<br />
-			Status: {quote['Quote Status']}
+			Status: <span class="badge badge-accent">{quote['Quote Status']}</span>
 		</p>
 		{error && <p role="alert">{error}</p>}
 
-		<table>
-			<thead>
-				<tr><th>Service</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr>
-			</thead>
-			<tbody>
-				{items.map((i) => (
-					<tr>
-						<td>{i.Description}</td>
-						<td>{i.Quantity}</td>
-						<td>${Number(i['Unit Price']).toFixed(2)}</td>
-						<td>${Number(i['Line Total']).toFixed(2)}</td>
-					</tr>
-				))}
-			</tbody>
-		</table>
+		<div class="card">
+			<table>
+				<thead>
+					<tr><th>Service</th><th>Qty</th><th>Unit price</th><th>Line total</th></tr>
+				</thead>
+				<tbody>
+					{items.map((i) => (
+						<tr>
+							<td>{i.Description}</td>
+							<td>{i.Quantity}</td>
+							<td>${Number(i['Unit Price']).toFixed(2)}</td>
+							<td>${Number(i['Line Total']).toFixed(2)}</td>
+						</tr>
+					))}
+				</tbody>
+			</table>
 
-		<h2>Final quoted price: ${Number(quote['Final Quoted Price']).toFixed(2)}</h2>
-		<p>
-			Estimated labor hours: {Number(quote['Estimated Labor Hours']).toFixed(2)}<br />
-			Expected revenue per labor hour: ${Number(quote['Expected Revenue Per Labor Hour']).toFixed(2)}<br />
-			Target hourly rate: ${quote['Target Hourly Rate']}<br />
-			Pricing Config: {quote['Pricing Config ID']} (calculator v{quote['Calculator Version']})
-		</p>
+			<p class="stat">${Number(quote['Final Quoted Price']).toFixed(2)}</p>
+			<p>
+				Estimated labor hours: {Number(quote['Estimated Labor Hours']).toFixed(2)}<br />
+				Expected revenue per labor hour: ${Number(quote['Expected Revenue Per Labor Hour']).toFixed(2)}<br />
+				Target hourly rate: ${quote['Target Hourly Rate']}<br />
+				Pricing Config: {quote['Pricing Config ID']} (calculator v{quote['Calculator Version']})
+			</p>
+		</div>
 
 		{canAccept && (
-			<form method="POST">
-				<input type="hidden" name="_action" value="accept" />
-				<label>Scheduled date (optional) <input type="date" name="scheduledDate" /></label>
-				<button type="submit">Accept quote</button>
-			</form>
+			<div class="card">
+				<form method="POST">
+					<input type="hidden" name="_action" value="accept" />
+					<label>Scheduled date (optional) <input type="date" name="scheduledDate" /></label>
+					<button type="submit">Accept quote</button>
+				</form>
+			</div>
 		)}
 
 		{job && (
-			<>
-				<h2>Job</h2>
-				<p>Status: {job['Job Status']}</p>
+			<div class="card">
+				<h2>Job — <span class="badge">{job['Job Status']}</span></h2>
 				<form method="POST">
 					<input type="hidden" name="_action" value="update-job-status" />
 					<input type="hidden" name="jobId" value={job['Job ID']} />
@@ -106,7 +109,7 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 					<label>Final price ($) <input type="text" name="finalPrice" value={job['Final Price ($)']} /></label>
 					<button type="submit">Update job</button>
 				</form>
-			</>
+			</div>
 		)}
 	</main>
 </BaseLayout>

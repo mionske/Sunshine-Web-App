@@ -14,6 +14,7 @@ if (Astro.request.method === 'POST') {
 		await updateRow(env, propertyConfig, id!, {
 			'Street Address': String(form.get('streetAddress') ?? ''),
 			City: String(form.get('city') ?? ''),
+			State: String(form.get('state') ?? ''),
 			Zip: String(form.get('zip') ?? ''),
 			Stories: String(form.get('stories') ?? ''),
 			'Overall Access Difficulty': String(form.get('overallAccessDifficulty') ?? ''),
@@ -34,13 +35,14 @@ if (!property) {
 	return new Response('Property not found', { status: 404 });
 }
 
-// Jobs doesn't have a Property ID link yet (legacy tab, extended-in-place
-// column additions are still pending confirmation) — matched loosely by
-// address text for now. Revisit once Jobs carries a real Property ID.
+// Matched primarily by Property ID; falls back to address-substring matching
+// for jobs created before that column existed.
 const jobRows = await readRows(env, 'Jobs');
 const streetAddress = property['Street Address'].toLowerCase();
 const jobHistory = jobRows.filter((r) =>
-	String(r.data['Property Address'] ?? '').toLowerCase().includes(streetAddress)
+	r.data['Property ID']
+		? r.data['Property ID'] === id
+		: String(r.data['Property Address'] ?? '').toLowerCase().includes(streetAddress)
 );
 ---
 
@@ -53,6 +55,7 @@ const jobHistory = jobRows.filter((r) =>
 		<form method="POST">
 			<label>Street address <input type="text" name="streetAddress" value={property['Street Address']} required /></label>
 			<label>City <input type="text" name="city" value={property.City} /></label>
+			<label>State <input type="text" name="state" maxlength="2" value={property.State} placeholder="CO" /></label>
 			<label>Zip <input type="text" name="zip" value={property.Zip} /></label>
 			<label>Stories <input type="text" name="stories" value={property.Stories} /></label>
 			<label>Overall access difficulty <input type="text" name="overallAccessDifficulty" value={property['Overall Access Difficulty']} /></label>

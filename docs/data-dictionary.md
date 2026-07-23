@@ -7,12 +7,15 @@ Full rationale for each decision lives in the plan this was generated from;
 this file is the quick column reference kept in sync with the live sheet.
 
 ## Clients
-Client ID, First Name, Last Name, Phone, Email, Address, Referral Source,
-First Contact Date, Customer Since, Preferred Contact Method, Notes,
-Created At, Updated At, Archived At.
+Client ID, First Name, Last Name, Phone, Email, Address (deprecated, kept
+only for safe round-tripping of one pre-existing value — clients don't
+carry their own address at all; every client lives at the property being
+serviced, so the address lives once on Properties instead), Referral
+Source, First Contact Date, Customer Since, Preferred Contact Method,
+Notes, Created At, Updated At, Archived At.
 
 ## Properties
-Property ID, Client ID, Street Address, City, Zip, Year Built,
+Property ID, Client ID, Street Address, City, State, Zip, Year Built,
 Square Footage, Stories, Roof Access Difficulty, Overall Access Difficulty,
 Water Access, Equipment Suitability, Hard Water History (Y/N),
 Construction Debris (Y/N), Window Condition, Total Window Units,
@@ -89,6 +92,8 @@ time accuracy, effective $/hr, notes, calibration summary block
 (columns X–Y).
 
 Appended columns: Window Count, Quote ID (link), Opportunity ID (link),
+Property ID (link — reliable join to Properties, added after the original
+free-text "Property Address" column proved too fragile to match on),
 Job Status (Unscheduled/Scheduled/In Progress/Completed/Invoiced/Paid/
 Cancelled), Arrival/Start/Finish/Departure Timestamps,
 Travel/Setup/Cleaning/Pack-up Time, Supplies Cost, Gas, Other Expenses,

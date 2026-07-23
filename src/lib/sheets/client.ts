@@ -109,22 +109,6 @@ export async function ensureGridSize(
 	]);
 }
 
-/** Renames an existing tab in place — a label change only, touches no cell
- * data, formulas, or column structure. */
-export async function renameSheetTab(env: SheetsEnv, currentTitle: string, newTitle: string): Promise<void> {
-	const sheets = await listSheetMeta(env);
-	const sheet = sheets.find((s) => s.title === currentTitle);
-	if (!sheet) throw new Error(`renameSheetTab: no tab named "${currentTitle}" found`);
-	await batchUpdateSpreadsheet(env, [
-		{
-			updateSheetProperties: {
-				properties: { sheetId: sheet.sheetId, title: newTitle },
-				fields: 'title',
-			},
-		},
-	]);
-}
-
 /** Clears cell contents in a range without deleting rows/columns or
  * disturbing formulas/formatting outside that range. */
 export async function clearValues(env: SheetsEnv, range: string): Promise<void> {
@@ -146,6 +130,28 @@ export async function deleteRows(env: SheetsEnv, tab: string, rowNumbers: number
 		.map((rowNumber) => ({
 			deleteDimension: {
 				range: { sheetId: sheet.sheetId, dimension: 'ROWS', startIndex: rowNumber - 1, endIndex: rowNumber },
+			},
+		}));
+
+	await batchUpdateSpreadsheet(env, requests);
+}
+
+/** Hard-deletes specific 1-based columns from a tab (columns shift left) —
+ * for removing a column this app added and then decided not to use after
+ * all. Since every read/write in this app maps columns by header name, a
+ * shift is safe. Column numbers must belong to the same tab; pass them in
+ * any order, they're sorted descending internally so earlier deletes never
+ * shift the index of a later one. */
+export async function deleteColumns(env: SheetsEnv, tab: string, columnNumbers: number[]): Promise<void> {
+	const sheets = await listSheetMeta(env);
+	const sheet = sheets.find((s) => s.title === tab);
+	if (!sheet) throw new Error(`deleteColumns: no tab named "${tab}" found`);
+
+	const requests = [...columnNumbers]
+		.sort((a, b) => b - a)
+		.map((columnNumber) => ({
+			deleteDimension: {
+				range: { sheetId: sheet.sheetId, dimension: 'COLUMNS', startIndex: columnNumber - 1, endIndex: columnNumber },
 			},
 		}));
 

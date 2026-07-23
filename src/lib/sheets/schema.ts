@@ -28,6 +28,7 @@ export const TAB_SCHEMAS: Record<string, string[]> = {
 		'Client ID',
 		'Street Address',
 		'City',
+		'State',
 		'Zip',
 		'Year Built',
 		'Square Footage',

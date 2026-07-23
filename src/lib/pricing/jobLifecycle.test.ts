@@ -24,6 +24,7 @@ const JOBS_HEADERS = [
 	'Start Timestamp', 'Finish Timestamp', 'Departure Timestamp', 'Travel Time', 'Setup Time',
 	'Cleaning Time', 'Pack-up Time', 'Supplies Cost', 'Gas', 'Other Expenses', 'Total Job Cost',
 	'Net Profit', 'Customer Rating', 'Callback Required (Y/N)', 'Photos', 'Version', 'Archived At',
+	'Property ID',
 ];
 
 const ACTIVITY_LOG_HEADERS = [

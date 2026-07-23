@@ -35,6 +35,7 @@ export const jobSchema = z
 		'Window Count': blank(),
 		'Quote ID': blank(),
 		'Opportunity ID': blank(),
+		'Property ID': blank(),
 		'Job Status': z.enum(JOB_STATUSES).default('Unscheduled'),
 		'Arrival Timestamp': blank(),
 		'Start Timestamp': blank(),

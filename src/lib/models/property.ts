@@ -8,6 +8,7 @@ export const propertySchema = z.object({
 	'Client ID': blank(),
 	'Street Address': blank(),
 	City: blank(),
+	State: blank(),
 	Zip: blank(),
 	'Year Built': blank(),
 	'Square Footage': blank(),

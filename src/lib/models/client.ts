@@ -9,6 +9,12 @@ export const clientSchema = z.object({
 	'Last Name': blank(),
 	Phone: blank(),
 	Email: blank(),
+	// Deprecated: clients don't carry their own address — every client
+	// always lives at the property being serviced, so the address lives
+	// once on Properties instead of being duplicated here. Kept declared
+	// (not deleted) purely so any pre-existing value round-trips safely on
+	// read/update instead of silently being dropped; forms never write to
+	// it or ask for it.
 	Address: blank(),
 	'Referral Source': blank(),
 	'First Contact Date': blank(),

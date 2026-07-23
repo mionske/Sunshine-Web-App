@@ -3,6 +3,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { createRow, listActiveRows } from '../../lib/sheets';
 import { clientConfig } from '../../lib/models/client';
+import { formatPhoneDigits } from '../../lib/phoneFormat';
 
 let error: string | null = null;
 
@@ -13,9 +14,8 @@ if (Astro.request.method === 'POST') {
 			id: String(form.get('id') ?? ''),
 			'First Name': String(form.get('firstName') ?? ''),
 			'Last Name': String(form.get('lastName') ?? ''),
-			Phone: String(form.get('phone') ?? ''),
+			Phone: formatPhoneDigits(String(form.get('phone') ?? '')),
 			Email: String(form.get('email') ?? ''),
-			Address: String(form.get('address') ?? ''),
 			'Referral Source': String(form.get('referralSource') ?? ''),
 			'First Contact Date': String(form.get('firstContactDate') ?? ''),
 			'Customer Since': '',
@@ -66,14 +66,14 @@ const newId = crypto.randomUUID();
 		</table>
 
 		<h2>Add client</h2>
+		<p>Add the property address after creating the client — no need to enter it twice.</p>
 		{error && <p role="alert">{error}</p>}
-		<form method="POST">
+		<form method="POST" id="add-client-form">
 			<input type="hidden" name="id" value={newId} />
 			<label>First name <input type="text" name="firstName" required /></label>
 			<label>Last name <input type="text" name="lastName" required /></label>
-			<label>Phone <input type="text" name="phone" /></label>
+			<label>Phone <input type="tel" name="phone" inputmode="numeric" placeholder="303-931-3903" /></label>
 			<label>Email <input type="email" name="email" /></label>
-			<label>Address <input type="text" name="address" /></label>
 			<label>Referral source <input type="text" name="referralSource" /></label>
 			<label>First contact date <input type="date" name="firstContactDate" /></label>
 			<label>Preferred contact method <input type="text" name="preferredContactMethod" /></label>
@@ -81,4 +81,13 @@ const newId = crypto.randomUUID();
 			<button type="submit">Add client</button>
 		</form>
 	</main>
+
+	<script>
+		import { formatPhoneDigits } from '../../lib/phoneFormat';
+		const form = document.getElementById('add-client-form') as HTMLFormElement;
+		const phone = form.querySelector('input[name="phone"]') as HTMLInputElement;
+		phone.addEventListener('input', () => {
+			phone.value = formatPhoneDigits(phone.value);
+		});
+	</script>
 </BaseLayout>

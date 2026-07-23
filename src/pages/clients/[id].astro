@@ -4,6 +4,7 @@ import { env } from 'cloudflare:workers';
 import { createRow, findById, listActiveRows, updateRow } from '../../lib/sheets';
 import { clientConfig } from '../../lib/models/client';
 import { propertyConfig } from '../../lib/models/property';
+import { formatPhoneDigits } from '../../lib/phoneFormat';
 
 const { id } = Astro.params;
 let error: string | null = null;
@@ -16,9 +17,8 @@ if (Astro.request.method === 'POST') {
 			await updateRow(env, clientConfig, id!, {
 				'First Name': String(form.get('firstName') ?? ''),
 				'Last Name': String(form.get('lastName') ?? ''),
-				Phone: String(form.get('phone') ?? ''),
+				Phone: formatPhoneDigits(String(form.get('phone') ?? '')),
 				Email: String(form.get('email') ?? ''),
-				Address: String(form.get('address') ?? ''),
 				'Referral Source': String(form.get('referralSource') ?? ''),
 				'Preferred Contact Method': String(form.get('preferredContactMethod') ?? ''),
 				Notes: String(form.get('notes') ?? ''),
@@ -29,6 +29,7 @@ if (Astro.request.method === 'POST') {
 				'Client ID': id!,
 				'Street Address': String(form.get('streetAddress') ?? ''),
 				City: String(form.get('city') ?? ''),
+				State: String(form.get('state') ?? ''),
 				Zip: String(form.get('zip') ?? ''),
 				Stories: String(form.get('stories') ?? ''),
 				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
@@ -57,13 +58,12 @@ const newPropertyId = crypto.randomUUID();
 		<h1>{client['First Name']} {client['Last Name']}</h1>
 		{error && <p role="alert">{error}</p>}
 
-		<form method="POST">
+		<form method="POST" id="update-client-form">
 			<input type="hidden" name="_action" value="update-client" />
 			<label>First name <input type="text" name="firstName" value={client['First Name']} required /></label>
 			<label>Last name <input type="text" name="lastName" value={client['Last Name']} required /></label>
-			<label>Phone <input type="text" name="phone" value={client.Phone} /></label>
+			<label>Phone <input type="tel" name="phone" inputmode="numeric" value={client.Phone} placeholder="303-931-3903" /></label>
 			<label>Email <input type="email" name="email" value={client.Email} /></label>
-			<label>Address <input type="text" name="address" value={client.Address} /></label>
 			<label>Referral source <input type="text" name="referralSource" value={client['Referral Source']} /></label>
 			<label>Preferred contact method <input type="text" name="preferredContactMethod" value={client['Preferred Contact Method']} /></label>
 			<label>Notes <textarea name="notes">{client.Notes}</textarea></label>
@@ -86,6 +86,7 @@ const newPropertyId = crypto.randomUUID();
 			<input type="hidden" name="id" value={newPropertyId} />
 			<label>Street address <input type="text" name="streetAddress" required /></label>
 			<label>City <input type="text" name="city" /></label>
+			<label>State <input type="text" name="state" maxlength="2" placeholder="CO" /></label>
 			<label>Zip <input type="text" name="zip" /></label>
 			<label>Stories <input type="text" name="stories" /></label>
 			<label>Total window units <input type="text" name="totalWindowUnits" /></label>
@@ -93,4 +94,13 @@ const newPropertyId = crypto.randomUUID();
 			<button type="submit">Add property</button>
 		</form>
 	</main>
+
+	<script>
+		import { formatPhoneDigits } from '../../lib/phoneFormat';
+		const form = document.getElementById('update-client-form') as HTMLFormElement;
+		const phone = form.querySelector('input[name="phone"]') as HTMLInputElement;
+		phone.addEventListener('input', () => {
+			phone.value = formatPhoneDigits(phone.value);
+		});
+	</script>
 </BaseLayout>

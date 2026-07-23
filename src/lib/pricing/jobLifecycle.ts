@@ -27,6 +27,7 @@ async function createJobFromQuote(env: SheetsEnv, quote: Quote, scheduledDate?: 
 
 	return createRow(env, jobConfig, {
 		'Property Address': property ? `${property['Street Address']}, ${property.City}` : '',
+		'Property ID': quote['Property ID'],
 		'Quoted Price ($)': quote['Final Quoted Price'],
 		'Estimated Time (hrs)': quote['Estimated Labor Hours'],
 		'Window Count': String(windowCount),
