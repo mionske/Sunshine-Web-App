@@ -36,14 +36,16 @@ export async function findJobByQuoteId(env: SheetsEnv, quoteId: string): Promise
 
 async function createJobFromQuote(env: SheetsEnv, quote: Quote, scheduledDate?: string): Promise<Job> {
 	const property = await findById(env, propertyConfig, quote['Property ID']);
-	const windowCount = 0; // filled in once JobItems (Phase 8b) or manual entry populates it
 
 	return createRow(env, jobConfig, {
 		'Property Address': property ? `${property['Street Address']}, ${property.City}` : '',
 		'Property ID': quote['Property ID'],
 		'Quoted Price ($)': quote['Final Quoted Price'],
 		'Estimated Time (hrs)': quote['Estimated Labor Hours'],
-		'Window Count': String(windowCount),
+		// The property's own known window count when available — never a
+		// hardcoded 0 standing in for "unknown" (see the redundancy-audit
+		// fix: a real count when known, blank otherwise).
+		'Window Count': property?.['Total Window Units'] || '',
 		'Quote ID': quote['Quote ID'],
 		'Opportunity ID': quote['Opportunity ID'],
 		'Job Status': scheduledDate ? 'Scheduled' : 'Unscheduled',

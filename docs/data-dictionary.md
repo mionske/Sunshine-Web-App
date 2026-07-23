@@ -137,6 +137,23 @@ quoted/final/add-on/total revenue, estimated/actual/WFP time,
 time accuracy, effective $/hr, notes, calibration summary block
 (columns X–Y).
 
+**Resolved redundancy: Lead Source vs. Referral Source.** Jobs' legacy
+`Lead Source` column is never read or written by any app code — Pipeline/
+Client's `Referral Source` is the one source of truth for lead
+acquisition going forward. Existing `Lead Source` values on old rows are
+preserved untouched (the `.catchall()` round-trip already guarantees
+this) but the app will never write to that column again, so no new
+duplication can occur. No migration of historical values — they stay
+exactly as hand-entered.
+
+**Resolved: Window Count no longer means "unknown."** `createJobFromQuote`
+used to hardcode `Window Count = 0` for every new Job, which reads
+indistinguishably from "this property truly has zero windows." It now
+copies the property's own `Total Window Units` when known, leaving the
+column blank otherwise — never a fake 0. (Calibration's window-count
+fallback logic already treated 0/blank as "try the legacy Windows-*
+columns instead," so no change was needed on the read side.)
+
 Appended columns: Window Count, Quote ID (link), Opportunity ID (link),
 Property ID (link — reliable join to Properties, added after the original
 free-text "Property Address" column proved too fragile to match on),

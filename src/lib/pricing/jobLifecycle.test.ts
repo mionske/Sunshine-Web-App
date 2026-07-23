@@ -85,6 +85,26 @@ describe('quote acceptance and job lifecycle', () => {
 		expect(job['Quoted Price ($)']).toBe('250');
 	});
 
+	it('derives Window Count from the property\'s known window count, never a fake 0', async () => {
+		await createRow(harness.env, propertyConfig, {
+			id: 'property-1',
+			'Property Type': 'Residential',
+			'Street Address': '123 Main St',
+			City: 'Boulder',
+			'Total Window Units': '18',
+		});
+		const quote = await makeQuote();
+		const { job } = await acceptQuote(harness.env, quote['Quote ID']);
+		expect(job['Window Count']).toBe('18');
+	});
+
+	it('leaves Window Count blank when the property has no known window count', async () => {
+		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Property Type': 'Residential', 'Street Address': '123 Main St', City: 'Boulder' });
+		const quote = await makeQuote();
+		const { job } = await acceptQuote(harness.env, quote['Quote ID']);
+		expect(job['Window Count']).toBe('');
+	});
+
 	it('creates the job as Scheduled when a scheduled date is provided', async () => {
 		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Property Type': 'Residential', 'Street Address': '123 Main St', City: 'Boulder' });
 		const quote = await makeQuote();
