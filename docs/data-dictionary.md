@@ -271,6 +271,45 @@ specific missing-field reasons. A "standard-price-equivalent analysis"
 section is kept entirely separate from the actual-revenue metrics —
 never blended into the same average.
 
+**Expanded filtering and metrics (Phase 7).** A completed Job row itself
+doesn't carry story count/condition/access difficulty/scope — those are
+read from the linked Quote's own Input Snapshot (the exact inputs that
+quote was priced from), not guessed or re-derived
+(`deriveJobSegmentation` in `lib/pricing/calibration.ts`). A job with no
+linked Quote segments as "Unknown" in every dimension except window-count
+band, which falls back to the Job's own Window Count. Filters: Record
+Classification, Revenue Treatment, Story count, Condition, Access
+difficulty, Interior/exterior scope, Window-count band, PricingConfig
+version (only versions actually used by a comparable job appear as
+options), and a Date Completed range — each is an independent
+checkbox-group facet (all fields → AND across facets, all values within a
+facet → OR), same pattern as the pre-existing classification filter.
+
+All the richer metrics (qualifying/excluded counts, exclusion-reason
+breakdown, average/median on-site hours, average/median revenue,
+average/median revenue per on-site hour, average direct costs, callback
+rate, average callback cost, distribution by classification) and the
+Confidence Level/recommendation shown on the page are computed live from
+whatever the current filter selects — "do not claim jobs are comparable
+merely because they are completed." This is separate from the stored
+CalibrationSnapshot row (still shown as "last full recalculation,
+unfiltered"), which only updates on an explicit Recalculate or a Job
+transition into Completed/Invoiced/Paid.
+
+**Create Draft PricingConfig.** Appears once the filtered comparable-job
+count reaches Moderate or Strong confidence (25+/50+). Copies every rate
+field from the currently Active Residential PricingConfig into a new
+Draft row, with Target Hourly Rate set to the filtered observed
+revenue-per-on-site-hour (rounded) and Notes recording the basis (job
+count, confidence, observed vs. target). Creating the draft never
+activates it — `createPricingConfig` always defaults to Draft Status,
+and only `activatePricingConfig` (on the Pricing Config page) can change
+that. The Pricing Config page gained an inline edit form for any
+non-Active row (`updatePricingConfigDraft` — refuses to touch an Active
+row directly) so the owner can review and adjust every field before
+activating, per the flow: review → edit if needed → save → explicitly
+activate.
+
 ## JobItems
 Job Item ID, Job ID, Source Quote Item ID, Service Code, Description,
 Actual Quantity, Unit, Final Unit Price, Actual Labor Minutes, Line Total,

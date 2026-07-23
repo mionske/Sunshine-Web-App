@@ -6,6 +6,7 @@ import {
 	createPricingConfig,
 	listPricingConfigs,
 	seedInitialPricingConfig,
+	updatePricingConfigDraft,
 } from '../lib/pricing/config';
 import { PROPERTY_TYPES } from '../lib/models/property';
 
@@ -26,6 +27,13 @@ if (Astro.request.method === 'POST') {
 			});
 		} else if (action === 'activate') {
 			await activatePricingConfig(env, String(form.get('id') ?? ''));
+		} else if (action === 'edit-draft') {
+			await updatePricingConfigDraft(env, String(form.get('id') ?? ''), {
+				'Config Name': String(form.get('configName') ?? ''),
+				'Target Hourly Rate': String(form.get('targetHourlyRate') ?? ''),
+				'Minimum Job Price': String(form.get('minimumJobPrice') ?? ''),
+				Notes: String(form.get('notes') ?? ''),
+			});
 		}
 		return Astro.redirect('/pricing-config');
 	} catch (e) {
@@ -60,6 +68,7 @@ const newId = crypto.randomUUID();
 					<th>Min job price</th>
 					<th>Effective</th>
 					<th>End</th>
+					<th>Notes</th>
 					<th></th>
 				</tr>
 			</thead>
@@ -73,13 +82,28 @@ const newId = crypto.randomUUID();
 						<td>{c['Minimum Job Price']}</td>
 						<td>{c['Effective Date']}</td>
 						<td>{c['End Date']}</td>
+						<td>{c.Notes}</td>
 						<td>
 							{c.Status !== 'Active' && (
-								<form method="POST">
-									<input type="hidden" name="_action" value="activate" />
-									<input type="hidden" name="id" value={c['Pricing Config ID']} />
-									<button type="submit">Activate</button>
-								</form>
+								<>
+									<details>
+										<summary>Edit</summary>
+										<form method="POST">
+											<input type="hidden" name="_action" value="edit-draft" />
+											<input type="hidden" name="id" value={c['Pricing Config ID']} />
+											<label>Config name <input type="text" name="configName" value={c['Config Name']} /></label>
+											<label>Target hourly rate <input type="text" name="targetHourlyRate" value={c['Target Hourly Rate']} /></label>
+											<label>Minimum job price <input type="text" name="minimumJobPrice" value={c['Minimum Job Price']} /></label>
+											<label>Notes <textarea name="notes">{c.Notes}</textarea></label>
+											<button type="submit">Save changes</button>
+										</form>
+									</details>
+									<form method="POST">
+										<input type="hidden" name="_action" value="activate" />
+										<input type="hidden" name="id" value={c['Pricing Config ID']} />
+										<button type="submit">Activate</button>
+									</form>
+								</>
 							)}
 						</td>
 					</tr>

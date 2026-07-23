@@ -4,6 +4,8 @@
 import { createRow, listActiveRows, logActivity, type SheetsEnv } from '../sheets';
 import { jobConfig, type Job } from '../models/job';
 import { calibrationSnapshotConfig, CONFIDENCE_LEVELS, type CalibrationSnapshot } from '../models/calibrationSnapshot';
+import type { Quote } from '../models/quote';
+import type { QuoteInput } from './types';
 import { CALCULATOR_VERSION } from './engine';
 
 const COMPLETED_JOB_STATUSES = new Set(['Completed', 'Invoiced', 'Paid']);
@@ -46,19 +48,19 @@ export function confidenceLevel(comparableJobCount: number): (typeof CONFIDENCE_
 	return 'Insufficient data';
 }
 
-function mean(values: number[]): number {
+export function mean(values: number[]): number {
 	if (values.length === 0) return 0;
 	return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-function median(values: number[]): number {
+export function median(values: number[]): number {
 	if (values.length === 0) return 0;
 	const sorted = [...values].sort((a, b) => a - b);
 	const mid = Math.floor(sorted.length / 2);
 	return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
 }
 
-function legacyWindowCount(job: Job): number {
+export function legacyWindowCount(job: Job): number {
 	const j = job as Record<string, string>;
 	const explicit = num(job['Window Count']);
 	if (explicit > 0) return explicit;
@@ -76,6 +78,69 @@ function legacyPaneCount(job: Job): number {
 
 function legacyEstimatedHours(job: Job): number {
 	return num(job['Estimated Time (hrs)'] || (job as Record<string, string>)['Estimated Time (hrs)']);
+}
+
+// --- Job segmentation for calibration filters (Phase 7) --------------------
+// "Do not claim jobs are comparable merely because they are completed" — a
+// completed Job row itself doesn't carry story count/condition/access
+// difficulty/scope, so these are read from the linked Quote's own Input
+// Snapshot (the exact inputs that quote's price was calculated from) rather
+// than guessed or re-derived. A job with no linked Quote (e.g. a historical-
+// import row) segments as 'Unknown' in every dimension except window-count
+// band, which falls back to the Job's own Window Count/legacy columns.
+
+export function windowCountBand(count: number): string {
+	if (count <= 0) return 'Unknown';
+	if (count <= 10) return '1-10';
+	if (count <= 20) return '11-20';
+	if (count <= 30) return '21-30';
+	return '31+';
+}
+
+export interface JobSegmentation {
+	storyCount: string;
+	condition: string;
+	accessDifficulty: string;
+	scope: string;
+	windowCountBand: string;
+	pricingConfigId: string;
+}
+
+const UNKNOWN_SEGMENT = 'Unknown';
+
+export function deriveJobSegmentation(job: Job, quote: Quote | undefined): JobSegmentation {
+	const band = windowCountBand(legacyWindowCount(job));
+	const pricingConfigId = quote?.['Pricing Config ID'] ?? '';
+
+	if (!quote?.['Input Snapshot']) {
+		return { storyCount: UNKNOWN_SEGMENT, condition: UNKNOWN_SEGMENT, accessDifficulty: UNKNOWN_SEGMENT, scope: UNKNOWN_SEGMENT, windowCountBand: band, pricingConfigId };
+	}
+
+	try {
+		const input = JSON.parse(quote['Input Snapshot']) as Partial<QuoteInput>;
+		const counts = input.counts;
+		let scope = UNKNOWN_SEGMENT;
+		if (counts) {
+			const extTotal =
+				(counts.windowExtStandard ?? 0) + (counts.windowExtOversized ?? 0) + (counts.windowExtFrenchPane ?? 0) + (counts.slidingDoorExt ?? 0) + (counts.skylightExt ?? 0);
+			const intTotal =
+				(counts.windowIntStandard ?? 0) + (counts.windowIntOversized ?? 0) + (counts.windowIntFrenchPane ?? 0) + (counts.slidingDoorInt ?? 0) + (counts.skylightInt ?? 0);
+			if (extTotal > 0 && intTotal > 0) scope = 'Interior + Exterior';
+			else if (extTotal > 0) scope = 'Exterior only';
+			else if (intTotal > 0) scope = 'Interior only';
+		}
+
+		return {
+			storyCount: input.stories ? String(input.stories) : UNKNOWN_SEGMENT,
+			condition: input.condition ?? UNKNOWN_SEGMENT,
+			accessDifficulty: input.difficultAccess === undefined ? UNKNOWN_SEGMENT : input.difficultAccess ? 'Difficult access' : 'Standard access',
+			scope,
+			windowCountBand: band,
+			pricingConfigId,
+		};
+	} catch {
+		return { storyCount: UNKNOWN_SEGMENT, condition: UNKNOWN_SEGMENT, accessDifficulty: UNKNOWN_SEGMENT, scope: UNKNOWN_SEGMENT, windowCountBand: band, pricingConfigId };
+	}
 }
 
 export interface CalibrationStats {

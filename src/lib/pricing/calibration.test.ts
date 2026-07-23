@@ -3,6 +3,7 @@ import { installFakeFetch, type FakeFetchHandle } from '../sheets/testHarness';
 import { _clearHeaderCacheForTests } from '../sheets/rows';
 import { createRow } from '../sheets';
 import { jobConfig, type Job } from '../models/job';
+import type { Quote } from '../models/quote';
 import { calibrationSnapshotSchema } from '../models/calibrationSnapshot';
 import {
 	calibrationExclusionReasons,
@@ -10,9 +11,11 @@ import {
 	computeJobPerformance,
 	computePropertyPerformance,
 	confidenceLevel,
+	deriveJobSegmentation,
 	isCalibrationEligible,
 	recalculateCalibration,
 	getLatestCalibrationSnapshot,
+	windowCountBand,
 } from './calibration';
 
 function job(overrides: Partial<Job> = {}): Job {
@@ -222,6 +225,98 @@ describe('computeJobPerformance', () => {
 		const perf = computeJobPerformance(j, 150);
 		expect(perf.directJobCosts).toBe(20);
 		expect(perf.netContribution).toBe(180);
+	});
+});
+
+describe('windowCountBand', () => {
+	it('buckets counts and treats zero/blank as Unknown', () => {
+		expect(windowCountBand(0)).toBe('Unknown');
+		expect(windowCountBand(5)).toBe('1-10');
+		expect(windowCountBand(15)).toBe('11-20');
+		expect(windowCountBand(25)).toBe('21-30');
+		expect(windowCountBand(40)).toBe('31+');
+	});
+});
+
+describe('deriveJobSegmentation', () => {
+	function quote(overrides: Partial<Quote> = {}): Quote {
+		return {
+			'Quote ID': 'quote-1',
+			'Quote Type': 'in-field',
+			'Client ID': '',
+			'Property ID': '',
+			'Opportunity ID': '',
+			'Walkthrough ID': '',
+			'Pricing Config ID': 'pc-1',
+			'Calculator Version': '1',
+			'Input Snapshot': '',
+			'Calculation Result Snapshot': '',
+			'Rounding Policy': '',
+			Currency: '',
+			'Calculated Base Amount': '',
+			'Calculated Add-ons': '',
+			'Calculated Surcharges': '',
+			'Estimated Labor Hours': '',
+			'Target Hourly Rate': '',
+			'Target Price Before Adjustments': '',
+			'Manual Adjustment': '',
+			Discount: '',
+			'Final Quoted Price': '',
+			'Expected Revenue Per Labor Hour': '',
+			'Override Reason': '',
+			'Quote Status': 'Accepted',
+			'Created At': '',
+			'Updated At': '',
+			'Sent At': '',
+			'Accepted At': '',
+			'Declined At': '',
+			'Expired At': '',
+			'Archived At': '',
+			'Created By': '',
+			Notes: '',
+			'QB Estimate Link': '',
+			...overrides,
+		};
+	}
+
+	it('falls back to Unknown in every dimension when there is no linked quote', () => {
+		const seg = deriveJobSegmentation(job({ 'Window Count': '15' }), undefined);
+		expect(seg).toEqual({
+			storyCount: 'Unknown',
+			condition: 'Unknown',
+			accessDifficulty: 'Unknown',
+			scope: 'Unknown',
+			windowCountBand: '11-20',
+			pricingConfigId: '',
+		});
+	});
+
+	it('reads story count/condition/access/scope from the quote\'s Input Snapshot', () => {
+		const input = {
+			stories: 2,
+			condition: 'moderate',
+			difficultAccess: true,
+			counts: { windowExtStandard: 8, windowIntStandard: 4, slidingDoorExt: 0, slidingDoorInt: 0, skylightExt: 0, skylightInt: 0, windowExtOversized: 0, windowIntOversized: 0, windowExtFrenchPane: 0, windowIntFrenchPane: 0, screenClean: 0, trackBasic: 0, trackDeep: 0 },
+		};
+		const seg = deriveJobSegmentation(job(), quote({ 'Input Snapshot': JSON.stringify(input) }));
+		expect(seg.storyCount).toBe('2');
+		expect(seg.condition).toBe('moderate');
+		expect(seg.accessDifficulty).toBe('Difficult access');
+		expect(seg.scope).toBe('Interior + Exterior');
+		expect(seg.pricingConfigId).toBe('pc-1');
+	});
+
+	it('classifies exterior-only scope when no interior counts are present', () => {
+		const input = { stories: 1, condition: 'light', difficultAccess: false, counts: { windowExtStandard: 8, windowIntStandard: 0, slidingDoorExt: 0, slidingDoorInt: 0, skylightExt: 0, skylightInt: 0, windowExtOversized: 0, windowIntOversized: 0, windowExtFrenchPane: 0, windowIntFrenchPane: 0, screenClean: 0, trackBasic: 0, trackDeep: 0 } };
+		const seg = deriveJobSegmentation(job(), quote({ 'Input Snapshot': JSON.stringify(input) }));
+		expect(seg.scope).toBe('Exterior only');
+		expect(seg.accessDifficulty).toBe('Standard access');
+	});
+
+	it('falls back to Unknown when Input Snapshot is malformed JSON', () => {
+		const seg = deriveJobSegmentation(job(), quote({ 'Input Snapshot': '{not json' }));
+		expect(seg.storyCount).toBe('Unknown');
+		expect(seg.pricingConfigId).toBe('pc-1');
 	});
 });
 

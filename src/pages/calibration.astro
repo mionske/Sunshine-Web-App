@@ -2,27 +2,24 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { listActiveRows } from '../lib/sheets';
-import { jobConfig, RECORD_CLASSIFICATIONS, type Job } from '../lib/models/job';
-import { getActivePricingConfig } from '../lib/pricing/config';
+import { jobConfig, RECORD_CLASSIFICATIONS, REVENUE_TREATMENTS, type Job } from '../lib/models/job';
+import { quoteConfig, type Quote } from '../lib/models/quote';
+import { getActivePricingConfig, createPricingConfig, listPricingConfigs } from '../lib/pricing/config';
 import { googleMapsUrl } from '../lib/mapsLink';
 import {
 	calibrationExclusionReasons,
 	computeJobPerformance,
+	confidenceLevel,
+	deriveJobSegmentation,
 	getLatestCalibrationSnapshot,
 	isCalibrationEligible,
+	mean,
+	median,
 	recalculateCalibration,
+	type JobSegmentation,
 } from '../lib/pricing/calibration';
 
 let error: string | null = null;
-
-if (Astro.request.method === 'POST') {
-	try {
-		await recalculateCalibration(env);
-		return Astro.redirect('/calibration');
-	} catch (e) {
-		error = (e as Error).message;
-	}
-}
 
 // A blank Record Classification means either a legacy job predating this
 // column, or a live-flow job the app hasn't classified yet — both are
@@ -33,36 +30,130 @@ const UNCLASSIFIED = 'Unclassified (legacy/unset)';
 function classificationOf(job: Job): string {
 	return job['Record Classification'] || UNCLASSIFIED;
 }
+const UNTREATED = 'Unclassified';
+function revenueTreatmentOf(job: Job): string {
+	return job['Revenue Treatment'] || UNTREATED;
+}
 
 const ALL_CLASSIFICATIONS = [...RECORD_CLASSIFICATIONS, UNCLASSIFIED];
 const DEFAULT_CLASSIFICATIONS = ['Customer Job', 'Discounted Customer Job', UNCLASSIFIED];
+const ALL_REVENUE_TREATMENTS = [...REVENUE_TREATMENTS, UNTREATED];
+const STORY_OPTIONS = ['1', '2', '3', 'Unknown'];
+const CONDITION_OPTIONS = ['light', 'moderate', 'heavy', 'firstTime', 'Unknown'];
+const ACCESS_OPTIONS = ['Difficult access', 'Standard access', 'Unknown'];
+const SCOPE_OPTIONS = ['Interior + Exterior', 'Exterior only', 'Interior only', 'Unknown'];
+const WINDOW_BAND_OPTIONS = ['1-10', '11-20', '21-30', '31+', 'Unknown'];
 
-const selectedParam = Astro.url.searchParams.get('classifications');
-const selectedClassifications = selectedParam ? selectedParam.split(',').filter(Boolean) : DEFAULT_CLASSIFICATIONS;
-const usingDefaultFilter = !selectedParam;
+// Every faceted filter follows the same "checked boxes narrow this
+// dimension; nothing checked at all (no query string touching this
+// dimension) means show everything" pattern — see the classification
+// filter this generalizes from. Because unchecked HTML checkboxes never
+// appear in a form submission, a dimension where the owner unchecks every
+// box is indistinguishable from "untouched" and reverts to its default —
+// an accepted limitation of plain HTML forms, not something this adds.
+function selectedValues(url: URL, key: string, allValues: string[], defaultValues: string[] | null): string[] {
+	const provided = url.searchParams.getAll(key);
+	return provided.length > 0 ? provided : (defaultValues ?? allValues);
+}
 
-const [snapshot, pricingConfig, allJobs] = await Promise.all([
+const usingDefaultFilter = !Astro.url.search;
+const selectedClassifications = selectedValues(Astro.url, 'classifications', ALL_CLASSIFICATIONS, DEFAULT_CLASSIFICATIONS);
+const selectedRevenueTreatments = selectedValues(Astro.url, 'revenueTreatments', ALL_REVENUE_TREATMENTS, null);
+const selectedStories = selectedValues(Astro.url, 'stories', STORY_OPTIONS, null);
+const selectedConditions = selectedValues(Astro.url, 'conditions', CONDITION_OPTIONS, null);
+const selectedAccess = selectedValues(Astro.url, 'access', ACCESS_OPTIONS, null);
+const selectedScope = selectedValues(Astro.url, 'scope', SCOPE_OPTIONS, null);
+const selectedWindowBands = selectedValues(Astro.url, 'windowBands', WINDOW_BAND_OPTIONS, null);
+const dateStart = Astro.url.searchParams.get('dateStart') ?? '';
+const dateEnd = Astro.url.searchParams.get('dateEnd') ?? '';
+
+const [snapshot, pricingConfig, allConfigs, allJobs, allQuotes] = await Promise.all([
 	getLatestCalibrationSnapshot(env),
 	// Residential explicitly — see index.astro's dashboard for the same
-	// primary-segment-default rationale; full per-segment calibration
-	// filtering is later phase scope.
+	// primary-segment-default rationale; the Create Draft PricingConfig
+	// action below targets this same segment.
 	getActivePricingConfig(env, 'Residential'),
+	listPricingConfigs(env),
 	listActiveRows(env, jobConfig),
+	listActiveRows(env, quoteConfig),
 ]);
 
 const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
+const quotesById = new Map(allQuotes.map((q) => [q['Quote ID'], q]));
+const configNameById = new Map(allConfigs.map((c) => [c['Pricing Config ID'], `${c['Config Name']} (${c['Property Type'] || 'unset'})`]));
 
 const COMPLETED_JOB_STATUSES = new Set(['Completed', 'Invoiced', 'Paid']);
 const completedStatusJobs = allJobs.filter((j) => COMPLETED_JOB_STATUSES.has(j['Job Status']));
-const inFilter = (job: Job) => selectedClassifications.includes(classificationOf(job));
+
+const segmentationByJobId = new Map<string, JobSegmentation>(
+	completedStatusJobs.map((job) => [job['Job ID'], deriveJobSegmentation(job, quotesById.get(job['Quote ID']))])
+);
+const PRICING_CONFIG_ID_OPTIONS = [...new Set([...segmentationByJobId.values()].map((s) => s.pricingConfigId).filter(Boolean))];
+const selectedPricingConfigIds = selectedValues(Astro.url, 'pricingConfigIds', PRICING_CONFIG_ID_OPTIONS, null);
+
+function inFilter(job: Job): boolean {
+	const seg = segmentationByJobId.get(job['Job ID'])!;
+	if (!selectedClassifications.includes(classificationOf(job))) return false;
+	if (!selectedRevenueTreatments.includes(revenueTreatmentOf(job))) return false;
+	if (!selectedStories.includes(seg.storyCount)) return false;
+	if (!selectedConditions.includes(seg.condition)) return false;
+	if (!selectedAccess.includes(seg.accessDifficulty)) return false;
+	if (!selectedScope.includes(seg.scope)) return false;
+	if (!selectedWindowBands.includes(seg.windowCountBand)) return false;
+	if (seg.pricingConfigId && PRICING_CONFIG_ID_OPTIONS.length > 0 && !selectedPricingConfigIds.includes(seg.pricingConfigId)) return false;
+	const date = job['Date Completed'];
+	if (dateStart && date && date < dateStart) return false;
+	if (dateEnd && date && date > dateEnd) return false;
+	return true;
+}
 
 const eligibleJobs = completedStatusJobs.filter(isCalibrationEligible).filter(inFilter);
-const rows = eligibleJobs.map((job) => ({ job, perf: computeJobPerformance(job, targetHourlyRate) }));
+const rows = eligibleJobs.map((job) => ({ job, perf: computeJobPerformance(job, targetHourlyRate), seg: segmentationByJobId.get(job['Job ID'])! }));
 
 const excludedJobs = completedStatusJobs
 	.filter((job) => !isCalibrationEligible(job))
 	.filter(inFilter)
 	.map((job) => ({ job, reasons: calibrationExclusionReasons(job) }));
+
+const exclusionReasonCounts = new Map<string, number>();
+for (const { reasons } of excludedJobs) {
+	for (const reason of reasons) {
+		exclusionReasonCounts.set(reason, (exclusionReasonCounts.get(reason) ?? 0) + 1);
+	}
+}
+
+// Richer metrics (Phase 7) computed live from the current filter — the
+// stored CalibrationSnapshot above is the last full (unfiltered)
+// recalculation and stays as-is; these numbers narrow to whatever the
+// owner actually selected, per "do not claim jobs are comparable merely
+// because they are completed."
+const onSiteHours = rows.map((r) => r.perf.actualHours);
+const finalRevenues = rows.map((r) => r.perf.finalRevenue);
+const perHourRates = rows.map((r) => r.perf.actualRevenuePerLaborHour);
+const directCosts = rows.map((r) => r.perf.directJobCosts);
+const callbackRows = rows.filter((r) => r.job['Callback Required (Y/N)']?.toUpperCase() === 'Y');
+const callbackRate = rows.length > 0 ? callbackRows.length / rows.length : 0;
+const avgCallbackCost = mean(callbackRows.map((r) => r.perf.callbackCost));
+
+const classificationDistribution = new Map<string, number>();
+for (const { job } of rows) {
+	const key = classificationOf(job);
+	classificationDistribution.set(key, (classificationDistribution.get(key) ?? 0) + 1);
+}
+
+const filteredConfidence = confidenceLevel(rows.length);
+const filteredObservedPerHour = mean(perHourRates);
+const filteredMedianPerHour = median(perHourRates);
+
+const recommendationText =
+	filteredConfidence === 'Insufficient data'
+		? 'The current sample is too small to support a pricing change. Observed results are directional only. Continue collecting complete job records.'
+		: filteredConfidence === 'Early directional data'
+			? 'An early pricing signal is present, but more comparable jobs are required before making a broad pricing change.'
+			: filteredObservedPerHour < targetHourlyRate
+				? `Observed revenue per on-site hour ($${filteredObservedPerHour.toFixed(2)}) is below the $${targetHourlyRate} target across ${rows.length} comparable jobs — review before considering a pricing change.`
+				: `Observed revenue per on-site hour ($${filteredObservedPerHour.toFixed(2)}) meets or exceeds the $${targetHourlyRate} target across ${rows.length} comparable jobs.`;
+const canRecommendPricingChange = filteredConfidence === 'Moderate confidence' || filteredConfidence === 'Strong internal benchmark';
 
 // Standard-price-equivalent analysis: informational only, and always kept
 // visually and numerically separate from the actual-revenue metrics above
@@ -76,8 +167,52 @@ const standardEquivalentRates = standardEquivalentJobs
 		return hours > 0 ? Number(job['Standard Price Equivalent']) / hours : 0;
 	})
 	.filter((rate) => rate > 0);
-const standardEquivalentAvgPerHour =
-	standardEquivalentRates.length > 0 ? standardEquivalentRates.reduce((a, b) => a + b, 0) / standardEquivalentRates.length : 0;
+const standardEquivalentAvgPerHour = mean(standardEquivalentRates);
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	try {
+		if (action === 'recalculate') {
+			await recalculateCalibration(env);
+		} else if (action === 'create-draft-pricing-config') {
+			if (!pricingConfig) throw new Error('No active Residential PricingConfig to base a draft on.');
+			const suggestedRate = filteredObservedPerHour > 0 ? Math.round(filteredObservedPerHour) : Number(pricingConfig['Target Hourly Rate']);
+			const today = new Date().toISOString().slice(0, 10);
+			await createPricingConfig(env, {
+				'Config Name': `Draft — calibration suggestion ${today}`,
+				'Property Type': 'Residential',
+				'Calculator Version': pricingConfig['Calculator Version'],
+				'Target Hourly Rate': String(suggestedRate),
+				'Minimum Job Price': pricingConfig['Minimum Job Price'],
+				'Exterior Labor Weight': pricingConfig['Exterior Labor Weight'],
+				'Interior Labor Weight': pricingConfig['Interior Labor Weight'],
+				'Screen Unit Price': pricingConfig['Screen Unit Price'],
+				'Track Unit Price': pricingConfig['Track Unit Price'],
+				'Deep Track Unit Price': pricingConfig['Deep Track Unit Price'],
+				'Skylight Unit Price': pricingConfig['Skylight Unit Price'],
+				'Sliding Door Unit Price': pricingConfig['Sliding Door Unit Price'],
+				'French Pane Unit Price': pricingConfig['French Pane Unit Price'],
+				'Oversized Glass Unit Price': pricingConfig['Oversized Glass Unit Price'],
+				'Second Story Factor': pricingConfig['Second Story Factor'],
+				'Third Story Factor': pricingConfig['Third Story Factor'],
+				'Moderate Condition Factor': pricingConfig['Moderate Condition Factor'],
+				'Heavy Condition Factor': pricingConfig['Heavy Condition Factor'],
+				'First-Time Cleaning Factor': pricingConfig['First-Time Cleaning Factor'],
+				'Hard Water Minimum': pricingConfig['Hard Water Minimum'],
+				'Construction Debris Minimum': pricingConfig['Construction Debris Minimum'],
+				'Access Surcharge Minimum': pricingConfig['Access Surcharge Minimum'],
+				'Estimate Low Variance': pricingConfig['Estimate Low Variance'],
+				'Estimate High Variance': pricingConfig['Estimate High Variance'],
+				Notes: `Suggested by calibration: ${rows.length} comparable job(s), ${filteredConfidence}, observed $${filteredObservedPerHour.toFixed(2)}/on-site hr vs. current $${pricingConfig['Target Hourly Rate']}/hr target. Copied from "${pricingConfig['Config Name']}" — review every field before activating.`,
+			});
+			return Astro.redirect('/pricing-config');
+		}
+		return Astro.redirect(`/calibration${Astro.url.search}`);
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
 ---
 
 <BaseLayout title="Calibration">
@@ -85,15 +220,42 @@ const standardEquivalentAvgPerHour =
 		<h1>Calibration</h1>
 		{error && <p role="alert">{error}</p>}
 
-		{snapshot ? (
-			<>
+		<section class="card">
+			<h2>{filteredConfidence} — {rows.length} comparable completed job{rows.length === 1 ? '' : 's'} (this filter)</h2>
+			<ul>
+				<li>Target: ${targetHourlyRate}/on-site hour</li>
+				<li>Qualifying jobs: {rows.length} — Excluded: {excludedJobs.length}</li>
+				<li>Average on-site hours: {mean(onSiteHours).toFixed(2)} — Median: {median(onSiteHours).toFixed(2)}</li>
+				<li>Average revenue: ${mean(finalRevenues).toFixed(2)} — Median: ${median(finalRevenues).toFixed(2)}</li>
+				<li>Average revenue/on-site hr: ${filteredObservedPerHour.toFixed(2)} — Median: ${filteredMedianPerHour.toFixed(2)}</li>
+				<li>Average direct costs: ${mean(directCosts).toFixed(2)}</li>
+				<li>Callback rate: {(callbackRate * 100).toFixed(1)}% — Average callback cost: ${avgCallbackCost.toFixed(2)}</li>
+			</ul>
+			{excludedJobs.length > 0 && (
 				<p>
-					<strong>{snapshot['Confidence Level']}</strong> — {snapshot['Comparable Job Count']} comparable
-					completed job{snapshot['Comparable Job Count'] === '1' ? '' : 's'}
-					(generated {snapshot['Generated At']})
+					Exclusion reasons: {[...exclusionReasonCounts.entries()].map(([reason, count]) => `${reason} (${count})`).join('; ')}
 				</p>
+			)}
+			{classificationDistribution.size > 0 && (
+				<p>
+					Distribution by classification: {[...classificationDistribution.entries()].map(([c, n]) => `${c}: ${n}`).join(', ')}
+				</p>
+			)}
+			<p><strong>Recommendation:</strong> {recommendationText}</p>
+			{canRecommendPricingChange && (
+				<form method="POST">
+					<input type="hidden" name="_action" value="create-draft-pricing-config" />
+					<button type="submit">Create Draft PricingConfig (Residential)</button>
+					<p class="field-hint">Prefills a new inactive draft from the current Residential config with a suggested Target Hourly Rate. Never activates automatically — review, edit, and activate it from Pricing Config.</p>
+				</form>
+			)}
+		</section>
+
+		{snapshot && (
+			<section class="card">
+				<h2>Last full recalculation (unfiltered)</h2>
+				<p>{snapshot['Confidence Level']} — {snapshot['Comparable Job Count']} comparable jobs (generated {snapshot['Generated At']})</p>
 				<ul>
-					<li>Target: ${targetHourlyRate}/on-site hour</li>
 					<li>Observed revenue/hour: ${Number(snapshot['Observed Revenue Per Hour']).toFixed(2)}</li>
 					<li>Median revenue/hour: ${Number(snapshot['Median Revenue Per Hour']).toFixed(2)}</li>
 					<li>Average estimate variance: {(Number(snapshot['Average Estimate Variance']) * 100).toFixed(1)}%</li>
@@ -101,32 +263,90 @@ const standardEquivalentAvgPerHour =
 					<li>Average minutes/pane: {Number(snapshot['Average Minutes Per Pane']).toFixed(1)}</li>
 					<li>Windows-to-panes ratio: {Number(snapshot['Average Windows-to-Panes Ratio']).toFixed(2)}</li>
 				</ul>
-				<p>
-					Recommendation: {snapshot['Confidence Level'] === 'Insufficient data'
-						? 'Continue collecting completed-job data before drawing conclusions.'
-						: Number(snapshot['Observed Revenue Per Hour']) < targetHourlyRate
-							? 'Observed revenue per hour is below target — review recent underestimation before considering a pricing change.'
-							: 'Observed revenue per hour meets or exceeds target.'}
-				</p>
-			</>
-		) : (
-			<p>No calibration snapshot yet.</p>
+			</section>
 		)}
 
 		<form method="POST">
-			<button type="submit">Recalculate calibration</button>
+			<input type="hidden" name="_action" value="recalculate" />
+			<button type="submit">Recalculate calibration (full snapshot)</button>
 		</form>
 
 		<section class="card">
-			<h2>Filter by classification</h2>
+			<h2>Filters</h2>
 			<p>{usingDefaultFilter ? 'Showing the default business-performance view.' : 'Custom filter applied.'}</p>
 			<form method="GET">
-				{ALL_CLASSIFICATIONS.map((c) => (
-					<label style="display: block;">
-						<input type="checkbox" name="classifications" value={c} checked={selectedClassifications.includes(c)} /> {c}
-					</label>
-				))}
-				<button type="submit">Apply filter</button>
+				<details open>
+					<summary>Record Classification</summary>
+					{ALL_CLASSIFICATIONS.map((c) => (
+						<label style="display: block;">
+							<input type="checkbox" name="classifications" value={c} checked={selectedClassifications.includes(c)} /> {c}
+						</label>
+					))}
+				</details>
+				<details>
+					<summary>Revenue Treatment</summary>
+					{ALL_REVENUE_TREATMENTS.map((v) => (
+						<label style="display: block;">
+							<input type="checkbox" name="revenueTreatments" value={v} checked={selectedRevenueTreatments.includes(v)} /> {v}
+						</label>
+					))}
+				</details>
+				<details>
+					<summary>Story count</summary>
+					{STORY_OPTIONS.map((v) => (
+						<label style="display: block;">
+							<input type="checkbox" name="stories" value={v} checked={selectedStories.includes(v)} /> {v}
+						</label>
+					))}
+				</details>
+				<details>
+					<summary>Condition</summary>
+					{CONDITION_OPTIONS.map((v) => (
+						<label style="display: block;">
+							<input type="checkbox" name="conditions" value={v} checked={selectedConditions.includes(v)} /> {v}
+						</label>
+					))}
+				</details>
+				<details>
+					<summary>Access difficulty</summary>
+					{ACCESS_OPTIONS.map((v) => (
+						<label style="display: block;">
+							<input type="checkbox" name="access" value={v} checked={selectedAccess.includes(v)} /> {v}
+						</label>
+					))}
+				</details>
+				<details>
+					<summary>Interior/exterior scope</summary>
+					{SCOPE_OPTIONS.map((v) => (
+						<label style="display: block;">
+							<input type="checkbox" name="scope" value={v} checked={selectedScope.includes(v)} /> {v}
+						</label>
+					))}
+				</details>
+				<details>
+					<summary>Window-count band</summary>
+					{WINDOW_BAND_OPTIONS.map((v) => (
+						<label style="display: block;">
+							<input type="checkbox" name="windowBands" value={v} checked={selectedWindowBands.includes(v)} /> {v}
+						</label>
+					))}
+				</details>
+				{PRICING_CONFIG_ID_OPTIONS.length > 0 && (
+					<details>
+						<summary>PricingConfig version</summary>
+						{PRICING_CONFIG_ID_OPTIONS.map((id) => (
+							<label style="display: block;">
+								<input type="checkbox" name="pricingConfigIds" value={id} checked={selectedPricingConfigIds.includes(id)} /> {configNameById.get(id) ?? id}
+							</label>
+						))}
+					</details>
+				)}
+				<details>
+					<summary>Date range (Date Completed)</summary>
+					<label>From <input type="date" name="dateStart" value={dateStart} /></label>
+					<label>To <input type="date" name="dateEnd" value={dateEnd} /></label>
+				</details>
+				<button type="submit">Apply filters</button>
 				{!usingDefaultFilter && <a href="/calibration">Reset to default</a>}
 			</form>
 		</section>
@@ -137,6 +357,8 @@ const standardEquivalentAvgPerHour =
 				<tr>
 					<th>Property</th>
 					<th>Classification</th>
+					<th>Scope</th>
+					<th>Stories</th>
 					<th>Data Quality</th>
 					<th>Quoted $/est. hr</th>
 					<th>Actual $/labor hr</th>
@@ -148,7 +370,7 @@ const standardEquivalentAvgPerHour =
 				</tr>
 			</thead>
 			<tbody>
-				{rows.map(({ job, perf }) => (
+				{rows.map(({ job, perf, seg }) => (
 					<tr>
 						<td>
 							{job['Property Address'] && (
@@ -156,6 +378,8 @@ const standardEquivalentAvgPerHour =
 							)}
 						</td>
 						<td><span class="badge">{classificationOf(job)}</span></td>
+						<td>{seg.scope}</td>
+						<td>{seg.storyCount}</td>
 						<td>{job['Data Quality'] || '—'}</td>
 						<td>${perf.quotedRevenuePerEstimatedHour.toFixed(2)}</td>
 						<td>${perf.actualRevenuePerLaborHour.toFixed(2)}</td>
@@ -166,7 +390,7 @@ const standardEquivalentAvgPerHour =
 						<td>${perf.netContribution.toFixed(2)}</td>
 					</tr>
 				))}
-				{rows.length === 0 && <tr><td colspan="10">No completed jobs match this filter.</td></tr>}
+				{rows.length === 0 && <tr><td colspan="12">No completed jobs match this filter.</td></tr>}
 			</tbody>
 		</table>
 
@@ -183,10 +407,10 @@ const standardEquivalentAvgPerHour =
 						{excludedJobs.map(({ job, reasons }) => (
 							<tr>
 								<td>
-							{job['Property Address'] && (
-								<a href={googleMapsUrl(job['Property Address'])} target="_blank" rel="noopener noreferrer">{job['Property Address']}</a>
-							)}
-						</td>
+									{job['Property Address'] && (
+										<a href={googleMapsUrl(job['Property Address'])} target="_blank" rel="noopener noreferrer">{job['Property Address']}</a>
+									)}
+								</td>
 								<td><span class="badge">{classificationOf(job)}</span></td>
 								<td>{reasons.join('; ')}</td>
 							</tr>

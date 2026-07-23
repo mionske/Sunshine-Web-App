@@ -8,6 +8,7 @@ import {
 	getActivePricingConfig,
 	listPricingConfigs,
 	seedInitialPricingConfig,
+	updatePricingConfigDraft,
 } from './config';
 
 const PRICING_CONFIG_HEADERS = Object.keys(pricingConfigSchema.shape);
@@ -101,5 +102,33 @@ describe('PricingConfig', () => {
 
 		const all = await listPricingConfigs(harness.env);
 		expect(all.filter((r) => r.Status === 'Active')).toHaveLength(2);
+	});
+});
+
+describe('updatePricingConfigDraft', () => {
+	let harness: FakeFetchHandle;
+
+	beforeEach(() => {
+		harness = installFakeFetch();
+		_clearHeaderCacheForTests();
+		harness.spreadsheet.setTab('PricingConfig', [PRICING_CONFIG_HEADERS]);
+		harness.spreadsheet.setTab('ActivityLog', [ACTIVITY_LOG_HEADERS]);
+	});
+
+	afterEach(() => {
+		harness.restore();
+	});
+
+	it('edits a Draft row in place', async () => {
+		const draft = await createPricingConfig(harness.env, { 'Config Name': 'Draft v2', 'Target Hourly Rate': '150' });
+		const updated = await updatePricingConfigDraft(harness.env, draft['Pricing Config ID'], { 'Target Hourly Rate': '160' });
+		expect(updated['Target Hourly Rate']).toBe('160');
+	});
+
+	it('refuses to edit an Active row directly', async () => {
+		const config = await seedInitialPricingConfig(harness.env);
+		await expect(updatePricingConfigDraft(harness.env, config!['Pricing Config ID'], { 'Target Hourly Rate': '999' })).rejects.toThrow(
+			/Active PricingConfig directly/
+		);
 	});
 });

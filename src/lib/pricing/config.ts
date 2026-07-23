@@ -80,6 +80,25 @@ export async function createPricingConfig(
 	return createRow(env, pricingConfigConfig, input);
 }
 
+/** Edits a non-Active PricingConfig row in place — the "review and edit
+ * before activating" step of the calibration recommendation flow. Refuses
+ * to touch an Active row directly (that invariant is only ever changed
+ * through activatePricingConfig's supersede logic): to change an active
+ * price, create a new draft and activate that instead. */
+export async function updatePricingConfigDraft(
+	env: SheetsEnv,
+	id: string,
+	patch: Partial<PricingConfig>,
+	meta: { user?: string; requestId?: string } = {}
+): Promise<PricingConfig> {
+	const target = await findById(env, pricingConfigConfig, id);
+	if (!target) throw new Error(`PricingConfig "${id}" not found`);
+	if (target.Status === 'Active') {
+		throw new Error('Cannot edit an Active PricingConfig directly — create a new draft and activate that instead.');
+	}
+	return updateRow(env, pricingConfigConfig, id, patch, { ...meta, action: 'Draft edited' });
+}
+
 /** Idempotent: seeds the initial $150/on-site-hour active config if no
  * PricingConfig rows exist yet. No-ops otherwise — never overwrites an
  * existing config, including one the owner already changed. */
