@@ -1,0 +1,281 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { findById, listActiveRows } from '../../lib/sheets';
+import { jobConfig } from '../../lib/models/job';
+import { quoteConfig } from '../../lib/models/quote';
+import { quoteItemConfig } from '../../lib/models/quoteItem';
+import { propertyConfig } from '../../lib/models/property';
+import { clientConfig } from '../../lib/models/client';
+import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
+import {
+	JOB_DAY_STATES,
+	PAYMENT_STATUSES,
+	TIME_CATEGORIES,
+	ON_SITE_TIME_CATEGORIES,
+	listJobTimeEntries,
+	summarizeTimeEntries,
+	startTimeSegment,
+	pauseJobDay,
+	correctTimeEntry,
+	addManualTimeEntry,
+	computeJobChecklist,
+	parseChecklistState,
+	setChecklistItemState,
+	completeJobDay,
+} from '../../lib/pricing/jobDay';
+
+const { id } = Astro.params;
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	try {
+		if (action === 'start-segment') {
+			await startTimeSegment(env, id!, String(form.get('category') ?? '') as never);
+		} else if (action === 'pause') {
+			await pauseJobDay(env, id!);
+		} else if (action === 'toggle-checklist') {
+			await setChecklistItemState(env, id!, String(form.get('key') ?? ''), form.get('checked') === 'on');
+		} else if (action === 'correct-entry') {
+			await correctTimeEntry(env, String(form.get('entryId') ?? ''), {
+				startedAt: String(form.get('startedAt') ?? '') || undefined,
+				endedAt: String(form.get('endedAt') ?? '') || undefined,
+				notes: String(form.get('notes') ?? ''),
+			});
+		} else if (action === 'add-manual-entry') {
+			await addManualTimeEntry(env, id!, {
+				category: String(form.get('category') ?? '') as never,
+				startedAt: String(form.get('startedAt') ?? ''),
+				endedAt: String(form.get('endedAt') ?? ''),
+				notes: String(form.get('notes') ?? ''),
+			});
+		} else if (action === 'complete') {
+			await completeJobDay(env, id!, {
+				finalPrice: String(form.get('finalPrice') ?? ''),
+				suppliesCost: String(form.get('suppliesCost') ?? '') || undefined,
+				gas: String(form.get('gas') ?? '') || undefined,
+				otherExpenses: String(form.get('otherExpenses') ?? '') || undefined,
+				callbackRequired: String(form.get('callbackRequired') ?? '') || undefined,
+				callbackCost: String(form.get('callbackCost') ?? '') || undefined,
+				jobNotes: String(form.get('jobNotes') ?? '') || undefined,
+				scopeChanges: String(form.get('scopeChanges') ?? '') || undefined,
+				paymentStatus: String(form.get('paymentStatus') ?? ''),
+			});
+		}
+		return Astro.redirect(`/jobs/${id}`);
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const job = await findById(env, jobConfig, id!);
+if (!job) {
+	return new Response('Job not found', { status: 404 });
+}
+
+const property = job['Property ID'] ? await findById(env, propertyConfig, job['Property ID']) : null;
+const client = property?.['Client ID'] ? await findById(env, clientConfig, property['Client ID']) : null;
+const quote = job['Quote ID'] ? await findById(env, quoteConfig, job['Quote ID']) : null;
+const allQuoteItems = quote ? await listActiveRows(env, quoteItemConfig) : [];
+const quoteItems = allQuoteItems.filter((i) => i['Quote ID'] === job['Quote ID']);
+
+const entries = await listJobTimeEntries(env, id!);
+const activeEntry = entries.find((e) => !e['Ended At']);
+const { byCategoryMinutes, onSiteHours } = summarizeTimeEntries(entries);
+const checklist = computeJobChecklist(quoteItems);
+const checklistState = parseChecklistState(job['Job Checklist (JSON)']);
+const isDone = ['Completed', 'Invoiced', 'Paid'].includes(job['Job Status']);
+const jobDayState = job['Job Day State'] || 'Not Started';
+---
+
+<BaseLayout title="Job Day">
+	<main>
+		{property && <p><a href={`/properties/${property['Property ID']}`}>← Property</a></p>}
+		<h1>
+			Job Day — {property ? (
+				<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
+					{property['Street Address']}, {property.City}
+				</a>
+			) : (
+				job['Property Address'] || job['Property ID']
+			)}
+		</h1>
+		<p>
+			<span class="badge badge-accent">{jobDayState}</span>
+			{' '}<span class="badge">{job['Job Status']}</span>
+			{client && <> — {client['First Name']} {client['Last Name']}{client.Phone && <> — {client.Phone}</>}</>}
+			{job['Scheduled Date'] && <> — Scheduled {job['Scheduled Date']}</>}
+		</p>
+		{error && <p role="alert">{error}</p>}
+
+		<section class="card">
+			<h2>Job info</h2>
+			<ul>
+				{quote && <li>Quote scope: <a href={`/quotes/${quote['Quote ID']}`}>${Number(quote['Final Quoted Price']).toFixed(2)} — view quote</a></li>}
+				{property?.['Access Notes'] && <li>Access notes: {property['Access Notes']}</li>}
+				{property?.['Water Access'] && <li>Water source: {property['Water Access']}</li>}
+				{property?.['Ladder Requirement'] && <li>Ladder requirement: {property['Ladder Requirement']}</li>}
+				{property?.['Pet Notes'] && <li>Pet notes: {property['Pet Notes']}</li>}
+				{property?.['General Notes'] && <li>Property notes: {property['General Notes']}</li>}
+			</ul>
+		</section>
+
+		<section class="card">
+			<h2>Timer</h2>
+			<p>On-site hours so far: <strong>{onSiteHours.toFixed(2)}</strong></p>
+			<ul>
+				{TIME_CATEGORIES.map((cat) => (
+					<li>
+						{cat}: {(byCategoryMinutes[cat] ?? 0)} min
+						{!ON_SITE_TIME_CATEGORIES.includes(cat as (typeof ON_SITE_TIME_CATEGORIES)[number]) && ' (not on-site labor)'}
+					</li>
+				))}
+			</ul>
+			{activeEntry && <p>Currently running: <strong>{activeEntry['Time Category']}</strong> (started {activeEntry['Started At']})</p>}
+
+			{!isDone && (
+				<div class="button-row">
+					{JOB_DAY_STATES.filter((s) => s !== 'Not Started' && s !== 'Paused' && s !== 'Completed').map((s) => (
+						<form method="POST">
+							<input type="hidden" name="_action" value="start-segment" />
+							<input type="hidden" name="category" value={s} />
+							<button type="submit" disabled={jobDayState === s}>{jobDayState === s ? `${s} (running)` : `Start ${s}`}</button>
+						</form>
+					))}
+					<form method="POST">
+						<input type="hidden" name="_action" value="start-segment" />
+						<input type="hidden" name="category" value="Travel" />
+						<button type="submit">Log travel</button>
+					</form>
+					<form method="POST">
+						<input type="hidden" name="_action" value="start-segment" />
+						<input type="hidden" name="category" value="Callback" />
+						<button type="submit">Log callback</button>
+					</form>
+					<form method="POST">
+						<input type="hidden" name="_action" value="pause" />
+						<button type="submit">Pause</button>
+					</form>
+				</div>
+			)}
+			{isDone && (
+				<form method="POST">
+					<input type="hidden" name="_action" value="start-segment" />
+					<input type="hidden" name="category" value="Callback" />
+					<button type="submit">Log callback time</button>
+				</form>
+			)}
+		</section>
+
+		<section class="card">
+			<h2>Time entries</h2>
+			<table>
+				<thead>
+					<tr><th>Category</th><th>Started</th><th>Ended</th><th>Minutes</th><th>Notes</th></tr>
+				</thead>
+				<tbody>
+					{entries.map((e) => (
+						<tr>
+							<td>{e['Time Category']}</td>
+							<td>{e['Started At']}</td>
+							<td>{e['Ended At'] || '—'}</td>
+							<td>{e['Duration Minutes']}</td>
+							<td>
+								<details>
+									<summary>{e.Notes || 'Edit'}</summary>
+									<form method="POST">
+										<input type="hidden" name="_action" value="correct-entry" />
+										<input type="hidden" name="entryId" value={e['Job Time Entry ID']} />
+										<label>Started <input type="datetime-local" name="startedAt" value={e['Started At']?.slice(0, 16)} /></label>
+										<label>Ended <input type="datetime-local" name="endedAt" value={e['Ended At']?.slice(0, 16)} /></label>
+										<label>Notes <input type="text" name="notes" value={e.Notes} /></label>
+										<button type="submit">Save correction</button>
+									</form>
+								</details>
+							</td>
+						</tr>
+					))}
+					{entries.length === 0 && <tr><td colspan="5">No time entries yet.</td></tr>}
+				</tbody>
+			</table>
+
+			<details>
+				<summary>Add manual entry</summary>
+				<form method="POST">
+					<input type="hidden" name="_action" value="add-manual-entry" />
+					<label>
+						Category
+						<select name="category">
+							{TIME_CATEGORIES.map((c) => <option value={c}>{c}</option>)}
+						</select>
+					</label>
+					<label>Started <input type="datetime-local" name="startedAt" required /></label>
+					<label>Ended <input type="datetime-local" name="endedAt" required /></label>
+					<label>Notes <input type="text" name="notes" /></label>
+					<button type="submit">Add entry</button>
+				</form>
+			</details>
+		</section>
+
+		<section class="card">
+			<h2>Job checklist</h2>
+			<ul class="checklist">
+				{checklist.map((item) => (
+					<li>
+						<form method="POST">
+							<input type="hidden" name="_action" value="toggle-checklist" />
+							<input type="hidden" name="key" value={item.key} />
+							<input type="hidden" name="checked" value={checklistState[item.key] ? '' : 'on'} />
+							<button type="submit" class={checklistState[item.key] ? 'checklist-done' : ''}>
+								{checklistState[item.key] ? '✓' : '☐'} {item.label}
+							</button>
+						</form>
+					</li>
+				))}
+			</ul>
+		</section>
+
+		{!isDone ? (
+			<section class="card">
+				<h2>Complete job</h2>
+				<form method="POST">
+					<input type="hidden" name="_action" value="complete" />
+					<label>Final revenue ($) <input type="text" inputmode="decimal" name="finalPrice" class="field-numeric" value={quote?.['Final Quoted Price'] ?? job['Quoted Price ($)']} required /></label>
+					<label>Supplies cost ($) <input type="text" inputmode="decimal" name="suppliesCost" class="field-numeric" /></label>
+					<label>Gas ($) <input type="text" inputmode="decimal" name="gas" class="field-numeric" /></label>
+					<label>Other expenses ($) <input type="text" inputmode="decimal" name="otherExpenses" class="field-numeric" /></label>
+					<label>
+						Callback required?
+						<select name="callbackRequired">
+							<option value="">— unknown —</option>
+							<option value="Y">Yes</option>
+							<option value="N">No</option>
+						</select>
+					</label>
+					<label>Callback cost ($) <input type="text" inputmode="decimal" name="callbackCost" class="field-numeric" /></label>
+					<label>
+						Customer payment status
+						<select name="paymentStatus" required>
+							<option value="">— select —</option>
+							{PAYMENT_STATUSES.map((s) => <option value={s}>{s}</option>)}
+						</select>
+					</label>
+					<label>Scope changes <textarea name="scopeChanges" placeholder="Anything added/removed from the quoted scope"></textarea></label>
+					<label>Job notes <textarea name="jobNotes"></textarea></label>
+					<button type="submit">Complete job</button>
+				</form>
+			</section>
+		) : (
+			<section class="card">
+				<h2>Job completed</h2>
+				<p>Status: <span class="badge">{job['Job Status']}</span> — Payment: {job['Payment Status'] || 'unknown'}</p>
+				<p>Final revenue: ${job['Final Price ($)']} — Actual on-site hours: {job['Actual Time (hrs)']}</p>
+				{job['Job Notes'] && <p>Notes: {job['Job Notes']}</p>}
+				{job['Scope Changes'] && <p>Scope changes: {job['Scope Changes']}</p>}
+				<p><a href={quote ? `/quotes/${quote['Quote ID']}` : '#'}>View quote / update invoicing →</a></p>
+			</section>
+		)}
+	</main>
+</BaseLayout>

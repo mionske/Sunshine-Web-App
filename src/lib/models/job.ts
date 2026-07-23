@@ -32,6 +32,21 @@ export const REVIEW_LEFT_VALUES = ['Yes', 'No', 'Unknown'] as const;
 
 export const MAINTENANCE_FOLLOW_UP_STATUSES = ['Not yet due', 'Due', 'Contacted', 'Scheduled', 'Declined'] as const;
 
+// Job Day state machine (Phase 6) — distinct from Job Status above: this
+// tracks where a single day's on-site visit is right now, not the job's
+// overall lifecycle stage.
+export const JOB_DAY_STATES = [
+	'Not Started',
+	'Setup',
+	'Cleaning',
+	'Inspection',
+	'Pack-up',
+	'Paused',
+	'Completed',
+] as const;
+
+export const PAYMENT_STATUSES = ['Not Paid', 'Partially Paid', 'Paid in Full', 'Unknown'] as const;
+
 // Only these values have a defined interval (see
 // jobLifecycle.ts's computeNextMaintenanceFollowUpDate) — matches
 // Properties' "Desired Maintenance Frequency" options. Anything else
@@ -66,6 +81,7 @@ export const jobSchema = z
 		'Quote ID': blank(),
 		'Opportunity ID': blank(),
 		'Property ID': blank(),
+		'Scheduled Date': blank(),
 		'Job Status': z.enum(JOB_STATUSES).default('Unscheduled'),
 		// Free strings rather than a strict z.enum (unlike Job Status): these
 		// are informational classification fields most existing rows will
@@ -113,6 +129,16 @@ export const jobSchema = z
 		'Next Maintenance Follow-up Date': blank(),
 		'Maintenance Follow-up Status': blank(),
 		'QB Invoice Link': blank(),
+		// Phase 6 (Job-Day Mode) additions. Job Day State is always a plain
+		// blank()/free string here (not a strict enum) for the same reason as
+		// Record Classification etc. above: every pre-existing row lacks it,
+		// and a strict enum would force a default value onto rows this app
+		// never actually walked through Job Day mode for.
+		'Job Day State': blank(),
+		'Job Checklist (JSON)': blank(),
+		'Job Notes': blank(),
+		'Scope Changes': blank(),
+		'Payment Status': blank(),
 		'Archived At': blank(),
 	})
 	.catchall(z.union([z.string(), z.number(), z.boolean(), z.null()]));

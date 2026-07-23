@@ -25,6 +25,7 @@ if (Astro.request.method === 'POST') {
 			const jobId = String(form.get('jobId') ?? '');
 			const status = String(form.get('status') ?? '') as (typeof JOB_STATUSES)[number];
 			await updateJobStatus(env, jobId, status, {
+				'Scheduled Date': String(form.get('scheduledDate') ?? ''),
 				'Actual Time (hrs)': String(form.get('actualTime') ?? ''),
 				'Final Price ($)': String(form.get('finalPrice') ?? ''),
 				'QB Invoice Link': String(form.get('qbInvoiceLink') ?? ''),
@@ -126,6 +127,7 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 		{job && (
 			<div class="card">
 				<h2>Job — <span class="badge">{job['Job Status']}</span></h2>
+				<p><a href={`/jobs/${job['Job ID']}`}>Open Job Day →</a></p>
 				<form method="POST">
 					<input type="hidden" name="_action" value="update-job-status" />
 					<input type="hidden" name="jobId" value={job['Job ID']} />
@@ -135,6 +137,7 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 							{JOB_STATUSES.map((s) => <option value={s} selected={s === job['Job Status']}>{s}</option>)}
 						</select>
 					</label>
+					<label>Scheduled date <input type="date" name="scheduledDate" value={job['Scheduled Date']} /></label>
 					<label>Actual time (hrs) <input type="text" name="actualTime" value={job['Actual Time (hrs)']} /></label>
 					<label>Final price ($) <input type="text" name="finalPrice" value={job['Final Price ($)']} /></label>
 					<label>QB Invoice Link <input type="url" name="qbInvoiceLink" value={job['QB Invoice Link']} placeholder="https://..." /></label>

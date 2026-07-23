@@ -276,6 +276,48 @@ tr:last-child td {
 	line-height: 1;
 }
 
+/* Job Day mode — large touch targets for one-handed phone use in the field. */
+.button-row {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+}
+
+.button-row form {
+	margin: 0;
+}
+
+.button-row button {
+	min-height: 3rem;
+	min-width: 8rem;
+}
+
+.checklist {
+	list-style: none;
+	padding: 0;
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.checklist form {
+	margin: 0;
+}
+
+.checklist button {
+	width: 100%;
+	text-align: left;
+	min-height: 3rem;
+	background: #fff;
+	color: var(--color-navy);
+	border-color: var(--color-tan);
+}
+
+.checklist button.checklist-done {
+	background: var(--color-navy);
+	color: var(--color-cream-text);
+}
+
 .stat-label {
 	display: block;
 	font-family: var(--font-heading);

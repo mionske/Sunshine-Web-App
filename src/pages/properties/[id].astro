@@ -441,7 +441,10 @@ const timeline = activityRows
 							<td>{perf.actualHours.toFixed(2)}</td>
 							<td>${perf.actualRevenuePerLaborHour.toFixed(2)}</td>
 							<td>{job['Callback Required (Y/N)']}</td>
-							<td>{job['Quote ID'] && <a href={`/quotes/${job['Quote ID']}`}>View quote</a>}</td>
+							<td>
+								{job['Quote ID'] && <a href={`/quotes/${job['Quote ID']}`}>View quote</a>}
+								{' '}<a href={`/jobs/${job['Job ID']}`}>Job Day</a>
+							</td>
 						</tr>
 					))}
 					{jobRows.length === 0 && <tr><td colspan="7">No jobs logged yet.</td></tr>}

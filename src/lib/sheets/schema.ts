@@ -283,6 +283,18 @@ export const TAB_SCHEMAS: Record<string, string[]> = {
 		'Updated At',
 		'Archived At',
 	],
+	JobTimeEntries: [
+		'Job Time Entry ID',
+		'Job ID',
+		'Time Category',
+		'Started At',
+		'Ended At',
+		'Duration Minutes',
+		'Notes',
+		'Created At',
+		'Updated At',
+		'Archived At',
+	],
 };
 
 /** Creates any tab from TAB_SCHEMAS that doesn't exist yet, with its header

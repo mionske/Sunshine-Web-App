@@ -36,6 +36,12 @@ const JOBS_HEADERS = [
 	'Next Maintenance Follow-up Date',
 	'Maintenance Follow-up Status',
 	'QB Invoice Link',
+	'Scheduled Date',
+	'Job Day State',
+	'Job Checklist (JSON)',
+	'Job Notes',
+	'Scope Changes',
+	'Payment Status',
 ];
 
 const ACTIVITY_LOG_HEADERS = [

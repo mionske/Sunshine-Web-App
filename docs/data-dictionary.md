@@ -186,6 +186,71 @@ never re-computed afterward), Maintenance Follow-up Status (Not yet due/
 Due/Contacted/Scheduled/Declined — manual, no auto-transitions),
 QB Invoice Link (URL, link only — no QuickBooks API integration).
 
+Scheduled Date (set by `acceptQuote`/`createJobFromQuote` when the quote is
+accepted with a date, and editable afterward from the Quote page's Job
+form — previously accepted-but-scheduled jobs only recorded this in the
+Job Status transition and dropped the actual date on the floor).
+
+**Job Day mode fields (Phase 6):** Job Day State (Not Started/Setup/
+Cleaning/Inspection/Pack-up/Paused/Completed — a free string, not an
+enforced enum, for the same reason as the classification fields above;
+tracks the current on-site timer state and is distinct from Job Status),
+Job Checklist (JSON) (a `{checklistKey: boolean}` blob — see below),
+Job Notes, Scope Changes (free text, captured at job completion), Payment
+Status (Not Paid/Partially Paid/Paid in Full/Unknown — records what the
+owner actually knows about payment independent of Job Status; completing
+a Job Day with Payment Status "Paid in Full" moves Job Status straight to
+Paid, otherwise to Completed).
+
+## JobTimeEntries
+Job Time Entry ID, Job ID, Time Category, Started At, Ended At,
+Duration Minutes, Notes, Created At, Updated At, Archived At.
+
+Time Category is one of Setup/Cleaning/Inspection/Pack-up/Travel/
+Off-Site Admin/Callback. Only the first four count as on-site labor
+toward the $150/on-site-hour target — this is exactly what feeds Jobs'
+existing Setup/Cleaning/Inspection/Pack-up Time and Actual Time (hrs)
+columns at completion (`lib/pricing/jobDay.ts`'s `completeJobDay`), so no
+new "actual hours" column was needed.
+
+A job can have any number of entries over its lifetime — starting a new
+segment (`startTimeSegment`) always closes out whatever segment is
+currently open for that Job ID first, so there is never more than one
+active (no `Ended At`) entry per job at a time. This is deliberately
+forgiving rather than strict: a forgotten timer just gets silently closed
+by the next tap instead of blocking the owner from moving on. A manual
+correction form (`correctTimeEntry`) lets the owner fix a segment's
+timestamps after the fact, and `addManualTimeEntry` lets one be added
+without ever running the live timer (used for Travel/Off-Site Admin/
+Callback logged after the fact, and for historical/import data).
+
+## Job Day mode (`/jobs/[id]`, `lib/pricing/jobDay.ts`)
+A simplified mobile Job Day screen for a solo owner working one job at a
+time — not a workforce-management system. Shows the client/property/
+access notes/water source/ladder requirement/pet notes pulled from
+Property, the linked Quote's scope and total, a timer with one button per
+on-site category plus Travel/Callback logging and Pause, the running
+time-entry log with inline correction, a checklist, and a completion
+form.
+
+The checklist (`computeJobChecklist`) is generated from the job's
+QuoteItems rather than being a fixed list: exterior/interior/screens/
+tracks/specialty-glass items only appear when the quoted scope actually
+includes them (by Service Code), alongside always-present fixed items
+(confirm scope/access, final inspection, client walkthrough, equipment
+packed, payment or invoice handled). A job with no linked quote scope
+gets the full checklist rather than guessing what doesn't apply.
+Checked/unchecked state is a plain toggle persisted to Jobs' Job
+Checklist (JSON) column.
+
+Completing the job (`completeJobDay`) closes any still-running segment,
+sums JobTimeEntries into Jobs' existing per-category Time columns and
+Actual Time (hrs) (on-site categories only), computes Total Job Cost and
+Net Profit from the entered direct costs, and calls the existing
+`updateJobStatus` — reusing its maintenance-follow-up prefill and
+calibration-recalculation-on-completion logic rather than duplicating
+it. Never touches PricingConfig.
+
 A Job counts toward calibration only once Status is Completed/Invoiced/Paid
 AND actual labor time, final revenue, and callback info are all entered
 (`calibrationExclusionReasons()` in `lib/pricing/calibration.ts` explains

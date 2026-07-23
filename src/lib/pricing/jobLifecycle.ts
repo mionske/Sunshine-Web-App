@@ -48,6 +48,7 @@ async function createJobFromQuote(env: SheetsEnv, quote: Quote, scheduledDate?: 
 		'Window Count': property?.['Total Window Units'] || '',
 		'Quote ID': quote['Quote ID'],
 		'Opportunity ID': quote['Opportunity ID'],
+		'Scheduled Date': scheduledDate ?? '',
 		'Job Status': scheduledDate ? 'Scheduled' : 'Unscheduled',
 		Version: '1',
 	});
