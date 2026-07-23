@@ -389,6 +389,39 @@ twice returns the existing Quote instead of creating a duplicate.
 Activity ID, Entity Type, Entity ID, Action, Previous Value, New Value,
 User, Timestamp, Request ID, Notes.
 
+## Dashboard (`/`) — follow-up reminders (Phase 8)
+
+No separate Tasks tab: every reminder type the spec calls for (Quote
+follow-up, Walkthrough follow-up, Schedule accepted job, Collect payment,
+Request review, Seasonal service reminder) is fully derivable from fields
+that already exist, so a new tab would only duplicate state that could
+drift out of sync. Purely surfaced in the app — nothing here sends an
+email or text automatically.
+
+- **Quote follow-up** — Pipeline rows in an open Stage with `Next
+  Follow-up Date` on or before today.
+- **Walkthrough follow-up** — Walkthroughs with Status "Completed" and no
+  Quote ID (status-derived, no arbitrary "days since" threshold).
+- **Schedule accepted job** — Jobs with Job Status "Unscheduled".
+- **Collect payment** — Jobs Completed/Invoiced with Payment Status not
+  "Paid in Full".
+- **Request review** — Jobs Completed/Invoiced/Paid with no Review
+  Requested At, or requested but Review Left still blank/Unknown.
+- **Seasonal service reminder** — Jobs whose Next Maintenance Follow-up
+  Date has arrived (set at job completion — see Jobs above) *and*
+  Properties whose Next Recommended Service Date has arrived (Phase 9,
+  for properties that never generated a per-job follow-up date).
+
+Dashboard sections: Today (the six reminder buckets above, condensed),
+Pipeline (stage counts + accepted-jobs-awaiting-scheduling), Recent
+Performance (this calendar month's completed jobs/revenue/on-site hours/
+revenue-per-hour/callbacks), Calibration (last snapshot's confidence/
+target/observed average+median/excluded count, linking to `/calibration`
+for the full filtered view — never an automatic pricing change), and Data
+Quality (jobs missing labor time/direct costs/callback info/final
+revenue, properties missing window counts, walkthroughs not converted or
+closed — each with direct links to the record).
+
 ## Historical-entry wizard
 `/historical-entry` (linked from the Dashboard and each Property detail
 page) — a guided multi-step form for entering properties/jobs that

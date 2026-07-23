@@ -6,18 +6,30 @@ import { pipelineConfig } from '../lib/models/pipeline';
 import { clientConfig } from '../lib/models/client';
 import { propertyConfig } from '../lib/models/property';
 import { jobConfig } from '../lib/models/job';
-import { getLatestCalibrationSnapshot } from '../lib/pricing/calibration';
+import { walkthroughConfig } from '../lib/models/walkthrough';
+import { quoteConfig } from '../lib/models/quote';
+import { calibrationExclusionReasons, getLatestCalibrationSnapshot, isCalibrationEligible, mean, median } from '../lib/pricing/calibration';
 import { getActivePricingConfig } from '../lib/pricing/config';
 import { googleMapsUrl, fullAddress } from '../lib/mapsLink';
+
+// Phase 8 (follow-up reminders) and the dashboard redesign are the same
+// page: every reminder type the spec asks for (Quote follow-up,
+// Walkthrough follow-up, Schedule accepted job, Collect payment, Request
+// review, Seasonal service reminder) is fully derivable from fields
+// that already exist on Pipeline/Walkthroughs/Jobs/Properties, so no
+// separate Tasks tab was needed — this only ever surfaces reminders in
+// the app, never sends anything automatically.
 
 const today = new Date().toISOString().slice(0, 10);
 const currentMonthPrefix = today.slice(0, 7); // YYYY-MM
 
-const [opportunities, clients, properties, jobs, snapshot, pricingConfig] = await Promise.all([
+const [opportunities, clients, properties, jobs, walkthroughs, quotes, snapshot, pricingConfig] = await Promise.all([
 	listActiveRows(env, pipelineConfig),
 	listActiveRows(env, clientConfig),
 	listActiveRows(env, propertyConfig),
 	listActiveRows(env, jobConfig),
+	listActiveRows(env, walkthroughConfig),
+	listActiveRows(env, quoteConfig),
 	getLatestCalibrationSnapshot(env),
 	// Residential explicitly, as the primary segment — a single dashboard
 	// stat can't represent every Property Type's target rate at once; full
@@ -28,36 +40,85 @@ const [opportunities, clients, properties, jobs, snapshot, pricingConfig] = awai
 const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
 const propertyById = Object.fromEntries(properties.map((p) => [p['Property ID'], p]));
 
-const OPEN_STAGES = new Set(['New Lead', 'Contacted', 'Walkthrough Scheduled', 'Quote Draft', 'Quote Sent', 'Follow-up']);
-const followUps = opportunities
-	.filter((o) => OPEN_STAGES.has(o.Stage) && o['Next Follow-up Date'] && o['Next Follow-up Date'] <= today)
-	.sort((a, b) => a['Next Follow-up Date'].localeCompare(b['Next Follow-up Date']))
-	.map((o) => ({
-		opportunity: o,
-		clientName: clientById[o['Client ID']]
-			? `${clientById[o['Client ID']]['First Name']} ${clientById[o['Client ID']]['Last Name']}`
-			: o['Client ID'],
-		propertyAddress: propertyById[o['Property ID']] ? fullAddress(propertyById[o['Property ID']]) : '',
-		fallbackLabel: o['Property ID'],
-	}));
+function clientNameFor(clientId: string): string {
+	const c = clientById[clientId];
+	return c ? `${c['First Name']} ${c['Last Name']}` : clientId;
+}
+function addressFor(propertyId: string): string {
+	const p = propertyById[propertyId];
+	return p ? fullAddress(p) : '';
+}
 
-const thisMonthJobs = jobs.filter((j) => (j['Date Completed'] || '').startsWith(currentMonthPrefix));
-const thisMonthRevenue = thisMonthJobs.reduce((sum, j) => {
-	const revenue = Number(j['Final Price ($)']) || Number((j as Record<string, string>)['Total Revenue ($)']) || 0;
-	return sum + revenue;
-}, 0);
+const COMPLETED_JOB_STATUSES = new Set(['Completed', 'Invoiced', 'Paid']);
+const completedJobs = jobs.filter((j) => COMPLETED_JOB_STATUSES.has(j['Job Status']));
+
+// --- Today -----------------------------------------------------------------
+
+const OPEN_PIPELINE_STAGES = new Set(['New Lead', 'Contacted', 'Walkthrough Scheduled', 'Quote Draft', 'Quote Sent', 'Follow-up']);
+const quoteFollowUps = opportunities
+	.filter((o) => OPEN_PIPELINE_STAGES.has(o.Stage) && o['Next Follow-up Date'] && o['Next Follow-up Date'] <= today)
+	.sort((a, b) => a['Next Follow-up Date'].localeCompare(b['Next Follow-up Date']));
+
+const scheduledJobsToday = jobs.filter((j) => j['Job Status'] === 'Scheduled' && j['Scheduled Date'] && j['Scheduled Date'] <= today);
+
+// Walkthrough follow-up: a walkthrough that happened but never became a
+// quote — no arbitrary "days since" threshold, purely status-derived.
+const walkthroughFollowUps = walkthroughs.filter((w) => w.Status === 'Completed' && !w['Quote ID']);
+
+// Collect payment: work is done but payment isn't confirmed in full yet.
+const unpaidJobs = jobs.filter(
+	(j) => (j['Job Status'] === 'Completed' || j['Job Status'] === 'Invoiced') && j['Payment Status'] !== 'Paid in Full'
+);
+
+// Request review: completed work with no review requested yet, or
+// requested but no answer recorded.
+const reviewReminders = jobs.filter(
+	(j) => COMPLETED_JOB_STATUSES.has(j['Job Status']) && (!j['Review Requested At'] || (!j['Review Left'] || j['Review Left'] === 'Unknown'))
+);
+
+// Seasonal service reminder: Jobs' own maintenance follow-up date/status
+// (set at job completion) plus Properties' Next Recommended Service Date
+// (Phase 9) for properties a follow-up date was never generated for.
+const CLOSED_MAINTENANCE_STATUSES = new Set(['Scheduled', 'Declined']);
+const maintenanceFollowUps = jobs
+	.filter((j) => j['Next Maintenance Follow-up Date'] && j['Next Maintenance Follow-up Date'] <= today && !CLOSED_MAINTENANCE_STATUSES.has(j['Maintenance Follow-up Status']))
+	.sort((a, b) => a['Next Maintenance Follow-up Date'].localeCompare(b['Next Maintenance Follow-up Date']));
+const propertySeasonalReminders = properties.filter((p) => p['Next Recommended Service Date'] && p['Next Recommended Service Date'] <= today);
+
+// --- Pipeline ----------------------------------------------------------------
+
+const newLeadCount = opportunities.filter((o) => o.Stage === 'New Lead').length;
+const walkthroughScheduledCount = opportunities.filter((o) => o.Stage === 'Walkthrough Scheduled').length;
+const quotesAwaitingResponse = quotes.filter((q) => q['Quote Status'] === 'Sent').length;
+const acceptedJobsAwaitingScheduling = jobs.filter((j) => j['Job Status'] === 'Unscheduled');
+
+// --- Recent performance (this calendar month) -------------------------------
+
+const thisMonthJobs = completedJobs.filter((j) => (j['Date Completed'] || '').startsWith(currentMonthPrefix));
+const thisMonthRevenue = thisMonthJobs.reduce((sum, j) => sum + (Number(j['Final Price ($)']) || Number((j as Record<string, string>)['Total Revenue ($)']) || 0), 0);
+const thisMonthOnSiteHours = thisMonthJobs.reduce((sum, j) => sum + (Number(j['Actual Time (hrs)']) || 0), 0);
+const thisMonthRevenuePerHour = thisMonthOnSiteHours > 0 ? thisMonthRevenue / thisMonthOnSiteHours : 0;
+const thisMonthCallbacks = thisMonthJobs.filter((j) => j['Callback Required (Y/N)']?.toUpperCase() === 'Y').length;
 
 const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
 
-const CLOSED_FOLLOW_UP_STATUSES = new Set(['Scheduled', 'Declined']);
-const maintenanceFollowUps = jobs
-	.filter(
-		(j) =>
-			j['Next Maintenance Follow-up Date'] &&
-			j['Next Maintenance Follow-up Date'] <= today &&
-			!CLOSED_FOLLOW_UP_STATUSES.has(j['Maintenance Follow-up Status'])
-	)
-	.sort((a, b) => a['Next Maintenance Follow-up Date'].localeCompare(b['Next Maintenance Follow-up Date']));
+// --- Calibration summary -----------------------------------------------------
+
+const eligibleJobs = completedJobs.filter(isCalibrationEligible);
+const excludedCount = completedJobs.length - eligibleJobs.length;
+const perHourRates = eligibleJobs.map((j) => Number(j['Final Price ($)']) || 0).map((revenue, i) => {
+	const hours = Number(eligibleJobs[i]['Actual Time (hrs)']) || 0;
+	return hours > 0 ? revenue / hours : 0;
+});
+
+// --- Data quality ------------------------------------------------------------
+
+const jobsMissingLaborTime = completedJobs.filter((j) => !(Number(j['Actual Time (hrs)']) > 0));
+const jobsMissingDirectCosts = completedJobs.filter((j) => !(Number(j['Total Job Cost']) > 0) && !(Number(j['Supplies Cost']) || Number(j.Gas) || Number(j['Other Expenses'])));
+const jobsMissingCallbackInfo = completedJobs.filter((j) => !j['Callback Required (Y/N)']);
+const jobsMissingFinalRevenue = completedJobs.filter((j) => !(Number(j['Final Price ($)']) > 0) && !(Number((j as Record<string, string>)['Total Revenue ($)']) > 0));
+const propertiesMissingCounts = properties.filter((p) => !(Number(p['Total Window Units']) > 0));
+const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted to Quote' && w.Status !== 'Cancelled');
 ---
 
 <BaseLayout title="Dashboard">
@@ -65,72 +126,190 @@ const maintenanceFollowUps = jobs
 		<h1>Dashboard</h1>
 		<p><a href="/historical-entry">+ Add historical record</a></p>
 
-		<div class="card">
-			<h2>Follow-ups needed ({followUps.length})</h2>
-			{followUps.length === 0 ? (
-				<p>Nothing overdue.</p>
-			) : (
+		<section class="card">
+			<h2>Today</h2>
+			<h3>Scheduled jobs ({scheduledJobsToday.length})</h3>
+			{scheduledJobsToday.length === 0 ? <p>None due today.</p> : (
 				<ul>
-					{followUps.map(({ opportunity, clientName, propertyAddress, fallbackLabel }) => (
+					{scheduledJobsToday.map((j) => (
 						<li>
-							<strong>{opportunity['Next Follow-up Date']}</strong> —{' '}
-							{propertyAddress ? (
-								<a href={googleMapsUrl(propertyAddress)} target="_blank" rel="noopener noreferrer">{propertyAddress}</a>
-							) : (
-								fallbackLabel
-							)}
-							{' '}({clientName}) — <span class="badge">{opportunity.Stage}</span>
+							{j['Property Address'] && <a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>}
+							{' · '}<a href={`/jobs/${j['Job ID']}`}>Job Day</a>
 						</li>
 					))}
 				</ul>
 			)}
-		</div>
 
-		<div class="card">
-			<h2>Maintenance follow-ups due ({maintenanceFollowUps.length})</h2>
-			{maintenanceFollowUps.length === 0 ? (
+			<h3>Walkthroughs needing follow-up ({walkthroughFollowUps.length})</h3>
+			{walkthroughFollowUps.length === 0 ? <p>Nothing waiting.</p> : (
+				<ul>
+					{walkthroughFollowUps.map((w) => (
+						<li>{clientNameFor(w['Client ID'])} — {addressFor(w['Property ID'])} · <a href={`/walkthroughs/${w['Walkthrough ID']}`}>view</a></li>
+					))}
+				</ul>
+			)}
+
+			<h3>Open follow-ups ({quoteFollowUps.length})</h3>
+			{quoteFollowUps.length === 0 ? <p>Nothing overdue.</p> : (
+				<ul>
+					{quoteFollowUps.map((o) => (
+						<li>
+							<strong>{o['Next Follow-up Date']}</strong> —{' '}
+							{addressFor(o['Property ID']) ? (
+								<a href={googleMapsUrl(addressFor(o['Property ID']))} target="_blank" rel="noopener noreferrer">{addressFor(o['Property ID'])}</a>
+							) : (
+								o['Property ID']
+							)}
+							{' '}({clientNameFor(o['Client ID'])}) — <span class="badge">{o.Stage}</span>
+						</li>
+					))}
+				</ul>
+			)}
+
+			<h3>Unpaid jobs ({unpaidJobs.length})</h3>
+			{unpaidJobs.length === 0 ? <p>Nothing outstanding.</p> : (
+				<ul>
+					{unpaidJobs.map((j) => (
+						<li>
+							{j['Property Address']} — <span class="badge">{j['Payment Status'] || 'unknown'}</span> · <a href={`/quotes/${j['Quote ID']}`}>view</a>
+						</li>
+					))}
+				</ul>
+			)}
+		</section>
+
+		<section class="card">
+			<h2>Pipeline</h2>
+			<ul>
+				<li>New leads: {newLeadCount}</li>
+				<li>Walkthroughs scheduled: {walkthroughScheduledCount}</li>
+				<li>Quotes awaiting response: {quotesAwaitingResponse}</li>
+				<li>Accepted jobs awaiting scheduling: {acceptedJobsAwaitingScheduling.length}</li>
+			</ul>
+			{acceptedJobsAwaitingScheduling.length > 0 && (
+				<ul>
+					{acceptedJobsAwaitingScheduling.map((j) => (
+						<li>{j['Property Address']} · <a href={`/quotes/${j['Quote ID']}`}>schedule</a></li>
+					))}
+				</ul>
+			)}
+		</section>
+
+		<section class="card">
+			<h2>Recent performance (this month)</h2>
+			<div style="display: flex; gap: 3rem; flex-wrap: wrap;">
+				<div><span class="stat">{thisMonthJobs.length}</span><span class="stat-label">Completed jobs</span></div>
+				<div><span class="stat">${thisMonthRevenue.toFixed(0)}</span><span class="stat-label">Revenue</span></div>
+				<div><span class="stat">{thisMonthOnSiteHours.toFixed(1)}</span><span class="stat-label">On-site hours</span></div>
+				<div><span class="stat">${thisMonthRevenuePerHour.toFixed(2)}</span><span class="stat-label">Revenue/on-site hr</span></div>
+				<div><span class="stat">{thisMonthCallbacks}</span><span class="stat-label">Callbacks</span></div>
+			</div>
+		</section>
+
+		<section class="card">
+			<h2>Calibration</h2>
+			{snapshot ? (
+				<>
+					<p><span class="badge badge-accent">{snapshot['Confidence Level']}</span> — {snapshot['Comparable Job Count']} comparable jobs — {excludedCount} excluded</p>
+					<p>
+						Target: ${targetHourlyRate}/on-site hour — Observed average: ${Number(snapshot['Observed Revenue Per Hour']).toFixed(2)}/hour
+						{' '}— Observed median: ${median(perHourRates).toFixed(2)}/hour
+					</p>
+					<p class="field-hint">No automatic pricing changes — see <a href="/calibration">Calibration</a> to review and, if warranted, create a draft PricingConfig for explicit review and activation.</p>
+				</>
+			) : (
+				<p>No calibration data yet — <a href="/calibration">recalculate</a> once jobs are completed.</p>
+			)}
+		</section>
+
+		<section class="card">
+			<h2>Data quality</h2>
+			<ul>
+				<li>
+					Jobs missing labor time: {jobsMissingLaborTime.length}
+					{jobsMissingLaborTime.length > 0 && (
+						<>
+							{' — '}
+							{jobsMissingLaborTime.map((j, i) => (
+								<>
+									{i > 0 && ', '}
+									<a href={`/jobs/${j['Job ID']}`}>{j['Property Address'] || j['Job ID']}</a>
+								</>
+							))}
+						</>
+					)}
+				</li>
+				<li>Jobs missing direct costs: {jobsMissingDirectCosts.length}</li>
+				<li>Jobs missing callback information: {jobsMissingCallbackInfo.length}</li>
+				<li>Jobs missing final revenue: {jobsMissingFinalRevenue.length}</li>
+				<li>
+					Properties missing window counts: {propertiesMissingCounts.length}
+					{propertiesMissingCounts.length > 0 && (
+						<>
+							{' — '}
+							{propertiesMissingCounts.map((p, i) => (
+								<>
+									{i > 0 && ', '}
+									<a href={`/properties/${p['Property ID']}`}>{p['Street Address'] || p['Property ID']}</a>
+								</>
+							))}
+						</>
+					)}
+				</li>
+				<li>
+					Walkthroughs not converted or closed: {walkthroughsNotClosed.length}
+					{walkthroughsNotClosed.length > 0 && (
+						<>
+							{' — '}
+							{walkthroughsNotClosed.map((w, i) => (
+								<>
+									{i > 0 && ', '}
+									<a href={`/walkthroughs/${w['Walkthrough ID']}`}>{addressFor(w['Property ID']) || w['Walkthrough ID']}</a>
+								</>
+							))}
+						</>
+					)}
+				</li>
+			</ul>
+		</section>
+
+		<section class="card">
+			<h2>Maintenance follow-ups due ({maintenanceFollowUps.length + propertySeasonalReminders.length})</h2>
+			{maintenanceFollowUps.length === 0 && propertySeasonalReminders.length === 0 ? (
 				<p>Nothing due.</p>
 			) : (
 				<ul>
 					{maintenanceFollowUps.map((j) => (
 						<li>
 							<strong>{j['Next Maintenance Follow-up Date']}</strong> —{' '}
-							{j['Property Address'] && (
-								<a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>
-							)}
-							{' '}—{' '}
-							<span class="badge">{j['Maintenance Follow-up Status'] || 'Not yet due'}</span>
+							{j['Property Address'] && <a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>}
+							{' '}— <span class="badge">{j['Maintenance Follow-up Status'] || 'Not yet due'}</span>
+							{' · '}<a href={`/quotes/${j['Quote ID']}`}>view job</a>
+						</li>
+					))}
+					{propertySeasonalReminders.map((p) => (
+						<li>
+							<strong>{p['Next Recommended Service Date']}</strong> —{' '}
+							<a href={googleMapsUrl(fullAddress(p))} target="_blank" rel="noopener noreferrer">{fullAddress(p)}</a>
+							{' '}(planning estimate) · <a href={`/properties/${p['Property ID']}`}>view property</a>
+						</li>
+					))}
+				</ul>
+			)}
+		</section>
+
+		<section class="card">
+			<h2>Requesting reviews ({reviewReminders.length})</h2>
+			{reviewReminders.length === 0 ? <p>Nothing pending.</p> : (
+				<ul>
+					{reviewReminders.map((j) => (
+						<li>
+							{j['Property Address']} — {j['Review Requested At'] ? `requested ${j['Review Requested At']}, no answer yet` : 'not yet requested'}
 							{' · '}<a href={`/quotes/${j['Quote ID']}`}>view job</a>
 						</li>
 					))}
 				</ul>
 			)}
-		</div>
-
-		<div class="card">
-			<h2>This month</h2>
-			<div style="display: flex; gap: 3rem;">
-				<div>
-					<span class="stat">{thisMonthJobs.length}</span>
-					<span class="stat-label">Job{thisMonthJobs.length === 1 ? '' : 's'} completed</span>
-				</div>
-				<div>
-					<span class="stat">${thisMonthRevenue.toFixed(0)}</span>
-					<span class="stat-label">Revenue</span>
-				</div>
-			</div>
-		</div>
-
-		<div class="card">
-			<h2>Calibration</h2>
-			{snapshot ? (
-				<>
-					<p><span class="badge badge-accent">{snapshot['Confidence Level']}</span> — {snapshot['Comparable Job Count']} comparable jobs</p>
-					<p>Target: ${targetHourlyRate}/on-site hour — Observed: ${Number(snapshot['Observed Revenue Per Hour']).toFixed(2)}/hour</p>
-				</>
-			) : (
-				<p>No calibration data yet — <a href="/calibration">recalculate</a> once jobs are completed.</p>
-			)}
-		</div>
+		</section>
 	</main>
 </BaseLayout>
