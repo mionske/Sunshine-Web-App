@@ -3,13 +3,24 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { createRow, findById, listActiveRows, logActivity, updateRow } from '../../lib/sheets';
 import { readRows } from '../../lib/sheets/rows';
-import { propertyConfig, PROPERTY_TYPES } from '../../lib/models/property';
+import {
+	propertyConfig,
+	PROPERTY_TYPES,
+	ACCESS_DIFFICULTY_OPTIONS,
+	WATER_ACCESS_OPTIONS,
+	EQUIPMENT_SUITABILITY_OPTIONS,
+	LADDER_REQUIREMENT_OPTIONS,
+	WINDOW_CONDITION_OPTIONS,
+	joinCheckboxValues,
+	checkboxValueSelected,
+} from '../../lib/models/property';
 import { clientConfig } from '../../lib/models/client';
 import { quoteConfig } from '../../lib/models/quote';
 import { jobConfig, type Job } from '../../lib/models/job';
 import { pipelineConfig, type Opportunity } from '../../lib/models/pipeline';
 import { getActivePricingConfig } from '../../lib/pricing/config';
 import { computeJobPerformance, computePropertyPerformance } from '../../lib/pricing/calibration';
+import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
 
 const { id } = Astro.params;
 let error: string | null = null;
@@ -28,15 +39,15 @@ if (Astro.request.method === 'POST') {
 				'Year Built': String(form.get('yearBuilt') ?? ''),
 				'Square Footage': String(form.get('squareFootage') ?? ''),
 				Stories: String(form.get('stories') ?? ''),
-				'Overall Access Difficulty': String(form.get('overallAccessDifficulty') ?? ''),
-				'Roof Access Difficulty': String(form.get('roofAccessDifficulty') ?? ''),
-				'Water Access': String(form.get('waterAccess') ?? ''),
-				'Equipment Suitability': String(form.get('equipmentSuitability') ?? ''),
-				'Water-Fed Pole Suitable (Y/N)': String(form.get('waterFedPoleSuitable') ?? ''),
-				'Ladder Requirement': String(form.get('ladderRequirement') ?? ''),
-				'Hard Water History (Y/N)': String(form.get('hardWaterHistory') ?? ''),
-				'Construction Debris (Y/N)': String(form.get('constructionDebris') ?? ''),
-				'Window Condition': String(form.get('windowCondition') ?? ''),
+				'Overall Access Difficulty': joinCheckboxValues(form.getAll('overallAccessDifficulty').map(String)),
+				'Roof Access Difficulty': joinCheckboxValues(form.getAll('roofAccessDifficulty').map(String)),
+				'Water Access': joinCheckboxValues(form.getAll('waterAccess').map(String)),
+				'Equipment Suitability': joinCheckboxValues(form.getAll('equipmentSuitability').map(String)),
+				'Water-Fed Pole Suitable (Y/N)': form.get('waterFedPoleSuitable') === 'on' ? 'Y' : 'N',
+				'Ladder Requirement': joinCheckboxValues(form.getAll('ladderRequirement').map(String)),
+				'Hard Water History (Y/N)': form.get('hardWaterHistory') === 'on' ? 'Y' : 'N',
+				'Construction Debris (Y/N)': form.get('constructionDebris') === 'on' ? 'Y' : 'N',
+				'Window Condition': joinCheckboxValues(form.getAll('windowCondition').map(String)),
 				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
 				'Total Glass Panes': String(form.get('totalGlassPanes') ?? ''),
 				'Count - Double Hung': String(form.get('countDoubleHung') ?? ''),
@@ -143,7 +154,11 @@ const timeline = activityRows
 <BaseLayout title={property['Street Address']}>
 	<main>
 		<p><a href={`/clients/${property['Client ID']}`}>← Client</a></p>
-		<h1>{property['Street Address']}, {property.City}</h1>
+		<h1>
+			<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
+				{property['Street Address']}, {property.City}
+			</a>
+		</h1>
 		<p><span class="badge badge-accent">{propertyStatus}</span></p>
 		{error && <p role="alert">{error}</p>}
 
@@ -154,7 +169,9 @@ const timeline = activityRows
 				{property['Building/Complex Name'] && <> — {property['Building/Complex Name']}{property['Unit Identifier'] && ` Unit ${property['Unit Identifier']}`}</>}
 			</p>
 			<p>
-				{property['Street Address']}, {property.City}, {property.State} {property.Zip}
+				<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
+					{property['Street Address']}, {property.City}, {property.State} {property.Zip}
+				</a>
 			</p>
 			{client && (
 				<p>
@@ -210,19 +227,85 @@ const timeline = activityRows
 
 				<fieldset>
 					<legend>Access &amp; equipment</legend>
-					<label>Overall access difficulty <input type="text" name="overallAccessDifficulty" value={property['Overall Access Difficulty']} /></label>
-					<label>Roof access difficulty <input type="text" name="roofAccessDifficulty" value={property['Roof Access Difficulty']} /></label>
-					<label>Water access <input type="text" name="waterAccess" value={property['Water Access']} /></label>
-					<label>Equipment suitability <input type="text" name="equipmentSuitability" value={property['Equipment Suitability']} /></label>
-					<label>Water-fed pole suitable (Y/N) <input type="text" name="waterFedPoleSuitable" value={property['Water-Fed Pole Suitable (Y/N)']} /></label>
-					<label>Ladder requirement <input type="text" name="ladderRequirement" value={property['Ladder Requirement']} placeholder="e.g. 28-ft ladder" /></label>
+					<p>Overall access difficulty</p>
+					{ACCESS_DIFFICULTY_OPTIONS.map((o) => (
+						<label style="display: block;">
+							<input
+								type="checkbox"
+								name="overallAccessDifficulty"
+								value={o}
+								checked={checkboxValueSelected(property['Overall Access Difficulty'], o)}
+							/> {o}
+						</label>
+					))}
+					<p>Roof access difficulty</p>
+					{ACCESS_DIFFICULTY_OPTIONS.map((o) => (
+						<label style="display: block;">
+							<input
+								type="checkbox"
+								name="roofAccessDifficulty"
+								value={o}
+								checked={checkboxValueSelected(property['Roof Access Difficulty'], o)}
+							/> {o}
+						</label>
+					))}
+					<p>Water access</p>
+					{WATER_ACCESS_OPTIONS.map((o) => (
+						<label style="display: block;">
+							<input
+								type="checkbox"
+								name="waterAccess"
+								value={o}
+								checked={checkboxValueSelected(property['Water Access'], o)}
+							/> {o}
+						</label>
+					))}
+					<p>Equipment suitability</p>
+					{EQUIPMENT_SUITABILITY_OPTIONS.map((o) => (
+						<label style="display: block;">
+							<input
+								type="checkbox"
+								name="equipmentSuitability"
+								value={o}
+								checked={checkboxValueSelected(property['Equipment Suitability'], o)}
+							/> {o}
+						</label>
+					))}
+					<label>
+						<input type="checkbox" name="waterFedPoleSuitable" checked={property['Water-Fed Pole Suitable (Y/N)'] === 'Y'} /> Water-fed pole suitable
+					</label>
+					<p>Ladder requirement</p>
+					{LADDER_REQUIREMENT_OPTIONS.map((o) => (
+						<label style="display: block;">
+							<input
+								type="checkbox"
+								name="ladderRequirement"
+								value={o}
+								checked={checkboxValueSelected(property['Ladder Requirement'], o)}
+							/> {o}
+						</label>
+					))}
 				</fieldset>
 
 				<fieldset>
 					<legend>Conditions</legend>
-					<label>Hard water history (Y/N) <input type="text" name="hardWaterHistory" value={property['Hard Water History (Y/N)']} /></label>
-					<label>Construction debris (Y/N) <input type="text" name="constructionDebris" value={property['Construction Debris (Y/N)']} /></label>
-					<label>Window condition <input type="text" name="windowCondition" value={property['Window Condition']} /></label>
+					<label>
+						<input type="checkbox" name="hardWaterHistory" checked={property['Hard Water History (Y/N)'] === 'Y'} /> Hard water history
+					</label>
+					<label>
+						<input type="checkbox" name="constructionDebris" checked={property['Construction Debris (Y/N)'] === 'Y'} /> Construction debris
+					</label>
+					<p>Window condition</p>
+					{WINDOW_CONDITION_OPTIONS.map((o) => (
+						<label style="display: block;">
+							<input
+								type="checkbox"
+								name="windowCondition"
+								value={o}
+								checked={checkboxValueSelected(property['Window Condition'], o)}
+							/> {o}
+						</label>
+					))}
 				</fieldset>
 
 				<fieldset>

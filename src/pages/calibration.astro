@@ -4,6 +4,7 @@ import { env } from 'cloudflare:workers';
 import { listActiveRows } from '../lib/sheets';
 import { jobConfig, RECORD_CLASSIFICATIONS, type Job } from '../lib/models/job';
 import { getActivePricingConfig } from '../lib/pricing/config';
+import { googleMapsUrl } from '../lib/mapsLink';
 import {
 	calibrationExclusionReasons,
 	computeJobPerformance,
@@ -149,7 +150,11 @@ const standardEquivalentAvgPerHour =
 			<tbody>
 				{rows.map(({ job, perf }) => (
 					<tr>
-						<td>{job['Property Address']}</td>
+						<td>
+							{job['Property Address'] && (
+								<a href={googleMapsUrl(job['Property Address'])} target="_blank" rel="noopener noreferrer">{job['Property Address']}</a>
+							)}
+						</td>
 						<td><span class="badge">{classificationOf(job)}</span></td>
 						<td>{job['Data Quality'] || '—'}</td>
 						<td>${perf.quotedRevenuePerEstimatedHour.toFixed(2)}</td>
@@ -177,7 +182,11 @@ const standardEquivalentAvgPerHour =
 					<tbody>
 						{excludedJobs.map(({ job, reasons }) => (
 							<tr>
-								<td>{job['Property Address']}</td>
+								<td>
+							{job['Property Address'] && (
+								<a href={googleMapsUrl(job['Property Address'])} target="_blank" rel="noopener noreferrer">{job['Property Address']}</a>
+							)}
+						</td>
 								<td><span class="badge">{classificationOf(job)}</span></td>
 								<td>{reasons.join('; ')}</td>
 							</tr>

@@ -5,6 +5,7 @@ import { createRow, findById, listActiveRows, updateRow } from '../../lib/sheets
 import { clientConfig } from '../../lib/models/client';
 import { propertyConfig, PROPERTY_TYPES } from '../../lib/models/property';
 import { formatPhoneDigits } from '../../lib/phoneFormat';
+import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
 
 const { id } = Astro.params;
 let error: string | null = null;
@@ -83,6 +84,8 @@ const newPropertyId = crypto.randomUUID();
 			{properties.map((p) => (
 				<li>
 					<a href={`/properties/${p['Property ID']}`}>{p['Street Address']}, {p.City}</a>
+					{' '}
+					<a href={googleMapsUrl(fullAddress(p))} target="_blank" rel="noopener noreferrer">(map)</a>
 				</li>
 			))}
 			{properties.length === 0 && <li>No properties yet.</li>}

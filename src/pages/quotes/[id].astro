@@ -9,6 +9,7 @@ import { propertyConfig } from '../../lib/models/property';
 import { acceptQuote, findJobByQuoteId, updateJobStatus, JOB_STATUSES } from '../../lib/pricing/jobLifecycle';
 import { updateRow } from '../../lib/sheets';
 import { REVIEW_LEFT_VALUES, MAINTENANCE_FOLLOW_UP_STATUSES } from '../../lib/models/job';
+import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
 
 const { id } = Astro.params;
 let error: string | null = null;
@@ -59,7 +60,15 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 <BaseLayout title="Quote">
 	<main>
 		<p><a href="/quoter">← New quote</a></p>
-		<h1>Quote for {property ? `${property['Street Address']}, ${property.City}` : quote['Property ID']}</h1>
+		<h1>
+			Quote for {property ? (
+				<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
+					{property['Street Address']}, {property.City}
+				</a>
+			) : (
+				quote['Property ID']
+			)}
+		</h1>
 		<p>
 			Client: {client ? `${client['First Name']} ${client['Last Name']}` : quote['Client ID']}<br />
 			Status: <span class="badge badge-accent">{quote['Quote Status']}</span>

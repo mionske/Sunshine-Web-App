@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { googleMapsUrl } from '../lib/mapsLink';
 
 export interface PipelineCard {
 	id: string;
@@ -11,6 +12,7 @@ export interface PipelineCard {
 
 export interface PropertyOption {
 	id: string;
+	label: string;
 	address: string;
 }
 
@@ -102,7 +104,11 @@ export default function PipelineBoard({ stages, cards: initialCards, properties 
 								>
 									<div className="pipeline-card-client">{c.clientName}</div>
 									{c.propertyAddress ? (
-										<div className="pipeline-card-address">{c.propertyAddress}</div>
+										<div className="pipeline-card-address">
+											<a href={googleMapsUrl(c.propertyAddress)} target="_blank" rel="noopener noreferrer">
+												{c.propertyAddress}
+											</a>
+										</div>
 									) : attachingId === c.id ? (
 										<select
 											autoFocus
@@ -115,7 +121,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties 
 											<option value="">Select a property…</option>
 											{properties.map((p) => (
 												<option key={p.id} value={p.id}>
-													{p.address}
+													{p.label}
 												</option>
 											))}
 										</select>

@@ -5,6 +5,7 @@ import { createRow, listActiveRows } from '../lib/sheets';
 import { pipelineConfig, PIPELINE_STAGES } from '../lib/models/pipeline';
 import { clientConfig } from '../lib/models/client';
 import { propertyConfig } from '../lib/models/property';
+import { fullAddress } from '../lib/mapsLink';
 import PipelineBoard from '../components/PipelineBoard';
 
 let error: string | null = null;
@@ -48,7 +49,7 @@ const cards = opportunities.map((o) => {
 		id: o['Opportunity ID'],
 		stage: o.Stage,
 		clientName: client ? `${client['First Name']} ${client['Last Name']}` : o['Client ID'],
-		propertyAddress: property ? property['Street Address'] : '',
+		propertyAddress: property ? fullAddress(property) : '',
 		estimatedValue: o['Estimated Value'],
 		nextFollowUpDate: o['Next Follow-up Date'],
 	};
@@ -56,7 +57,8 @@ const cards = opportunities.map((o) => {
 
 const propertyOptions = properties.map((p) => ({
 	id: p['Property ID'],
-	address: `${p['Street Address']} (${clientById[p['Client ID']]?.['Last Name'] ?? '?'})`,
+	label: `${p['Street Address']} (${clientById[p['Client ID']]?.['Last Name'] ?? '?'})`,
+	address: fullAddress(p),
 }));
 
 const newOpportunityId = crypto.randomUUID();

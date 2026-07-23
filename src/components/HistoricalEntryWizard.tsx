@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { googleMapsUrl } from '../lib/mapsLink';
 
 const RECORD_TYPES = [
 	'Walkthrough Only',
@@ -501,7 +502,13 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 										{d.property && (
 											<>
 												{' — '}
-												{d.property['Street Address']}, {d.property.City}
+												<a
+													href={googleMapsUrl(`${d.property['Street Address']}, ${d.property.City}`)}
+													target="_blank"
+													rel="noopener noreferrer"
+												>
+													{d.property['Street Address']}, {d.property.City}
+												</a>
 											</>
 										)}
 									</p>

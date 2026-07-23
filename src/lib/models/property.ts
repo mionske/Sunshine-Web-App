@@ -9,6 +9,50 @@ const blank = () => z.coerce.string().default('');
 // so there's no legacy-data risk in enforcing it from day one.
 export const PROPERTY_TYPES = ['Residential', 'Commercial', 'New Build-Construction'] as const;
 
+// Checkbox-group option sets for the Property Characteristics form. Stored
+// as a single comma-joined string (the Sheets column stays a plain
+// string — no schema change) rather than an array, so a cell stays
+// directly human-readable in the live spreadsheet too. Multiple values
+// can apply at once (e.g. a property might need both a tall extension
+// ladder for one elevation and no ladder for another).
+export const ACCESS_DIFFICULTY_OPTIONS = ['Easy', 'Standard', 'Difficult', 'Specialty Access'] as const;
+export const WATER_ACCESS_OPTIONS = [
+	'Exterior spigot',
+	'Interior only',
+	'No on-site water',
+	'Well water',
+	'Water-fed pole compatible',
+] as const;
+export const EQUIPMENT_SUITABILITY_OPTIONS = [
+	'Standard pole',
+	'Water-fed pole',
+	'Ladder',
+	'Lift/scaffold',
+	'Boat/dock access',
+] as const;
+export const LADDER_REQUIREMENT_OPTIONS = [
+	'None needed',
+	'Standard (6-10 ft)',
+	'Extension (16-24 ft)',
+	'Tall extension (28+ ft)',
+] as const;
+export const WINDOW_CONDITION_OPTIONS = ['Maintenance', 'Moderate Buildup', 'Heavy Buildup', 'Restoration Required'] as const;
+
+/** Joins checked checkbox values into the single comma-separated string
+ * the Sheets column stores. */
+export function joinCheckboxValues(values: string[]): string {
+	return values.join(', ');
+}
+
+/** True when `value` (one option in a checkbox group) is present in the
+ * comma-separated string currently stored for that field. */
+export function checkboxValueSelected(stored: string, value: string): boolean {
+	return stored
+		.split(',')
+		.map((v) => v.trim())
+		.includes(value);
+}
+
 export const propertySchema = z.object({
 	'Property ID': z.string().min(1),
 	'Client ID': blank(),

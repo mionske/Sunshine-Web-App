@@ -8,6 +8,7 @@ import { propertyConfig } from '../lib/models/property';
 import { jobConfig } from '../lib/models/job';
 import { getLatestCalibrationSnapshot } from '../lib/pricing/calibration';
 import { getActivePricingConfig } from '../lib/pricing/config';
+import { googleMapsUrl, fullAddress } from '../lib/mapsLink';
 
 const today = new Date().toISOString().slice(0, 10);
 const currentMonthPrefix = today.slice(0, 7); // YYYY-MM
@@ -36,7 +37,8 @@ const followUps = opportunities
 		clientName: clientById[o['Client ID']]
 			? `${clientById[o['Client ID']]['First Name']} ${clientById[o['Client ID']]['Last Name']}`
 			: o['Client ID'],
-		propertyAddress: propertyById[o['Property ID']]?.['Street Address'] ?? o['Property ID'],
+		propertyAddress: propertyById[o['Property ID']] ? fullAddress(propertyById[o['Property ID']]) : '',
+		fallbackLabel: o['Property ID'],
 	}));
 
 const thisMonthJobs = jobs.filter((j) => (j['Date Completed'] || '').startsWith(currentMonthPrefix));
@@ -69,9 +71,15 @@ const maintenanceFollowUps = jobs
 				<p>Nothing overdue.</p>
 			) : (
 				<ul>
-					{followUps.map(({ opportunity, clientName, propertyAddress }) => (
+					{followUps.map(({ opportunity, clientName, propertyAddress, fallbackLabel }) => (
 						<li>
-							<strong>{opportunity['Next Follow-up Date']}</strong> — {propertyAddress} ({clientName}) — <span class="badge">{opportunity.Stage}</span>
+							<strong>{opportunity['Next Follow-up Date']}</strong> —{' '}
+							{propertyAddress ? (
+								<a href={googleMapsUrl(propertyAddress)} target="_blank" rel="noopener noreferrer">{propertyAddress}</a>
+							) : (
+								fallbackLabel
+							)}
+							{' '}({clientName}) — <span class="badge">{opportunity.Stage}</span>
 						</li>
 					))}
 				</ul>
@@ -86,7 +94,11 @@ const maintenanceFollowUps = jobs
 				<ul>
 					{maintenanceFollowUps.map((j) => (
 						<li>
-							<strong>{j['Next Maintenance Follow-up Date']}</strong> — {j['Property Address']} —{' '}
+							<strong>{j['Next Maintenance Follow-up Date']}</strong> —{' '}
+							{j['Property Address'] && (
+								<a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>
+							)}
+							{' '}—{' '}
 							<span class="badge">{j['Maintenance Follow-up Status'] || 'Not yet due'}</span>
 							{' · '}<a href={`/quotes/${j['Quote ID']}`}>view job</a>
 						</li>
