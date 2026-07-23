@@ -11,6 +11,7 @@ const RECORD_TYPES = [
 ] as const;
 type RecordType = (typeof RECORD_TYPES)[number];
 
+const PROPERTY_TYPES = ['Residential', 'Commercial', 'New Build-Construction'];
 const CONDITION_LEVELS = ['Maintenance', 'Moderate Buildup', 'Heavy Buildup', 'Restoration Required', 'Unknown'];
 const ACCESS_LEVELS = ['Easy', 'Standard', 'Difficult', 'Specialty Access', 'Unknown'];
 const RECORD_CLASSIFICATIONS = [
@@ -50,6 +51,7 @@ interface ClientState {
 interface PropertyState {
 	id: string;
 	isExisting: boolean;
+	propertyType: string;
 	streetAddress: string;
 	city: string;
 	state: string;
@@ -61,6 +63,8 @@ interface PropertyState {
 	accessNotes: string;
 	petNotes: string;
 	generalNotes: string;
+	buildingComplexName: string;
+	unitIdentifier: string;
 }
 
 interface WalkthroughState {
@@ -142,6 +146,7 @@ function emptyState(prefill?: { clientId?: string; propertyId?: string }): Wizar
 		property: {
 			id: prefill?.propertyId ?? newId(),
 			isExisting: Boolean(prefill?.propertyId),
+			propertyType: '',
 			streetAddress: '',
 			city: '',
 			state: '',
@@ -153,6 +158,8 @@ function emptyState(prefill?: { clientId?: string; propertyId?: string }): Wizar
 			accessNotes: '',
 			petNotes: '',
 			generalNotes: '',
+			buildingComplexName: '',
+			unitIdentifier: '',
 		},
 		walkthrough: {
 			include: false,
@@ -556,6 +563,21 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 							<fieldset>
 								<legend>Property</legend>
 								<label>
+									Property type
+									<select
+										required
+										value={state.property.propertyType}
+										onChange={(e) => update('property', { propertyType: e.target.value })}
+									>
+										<option value="" />
+										{PROPERTY_TYPES.map((t) => (
+											<option key={t} value={t}>
+												{t}
+											</option>
+										))}
+									</select>
+								</label>
+								<label>
 									Street address
 									<input
 										type="text"
@@ -575,11 +597,31 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 									Zip
 									<input type="text" value={state.property.zip} onChange={(e) => update('property', { zip: e.target.value })} />
 								</label>
+								<label>
+									Building/complex name (optional)
+									<input
+										type="text"
+										value={state.property.buildingComplexName}
+										onChange={(e) => update('property', { buildingComplexName: e.target.value })}
+									/>
+								</label>
+								<label>
+									Unit identifier (optional)
+									<input
+										type="text"
+										value={state.property.unitIdentifier}
+										onChange={(e) => update('property', { unitIdentifier: e.target.value })}
+									/>
+								</label>
 							</fieldset>
 							<button type="button" onClick={() => goTo(1)}>
 								Back
 							</button>{' '}
-							<button type="button" disabled={checkingDuplicates} onClick={checkDuplicatesThenAdvance}>
+							<button
+								type="button"
+								disabled={checkingDuplicates || (!state.property.isExisting && !state.property.propertyType)}
+								onClick={checkDuplicatesThenAdvance}
+							>
 								{checkingDuplicates ? 'Checking…' : 'Next'}
 							</button>
 						</>

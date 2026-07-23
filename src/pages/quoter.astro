@@ -6,6 +6,7 @@ import { clientConfig } from '../lib/models/client';
 import { propertyConfig } from '../lib/models/property';
 import { seedInitialServices } from '../lib/pricing/services';
 import { createQuote } from '../lib/pricing/quotes';
+import { listPricingConfigs } from '../lib/pricing/config';
 import type { QuoteCounts } from '../lib/pricing/types';
 
 let error: string | null = null;
@@ -37,6 +38,7 @@ if (Astro.request.method === 'POST') {
 		const { quote } = await createQuote(env, {
 			clientId: String(form.get('clientId') ?? ''),
 			propertyId: String(form.get('propertyId') ?? ''),
+			pricingConfigId: String(form.get('pricingConfigId') ?? '') || undefined,
 			input: {
 				stories: (Number(form.get('stories')) || 1) as 1 | 2 | 3,
 				condition: String(form.get('condition') ?? 'light') as 'light' | 'moderate' | 'heavy' | 'firstTime',
@@ -56,13 +58,20 @@ if (Astro.request.method === 'POST') {
 }
 
 await seedInitialServices(env);
-const [clients, properties] = await Promise.all([
+const [clients, properties, pricingConfigs] = await Promise.all([
 	listActiveRows(env, clientConfig),
 	listActiveRows(env, propertyConfig),
+	listPricingConfigs(env),
 ]);
 const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
+const activeConfigs = pricingConfigs.filter((c) => c.Status === 'Active');
 const preselectedPropertyId = Astro.url.searchParams.get('propertyId') ?? '';
 const preselectedClientId = Astro.url.searchParams.get('clientId') ?? '';
+
+// propertyId -> Property Type, and configId -> Property Type, handed to the
+// page as JSON so a small inline script can pre-select the matching Active
+// config when the property changes — a default only, always overridable.
+const propertyTypeById = Object.fromEntries(properties.map((p) => [p['Property ID'], p['Property Type']]));
 ---
 
 <BaseLayout title="In-field quoter">
@@ -83,10 +92,21 @@ const preselectedClientId = Astro.url.searchParams.get('clientId') ?? '';
 			</label>
 			<label>
 				Property
-				<select name="propertyId" required>
+				<select name="propertyId" id="propertyId" required>
 					{properties.map((p) => (
 						<option value={p['Property ID']} selected={p['Property ID'] === preselectedPropertyId}>
 							{p['Street Address']} ({clientById[p['Client ID']]?.['Last Name'] ?? '?'})
+						</option>
+					))}
+				</select>
+			</label>
+			<label>
+				Pricing config (pre-selected from the property's type — change anytime)
+				<select name="pricingConfigId" id="pricingConfigId">
+					<option value="">— use property's type default —</option>
+					{activeConfigs.map((c) => (
+						<option value={c['Pricing Config ID']} data-property-type={c['Property Type']}>
+							{c['Config Name']} ({c['Property Type']})
 						</option>
 					))}
 				</select>
@@ -143,4 +163,19 @@ const preselectedClientId = Astro.url.searchParams.get('clientId') ?? '';
 			<button type="submit">Calculate quote</button>
 		</form>
 	</main>
+
+	<script define:vars={{ propertyTypeById }}>
+		const propertySelect = document.getElementById('propertyId');
+		const configSelect = document.getElementById('pricingConfigId');
+
+		function preselectConfigForProperty() {
+			const propertyType = propertyTypeById[propertySelect.value];
+			if (!propertyType) return;
+			const match = Array.from(configSelect.options).find((o) => o.dataset.propertyType === propertyType);
+			if (match) configSelect.value = match.value;
+		}
+
+		propertySelect.addEventListener('change', preselectConfigForProperty);
+		preselectConfigForProperty();
+	</script>
 </BaseLayout>

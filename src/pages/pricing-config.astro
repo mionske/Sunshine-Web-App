@@ -7,6 +7,7 @@ import {
 	listPricingConfigs,
 	seedInitialPricingConfig,
 } from '../lib/pricing/config';
+import { PROPERTY_TYPES } from '../lib/models/property';
 
 let error: string | null = null;
 
@@ -18,6 +19,7 @@ if (Astro.request.method === 'POST') {
 			await createPricingConfig(env, {
 				id: String(form.get('id') ?? ''),
 				'Config Name': String(form.get('configName') ?? ''),
+				'Property Type': String(form.get('propertyType') ?? ''),
 				'Target Hourly Rate': String(form.get('targetHourlyRate') ?? ''),
 				'Minimum Job Price': String(form.get('minimumJobPrice') ?? ''),
 				Notes: String(form.get('notes') ?? ''),
@@ -41,9 +43,10 @@ const newId = crypto.randomUUID();
 	<main>
 		<h1>Pricing Config</h1>
 		<p>
-			The <strong>Active</strong> config is what controls quote calculations today. Historical
-			performance never changes this automatically — activating a new config is always an explicit
-			action taken here.
+			The <strong>Active</strong> config for each Property Type is what controls that segment's
+			quote calculations today — exactly one Active row per Property Type (Residential/Commercial/
+			New Build-Construction are independently priced and versioned). Historical performance never
+			changes this automatically — activating a new config is always an explicit action taken here.
 		</p>
 		{error && <p role="alert">{error}</p>}
 
@@ -51,6 +54,7 @@ const newId = crypto.randomUUID();
 			<thead>
 				<tr>
 					<th>Name</th>
+					<th>Property Type</th>
 					<th>Status</th>
 					<th>Target $/hr</th>
 					<th>Min job price</th>
@@ -63,6 +67,7 @@ const newId = crypto.randomUUID();
 				{configs.map((c) => (
 					<tr>
 						<td>{c['Config Name']}</td>
+						<td>{c['Property Type'] || <em>unset</em>}</td>
 						<td>{c.Status}</td>
 						<td>{c['Target Hourly Rate']}</td>
 						<td>{c['Minimum Job Price']}</td>
@@ -87,6 +92,13 @@ const newId = crypto.randomUUID();
 			<input type="hidden" name="_action" value="create" />
 			<input type="hidden" name="id" value={newId} />
 			<label>Config name <input type="text" name="configName" required /></label>
+			<label>
+				Property type
+				<select name="propertyType" required>
+					<option value="" />
+					{PROPERTY_TYPES.map((t) => <option value={t}>{t}</option>)}
+				</select>
+			</label>
 			<label>Target hourly rate <input type="text" name="targetHourlyRate" required /></label>
 			<label>Minimum job price <input type="text" name="minimumJobPrice" /></label>
 			<label>Notes <textarea name="notes"></textarea></label>

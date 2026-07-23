@@ -1,7 +1,9 @@
-import { createRelatedRows, type SheetsEnv } from '../sheets';
+import { findById, createRelatedRows, type SheetsEnv } from '../sheets';
 import { quoteConfig, type Quote } from '../models/quote';
 import { quoteItemConfig, type QuoteItem } from '../models/quoteItem';
+import { propertyConfig } from '../models/property';
 import { getActivePricingConfig } from './config';
+import { pricingConfigConfig } from '../models/pricingConfig';
 import { listServices } from './services';
 import { calculateQuote } from './engine';
 import type { QuoteInput } from './types';
@@ -12,6 +14,11 @@ export interface CreateQuoteParams {
 	opportunityId?: string;
 	input: QuoteInput;
 	createdBy?: string;
+	/** Explicit override — the quoter pre-selects the Active config
+	 * matching the property's type, but the owner can always pick a
+	 * different one; nothing is auto-applied or locked. Falls back to the
+	 * property's own type when omitted. */
+	pricingConfigId?: string;
 }
 
 export interface CreateQuoteResult {
@@ -27,9 +34,13 @@ export interface CreateQuoteResult {
  * later — see the plan's reproducibility rule.
  */
 export async function createQuote(env: SheetsEnv, params: CreateQuoteParams): Promise<CreateQuoteResult> {
-	const config = await getActivePricingConfig(env);
+	let config = params.pricingConfigId ? await findById(env, pricingConfigConfig, params.pricingConfigId) : null;
 	if (!config) {
-		throw new Error('No active PricingConfig — cannot calculate a quote without one.');
+		const property = await findById(env, propertyConfig, params.propertyId);
+		config = property?.['Property Type'] ? await getActivePricingConfig(env, property['Property Type']) : null;
+	}
+	if (!config) {
+		throw new Error('No active PricingConfig for this property\'s type — cannot calculate a quote without one.');
 	}
 	const services = await listServices(env);
 	const result = calculateQuote(config, services, params.input);

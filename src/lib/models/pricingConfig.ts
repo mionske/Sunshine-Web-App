@@ -11,6 +11,12 @@ export const pricingConfigSchema = z.object({
 	'Effective Date': blank(),
 	'End Date': blank(),
 	Status: z.enum(PRICING_CONFIG_STATUSES).default('Draft'),
+	// Free string, not a strict enum (unlike Property's required version) —
+	// the one pre-existing live PricingConfig row predates this column, so
+	// it must round-trip safely with a blank value until explicitly
+	// migrated. "Exactly one Active row" is now scoped per Property Type
+	// (see lib/pricing/config.ts) rather than globally.
+	'Property Type': blank(),
 	'Calculator Version': blank(),
 	'Target Hourly Rate': blank(),
 	'Minimum Job Price': blank(),

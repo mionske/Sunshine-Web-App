@@ -3,7 +3,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { createRow, findById, listActiveRows, updateRow } from '../../lib/sheets';
 import { clientConfig } from '../../lib/models/client';
-import { propertyConfig } from '../../lib/models/property';
+import { propertyConfig, PROPERTY_TYPES } from '../../lib/models/property';
 import { formatPhoneDigits } from '../../lib/phoneFormat';
 
 const { id } = Astro.params;
@@ -27,6 +27,7 @@ if (Astro.request.method === 'POST') {
 			await createRow(env, propertyConfig, {
 				id: String(form.get('id') ?? ''),
 				'Client ID': id!,
+				'Property Type': String(form.get('propertyType') ?? '') as (typeof PROPERTY_TYPES)[number],
 				'Street Address': String(form.get('streetAddress') ?? ''),
 				City: String(form.get('city') ?? ''),
 				State: String(form.get('state') ?? ''),
@@ -34,6 +35,8 @@ if (Astro.request.method === 'POST') {
 				Stories: String(form.get('stories') ?? ''),
 				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
 				'Desired Maintenance Frequency': String(form.get('desiredMaintenanceFrequency') ?? ''),
+				'Building/Complex Name': String(form.get('buildingComplexName') ?? ''),
+				'Unit Identifier': String(form.get('unitIdentifier') ?? ''),
 			});
 		}
 		return Astro.redirect(`/clients/${id}`);
@@ -84,6 +87,13 @@ const newPropertyId = crypto.randomUUID();
 		<form method="POST">
 			<input type="hidden" name="_action" value="add-property" />
 			<input type="hidden" name="id" value={newPropertyId} />
+			<label>
+				Property type
+				<select name="propertyType" required>
+					<option value="" />
+					{PROPERTY_TYPES.map((t) => <option value={t}>{t}</option>)}
+				</select>
+			</label>
 			<label>Street address <input type="text" name="streetAddress" required /></label>
 			<label>City <input type="text" name="city" /></label>
 			<label>State <input type="text" name="state" maxlength="2" placeholder="CO" /></label>
@@ -91,6 +101,8 @@ const newPropertyId = crypto.randomUUID();
 			<label>Stories <input type="text" name="stories" /></label>
 			<label>Total window units <input type="text" name="totalWindowUnits" /></label>
 			<label>Desired maintenance frequency <input type="text" name="desiredMaintenanceFrequency" /></label>
+			<label>Building/complex name (optional — groups units in the same building) <input type="text" name="buildingComplexName" /></label>
+			<label>Unit identifier (optional) <input type="text" name="unitIdentifier" /></label>
 			<button type="submit">Add property</button>
 		</form>
 	</main>

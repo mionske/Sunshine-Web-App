@@ -28,6 +28,7 @@ function basePayload(overrides: Partial<HistoricalEntryPayload> = {}): Historica
 		property: {
 			id: 'property-1',
 			isExisting: false,
+			propertyType: 'Residential',
 			streetAddress: '100 Historical Ln',
 			city: 'Boulder',
 			state: 'CO',
@@ -39,6 +40,8 @@ function basePayload(overrides: Partial<HistoricalEntryPayload> = {}): Historica
 			accessNotes: '',
 			petNotes: '',
 			generalNotes: '',
+			buildingComplexName: '',
+			unitIdentifier: '',
 		},
 		walkthrough: {
 			include: false,
@@ -140,6 +143,7 @@ describe('saveHistoricalEntry', () => {
 		const existingClient = await createRow(harness.env, clientConfig, { 'First Name': 'Stevie', 'Last Name': 'Damboise' });
 		const existingProperty = await createRow(harness.env, propertyConfig, {
 			'Client ID': existingClient['Client ID'],
+			'Property Type': 'Residential',
 			'Street Address': '1285 Georgetown Road',
 		});
 

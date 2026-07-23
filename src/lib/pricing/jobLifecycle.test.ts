@@ -72,7 +72,7 @@ describe('quote acceptance and job lifecycle', () => {
 	}
 
 	it('creates a Job linked to the quote and marks the quote Accepted', async () => {
-		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Street Address': '123 Main St', City: 'Boulder' });
+		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Property Type': 'Residential', 'Street Address': '123 Main St', City: 'Boulder' });
 		const quote = await makeQuote();
 
 		const { quote: updatedQuote, job } = await acceptQuote(harness.env, quote['Quote ID']);
@@ -86,14 +86,14 @@ describe('quote acceptance and job lifecycle', () => {
 	});
 
 	it('creates the job as Scheduled when a scheduled date is provided', async () => {
-		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Street Address': '123 Main St', City: 'Boulder' });
+		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Property Type': 'Residential', 'Street Address': '123 Main St', City: 'Boulder' });
 		const quote = await makeQuote();
 		const { job } = await acceptQuote(harness.env, quote['Quote ID'], { scheduledDate: '2026-08-01' });
 		expect(job['Job Status']).toBe('Scheduled');
 	});
 
 	it('closes the linked Pipeline opportunity when the quote is accepted', async () => {
-		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Street Address': '123 Main St', City: 'Boulder' });
+		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Property Type': 'Residential', 'Street Address': '123 Main St', City: 'Boulder' });
 		const opportunity = await createRow(harness.env, pipelineConfig, {
 			'Client ID': 'client-1',
 			'Property ID': 'property-1',
@@ -113,7 +113,7 @@ describe('quote acceptance and job lifecycle', () => {
 	});
 
 	it('is idempotent — accepting the same quote twice does not create a second Job', async () => {
-		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Street Address': '123 Main St', City: 'Boulder' });
+		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Property Type': 'Residential', 'Street Address': '123 Main St', City: 'Boulder' });
 		const quote = await makeQuote();
 
 		const first = await acceptQuote(harness.env, quote['Quote ID']);
@@ -125,7 +125,7 @@ describe('quote acceptance and job lifecycle', () => {
 	});
 
 	it('findJobByQuoteId finds the job created for a quote', async () => {
-		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Street Address': '123 Main St', City: 'Boulder' });
+		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Property Type': 'Residential', 'Street Address': '123 Main St', City: 'Boulder' });
 		const quote = await makeQuote();
 		const { job } = await acceptQuote(harness.env, quote['Quote ID']);
 		const found = await findJobByQuoteId(harness.env, quote['Quote ID']);
@@ -133,7 +133,7 @@ describe('quote acceptance and job lifecycle', () => {
 	});
 
 	it('updateJobStatus preserves pre-existing legacy columns not declared in the Job schema', async () => {
-		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Street Address': '123 Main St', City: 'Boulder' });
+		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Property Type': 'Residential', 'Street Address': '123 Main St', City: 'Boulder' });
 		const quote = await makeQuote();
 		const { job } = await acceptQuote(harness.env, quote['Quote ID']);
 
@@ -157,6 +157,7 @@ describe('quote acceptance and job lifecycle', () => {
 	it('pre-fills Next Maintenance Follow-up Date from the property frequency on completion', async () => {
 		await createRow(harness.env, propertyConfig, {
 			id: 'property-1',
+			'Property Type': 'Residential',
 			'Street Address': '123 Main St',
 			City: 'Boulder',
 			'Desired Maintenance Frequency': 'Quarterly',
@@ -173,6 +174,7 @@ describe('quote acceptance and job lifecycle', () => {
 	it('does not overwrite a manually-supplied follow-up date', async () => {
 		await createRow(harness.env, propertyConfig, {
 			id: 'property-1',
+			'Property Type': 'Residential',
 			'Street Address': '123 Main St',
 			City: 'Boulder',
 			'Desired Maintenance Frequency': 'Quarterly',
@@ -191,6 +193,7 @@ describe('quote acceptance and job lifecycle', () => {
 	it('leaves the follow-up date blank when the property has no defined-interval frequency', async () => {
 		await createRow(harness.env, propertyConfig, {
 			id: 'property-1',
+			'Property Type': 'Residential',
 			'Street Address': '123 Main St',
 			City: 'Boulder',
 			'Desired Maintenance Frequency': 'As needed',

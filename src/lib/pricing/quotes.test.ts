@@ -5,6 +5,8 @@ import { pricingConfigSchema } from '../models/pricingConfig';
 import { quoteSchema } from '../models/quote';
 import { quoteItemSchema } from '../models/quoteItem';
 import { serviceSchema } from '../models/service';
+import { propertyConfig, propertySchema } from '../models/property';
+import { createRow } from '../sheets';
 import { seedInitialPricingConfig } from './config';
 import { seedInitialServices } from './services';
 import { createQuote } from './quotes';
@@ -40,10 +42,12 @@ describe('createQuote', () => {
 		harness.spreadsheet.setTab('Services', [Object.keys(serviceSchema.shape)]);
 		harness.spreadsheet.setTab('Quotes', [Object.keys(quoteSchema.shape)]);
 		harness.spreadsheet.setTab('QuoteItems', [Object.keys(quoteItemSchema.shape)]);
+		harness.spreadsheet.setTab('Properties', [Object.keys(propertySchema.shape)]);
 		harness.spreadsheet.setTab('ActivityLog', [ACTIVITY_LOG_HEADERS]);
 
 		await seedInitialPricingConfig(harness.env);
 		await seedInitialServices(harness.env);
+		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Property Type': 'Residential', 'Street Address': '123 Main St' });
 	});
 
 	afterEach(() => {

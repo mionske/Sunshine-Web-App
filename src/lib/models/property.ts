@@ -3,9 +3,16 @@ import type { TabConfig } from '../sheets';
 
 const blank = () => z.coerce.string().default('');
 
+// Drives PricingConfig selection (one Active config per Property Type —
+// see lib/pricing/config.ts) and is a calibration segmentation dimension.
+// Required — no default — since Properties currently has zero live rows,
+// so there's no legacy-data risk in enforcing it from day one.
+export const PROPERTY_TYPES = ['Residential', 'Commercial', 'New Build-Construction'] as const;
+
 export const propertySchema = z.object({
 	'Property ID': z.string().min(1),
 	'Client ID': blank(),
+	'Property Type': z.enum(PROPERTY_TYPES),
 	'Street Address': blank(),
 	City: blank(),
 	State: blank(),
@@ -46,6 +53,12 @@ export const propertySchema = z.object({
 	'Access Notes': blank(),
 	'Pet Notes': blank(),
 	'General Notes': blank(),
+	// Display/logistics grouping only — not a data relationship the app
+	// enforces. Each unit in a multi-unit building is still its own full
+	// Property record with its own Client, per the "a Client always lives
+	// at one Property" rule.
+	'Building/Complex Name': blank(),
+	'Unit Identifier': blank(),
 	'Created At': blank(),
 	'Updated At': blank(),
 	'Archived At': blank(),

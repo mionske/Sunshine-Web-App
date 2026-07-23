@@ -42,7 +42,10 @@ const usingDefaultFilter = !selectedParam;
 
 const [snapshot, pricingConfig, allJobs] = await Promise.all([
 	getLatestCalibrationSnapshot(env),
-	getActivePricingConfig(env),
+	// Residential explicitly — see index.astro's dashboard for the same
+	// primary-segment-default rationale; full per-segment calibration
+	// filtering is later phase scope.
+	getActivePricingConfig(env, 'Residential'),
 	listActiveRows(env, jobConfig),
 ]);
 

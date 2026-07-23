@@ -15,7 +15,9 @@ Source, First Contact Date, Customer Since, Preferred Contact Method,
 Notes, Created At, Updated At, Archived At.
 
 ## Properties
-Property ID, Client ID, Street Address, City, State, Zip, Year Built,
+Property ID, Client ID, Property Type (Residential/Commercial/New
+Build-Construction — required; drives which PricingConfig segment
+applies and is a calibration segmentation dimension), Street Address, City, State, Zip, Year Built,
 Square Footage, Stories, Roof Access Difficulty, Overall Access Difficulty,
 Water Access, Equipment Suitability, Hard Water History (Y/N) (background
 flag — is this property in a hard-water area — distinct from a given
@@ -32,11 +34,19 @@ Sliding Glass Door Pane Count (sliding *doors* — a distinct pricing-catalog
 service from sliding windows, so tracked separately from Count — Sliding),
 Water-Fed Pole Suitable (Y/N), Ladder Requirement, Access Notes (exterior/
 interior/parking/gate/water-source access, consolidated into one field),
-Pet Notes, General Notes, Created At, Updated At, Archived At.
+Pet Notes, General Notes, Building/Complex Name (optional — display/
+logistics grouping only, e.g. "all units in this condo building"; not a
+data relationship the app enforces), Unit Identifier (optional — unit
+number/letter within that building), Created At, Updated At, Archived At.
 
 The Property is the operational center for a physical location's service
 history — Client, Pipeline, Quotes, and Jobs all reference it by Property
 ID rather than duplicating address/characteristic data.
+
+A multi-unit building (e.g. a 4-unit condo building) is still one full
+Property record per unit, each with its own Client — the "a Client always
+lives at one Property" rule is unchanged. Building/Complex Name just lets
+units in the same building be found/filtered together.
 
 ## Pipeline (sales opportunities only — not job operations)
 Opportunity ID, Client ID, Property ID, Primary Quote ID, Stage, Status,
@@ -90,9 +100,11 @@ Quote Item ID, Quote ID, Service Code, Service Category, Description,
 Quantity, Unit, Unit Price, Estimated Labor Minutes, Line Total, Taxable,
 Sort Order, Created At, Updated At, Archived At, Internal Notes.
 
-## PricingConfig (versioned, exactly one Active row at a time)
+## PricingConfig (versioned, exactly one Active row **per Property Type**)
 Pricing Config ID, Config Name, Effective Date, End Date, Status,
-Calculator Version, Target Hourly Rate, Minimum Job Price,
+Property Type (Residential/Commercial/New Build-Construction — free
+string, not an enforced enum, since the one pre-existing live row
+predates this column), Calculator Version, Target Hourly Rate, Minimum Job Price,
 Exterior Labor Weight, Interior Labor Weight, Screen Unit Price,
 Track Unit Price, Deep Track Unit Price, Skylight Unit Price,
 Sliding Door Unit Price, French Pane Unit Price, Oversized Glass Unit Price,
@@ -102,9 +114,21 @@ Construction Debris Minimum, Access Surcharge Minimum,
 Estimate Low Variance, Estimate High Variance, Created At, Updated At,
 Archived At, Notes.
 
+**Changed rule**: "exactly one Active row" is now scoped per Property
+Type, not global — Residential/Commercial/New Build-Construction are
+independently priced and versioned. activatePricingConfig() only
+supersedes the previously-Active row of the *same* Property Type.
+
 Initial row: Target Hourly Rate = 150 (per estimated **on-site** labor
 hour — setup, active cleaning, inspection, pack-up; travel and off-site
-admin are tracked separately), Status = Active.
+admin are tracked separately), Status = Active, Property Type =
+Residential. Commercial/New Build-Construction have no Active config yet
+— real rates for those segments are an explicit owner decision, not
+fabricated placeholder numbers.
+
+The quoter pre-selects the Active config matching the property's type as
+a default, but the field stays a normal manual selector — the owner can
+always choose a different active config for any quote.
 
 ## Jobs (existing tab, extended in place — see preservation protocol)
 Existing columns untouched: Job ID, date, property, job type, lead source,

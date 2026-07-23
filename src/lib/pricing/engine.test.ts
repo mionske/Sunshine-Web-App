@@ -11,6 +11,7 @@ function config(overrides: Partial<PricingConfig> = {}): PricingConfig {
 		'Effective Date': '2026-01-01',
 		'End Date': '',
 		Status: 'Active',
+		'Property Type': 'Residential',
 		'Calculator Version': '1',
 		'Target Hourly Rate': '150',
 		'Minimum Job Price': '150',

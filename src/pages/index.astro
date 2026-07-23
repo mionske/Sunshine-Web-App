@@ -18,7 +18,10 @@ const [opportunities, clients, properties, jobs, snapshot, pricingConfig] = awai
 	listActiveRows(env, propertyConfig),
 	listActiveRows(env, jobConfig),
 	getLatestCalibrationSnapshot(env),
-	getActivePricingConfig(env),
+	// Residential explicitly, as the primary segment — a single dashboard
+	// stat can't represent every Property Type's target rate at once; full
+	// per-segment reporting is later phase scope.
+	getActivePricingConfig(env, 'Residential'),
 ]);
 
 const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));

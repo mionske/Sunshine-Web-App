@@ -12,6 +12,16 @@ import { calculateEstimate, CALCULATOR_VERSION } from './engine';
 import { formatPhoneDigits } from '../phoneFormat';
 import type { EstimateRange } from './types';
 
+// The public form offers lowercase 'residential'/'commercial' (a public,
+// customer-facing choice, not the internal enum); mapped to Property's
+// PROPERTY_TYPES here rather than exposing the internal casing publicly.
+// Defaults to Residential when unset/unrecognized — the vast majority of
+// public estimate requests — rather than leaving the Property untyped.
+const PUBLIC_PROPERTY_TYPE_MAP: Record<string, string> = {
+	residential: 'Residential',
+	commercial: 'Commercial',
+};
+
 export interface PublicEstimateInput {
 	approxWindowCount: number;
 	stories: 1 | 2 | 3;
@@ -38,9 +48,10 @@ export async function createPublicEstimate(
 	env: SheetsEnv,
 	input: PublicEstimateInput
 ): Promise<EstimateRange> {
-	const config = await getActivePricingConfig(env);
+	const propertyType = PUBLIC_PROPERTY_TYPE_MAP[(input.propertyType ?? '').toLowerCase()] ?? 'Residential';
+	const config = await getActivePricingConfig(env, propertyType);
 	if (!config) {
-		throw new Error('No active PricingConfig — cannot calculate an estimate without one.');
+		throw new Error(`No active PricingConfig for ${propertyType} — cannot calculate an estimate without one.`);
 	}
 
 	const range = calculateEstimate(config, { approxWindowCount: input.approxWindowCount, stories: input.stories });
@@ -71,6 +82,7 @@ export async function createPublicEstimate(
 				{
 					id: propertyId,
 					'Client ID': clientId,
+					'Property Type': propertyType,
 					'Street Address': input.streetAddress,
 					City: input.city ?? '',
 					State: input.state ?? '',

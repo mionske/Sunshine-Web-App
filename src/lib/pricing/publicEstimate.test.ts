@@ -33,6 +33,7 @@ describe('createPublicEstimate', () => {
 		// tests actually exercise a range.
 		const config = await createRow(harness.env, pricingConfigConfig, {
 			'Config Name': 'Test config with variance',
+			'Property Type': 'Residential',
 			'Target Hourly Rate': '150',
 			'Estimate Low Variance': '0.15',
 			'Estimate High Variance': '0.2',

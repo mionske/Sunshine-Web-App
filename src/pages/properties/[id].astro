@@ -3,7 +3,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { createRow, findById, listActiveRows, logActivity, updateRow } from '../../lib/sheets';
 import { readRows } from '../../lib/sheets/rows';
-import { propertyConfig } from '../../lib/models/property';
+import { propertyConfig, PROPERTY_TYPES } from '../../lib/models/property';
 import { clientConfig } from '../../lib/models/client';
 import { quoteConfig } from '../../lib/models/quote';
 import { jobConfig, type Job } from '../../lib/models/job';
@@ -20,6 +20,7 @@ if (Astro.request.method === 'POST') {
 	try {
 		if (action === 'update-property') {
 			await updateRow(env, propertyConfig, id!, {
+				'Property Type': String(form.get('propertyType') ?? '') as (typeof PROPERTY_TYPES)[number],
 				'Street Address': String(form.get('streetAddress') ?? ''),
 				City: String(form.get('city') ?? ''),
 				State: String(form.get('state') ?? ''),
@@ -56,6 +57,8 @@ if (Astro.request.method === 'POST') {
 				'Access Notes': String(form.get('accessNotes') ?? ''),
 				'Pet Notes': String(form.get('petNotes') ?? ''),
 				'General Notes': String(form.get('generalNotes') ?? ''),
+				'Building/Complex Name': String(form.get('buildingComplexName') ?? ''),
+				'Unit Identifier': String(form.get('unitIdentifier') ?? ''),
 			});
 		} else if (action === 'add-note') {
 			const note = String(form.get('note') ?? '').trim();
@@ -80,7 +83,7 @@ const [allQuotes, allJobs, allOpportunities, pricingConfig, activityRows] = awai
 	listActiveRows(env, quoteConfig),
 	listActiveRows(env, jobConfig),
 	listActiveRows(env, pipelineConfig),
-	getActivePricingConfig(env),
+	property['Property Type'] ? getActivePricingConfig(env, property['Property Type']) : Promise.resolve(null),
 	readRows(env, 'ActivityLog', { idColumn: 'Activity ID' }),
 ]);
 
@@ -147,6 +150,10 @@ const timeline = activityRows
 		<section class="card">
 			<h2>Summary</h2>
 			<p>
+				<span class="badge">{property['Property Type']}</span>
+				{property['Building/Complex Name'] && <> — {property['Building/Complex Name']}{property['Unit Identifier'] && ` Unit ${property['Unit Identifier']}`}</>}
+			</p>
+			<p>
 				{property['Street Address']}, {property.City}, {property.State} {property.Zip}
 			</p>
 			{client && (
@@ -184,6 +191,12 @@ const timeline = activityRows
 
 				<fieldset>
 					<legend>Address</legend>
+					<label>
+						Property type
+						<select name="propertyType" required>
+							{PROPERTY_TYPES.map((t) => <option value={t} selected={t === property['Property Type']}>{t}</option>)}
+						</select>
+					</label>
 					<label>Street address <input type="text" name="streetAddress" value={property['Street Address']} required /></label>
 					<label>City <input type="text" name="city" value={property.City} /></label>
 					<label>State <input type="text" name="state" maxlength="2" value={property.State} placeholder="CO" /></label>
@@ -191,6 +204,8 @@ const timeline = activityRows
 					<label>Year built <input type="text" name="yearBuilt" value={property['Year Built']} /></label>
 					<label>Square footage <input type="text" name="squareFootage" value={property['Square Footage']} /></label>
 					<label>Stories <input type="text" name="stories" value={property.Stories} /></label>
+					<label>Building/complex name (optional) <input type="text" name="buildingComplexName" value={property['Building/Complex Name']} /></label>
+					<label>Unit identifier (optional) <input type="text" name="unitIdentifier" value={property['Unit Identifier']} /></label>
 				</fieldset>
 
 				<fieldset>

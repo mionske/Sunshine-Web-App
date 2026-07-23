@@ -33,6 +33,7 @@ describe('findLikelyDuplicates', () => {
 		});
 		const property = await createRow(harness.env, propertyConfig, {
 			'Client ID': client['Client ID'],
+			'Property Type': 'Residential',
 			'Street Address': '1285 Georgetown Road',
 			City: 'Boulder',
 			State: 'CO',

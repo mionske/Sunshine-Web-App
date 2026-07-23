@@ -34,6 +34,7 @@ export interface HistoricalEntryPayload {
 	property: {
 		id: string;
 		isExisting: boolean;
+		propertyType: string;
 		streetAddress: string;
 		city: string;
 		state: string;
@@ -45,6 +46,8 @@ export interface HistoricalEntryPayload {
 		accessNotes: string;
 		petNotes: string;
 		generalNotes: string;
+		buildingComplexName: string;
+		unitIdentifier: string;
 	};
 	walkthrough: {
 		include: boolean;
@@ -164,6 +167,7 @@ export async function saveHistoricalEntry(
 				{
 					id: payload.property.id,
 					'Client ID': payload.client.id,
+					'Property Type': payload.property.propertyType as never,
 					'Street Address': payload.property.streetAddress,
 					City: payload.property.city,
 					State: payload.property.state,
@@ -175,6 +179,8 @@ export async function saveHistoricalEntry(
 					'Access Notes': payload.property.accessNotes,
 					'Pet Notes': payload.property.petNotes,
 					'General Notes': payload.property.generalNotes,
+					'Building/Complex Name': payload.property.buildingComplexName,
+					'Unit Identifier': payload.property.unitIdentifier,
 				},
 			],
 		});

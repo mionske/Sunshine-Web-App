@@ -45,7 +45,7 @@ describe('PricingConfig', () => {
 		expect(seeded!.Status).toBe('Active');
 		expect(seeded!['Effective Date']).toBeTruthy();
 
-		const active = await getActivePricingConfig(harness.env);
+		const active = await getActivePricingConfig(harness.env, 'Residential');
 		expect(active?.['Pricing Config ID']).toBe(seeded!['Pricing Config ID']);
 	});
 
@@ -60,7 +60,7 @@ describe('PricingConfig', () => {
 
 	it('getActivePricingConfig returns null when nothing is active', async () => {
 		await createPricingConfig(harness.env, { 'Config Name': 'Draft only', 'Target Hourly Rate': '160' });
-		const active = await getActivePricingConfig(harness.env);
+		const active = await getActivePricingConfig(harness.env, 'Residential');
 		expect(active).toBeNull();
 	});
 
@@ -68,6 +68,7 @@ describe('PricingConfig', () => {
 		const first = await seedInitialPricingConfig(harness.env);
 		const second = await createPricingConfig(harness.env, {
 			'Config Name': 'Rate increase',
+			'Property Type': 'Residential',
 			'Target Hourly Rate': '165',
 		});
 
@@ -81,5 +82,24 @@ describe('PricingConfig', () => {
 		const oldOne = all.find((r) => r['Pricing Config ID'] === first!['Pricing Config ID']);
 		expect(oldOne?.Status).toBe('Superseded');
 		expect(oldOne?.['End Date']).toBeTruthy();
+	});
+
+	it('scopes "exactly one Active" per Property Type — activating Commercial never touches Residential', async () => {
+		const residential = await seedInitialPricingConfig(harness.env);
+		const commercial = await createPricingConfig(harness.env, {
+			'Config Name': 'Commercial rate',
+			'Property Type': 'Commercial',
+			'Target Hourly Rate': '200',
+		});
+
+		await activatePricingConfig(harness.env, commercial['Pricing Config ID']);
+
+		const activeResidential = await getActivePricingConfig(harness.env, 'Residential');
+		const activeCommercial = await getActivePricingConfig(harness.env, 'Commercial');
+		expect(activeResidential?.['Pricing Config ID']).toBe(residential!['Pricing Config ID']);
+		expect(activeCommercial?.['Pricing Config ID']).toBe(commercial['Pricing Config ID']);
+
+		const all = await listPricingConfigs(harness.env);
+		expect(all.filter((r) => r.Status === 'Active')).toHaveLength(2);
 	});
 });

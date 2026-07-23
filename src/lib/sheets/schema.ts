@@ -292,5 +292,10 @@ export async function ensureColumn(env: SheetsEnv, tab: string, columnName: stri
 	const nextCol = headers.length + 1;
 	await ensureGridSize(env, tab, { minColumns: nextCol });
 	await updateValues(env, `'${tab}'!${columnLetterAt(nextCol)}1`, [[columnName]]);
+	// Refreshes the in-process header cache immediately — otherwise any
+	// code that reads this tab's headers without {fresh: true} afterward
+	// (the normal, non-admin path) would keep seeing the pre-append header
+	// list until something else happens to force a fresh read.
+	await readHeaders(env, tab, { fresh: true });
 	return true;
 }
