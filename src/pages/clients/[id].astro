@@ -24,7 +24,7 @@ if (Astro.request.method === 'POST') {
 				Notes: String(form.get('notes') ?? ''),
 			});
 		} else if (action === 'add-property') {
-			await createRow(env, propertyConfig, {
+			const newProperty = await createRow(env, propertyConfig, {
 				id: String(form.get('id') ?? ''),
 				'Client ID': id!,
 				'Property Type': String(form.get('propertyType') ?? '') as (typeof PROPERTY_TYPES)[number],
@@ -34,10 +34,15 @@ if (Astro.request.method === 'POST') {
 				Zip: String(form.get('zip') ?? ''),
 				Stories: String(form.get('stories') ?? ''),
 				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
+				'Total Glass Panes': String(form.get('totalGlassPanes') ?? ''),
 				'Desired Maintenance Frequency': String(form.get('desiredMaintenanceFrequency') ?? ''),
 				'Building/Complex Name': String(form.get('buildingComplexName') ?? ''),
 				'Unit Identifier': String(form.get('unitIdentifier') ?? ''),
 			});
+			// Straight to the full property page — that's where every other
+			// characteristic (and the Save button for editing them) lives, so
+			// there's no separate "add" vs "save" surface to get lost between.
+			return Astro.redirect(`/properties/${newProperty['Property ID']}`);
 		}
 		return Astro.redirect(`/clients/${id}`);
 	} catch (e) {
@@ -99,7 +104,8 @@ const newPropertyId = crypto.randomUUID();
 			<label>State <input type="text" name="state" maxlength="2" placeholder="CO" /></label>
 			<label>Zip <input type="text" name="zip" /></label>
 			<label>Stories <input type="text" name="stories" /></label>
-			<label>Total window units <input type="text" name="totalWindowUnits" /></label>
+			<label>Total window units (subjective — what counts as one "window" varies) <input type="text" name="totalWindowUnits" /></label>
+			<label>Total glass panes (objective — actual pane count) <input type="text" name="totalGlassPanes" /></label>
 			<label>Desired maintenance frequency <input type="text" name="desiredMaintenanceFrequency" /></label>
 			<label>Building/complex name (optional — groups units in the same building) <input type="text" name="buildingComplexName" /></label>
 			<label>Unit identifier (optional) <input type="text" name="unitIdentifier" /></label>
