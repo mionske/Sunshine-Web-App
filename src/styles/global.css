@@ -154,6 +154,35 @@ textarea:focus {
 	border-color: var(--color-red);
 }
 
+/* Short numeric counts (window/pane counts, screens, tracks) don't need
+ * to stretch full-width like an address or notes field — width-only
+ * override, same padding/border/focus treatment as every other input. */
+input.field-numeric {
+	width: 90px;
+}
+
+.field-hint {
+	display: block;
+	font-weight: 400;
+	font-size: 0.85rem;
+	color: var(--color-ink-muted);
+	margin: -0.5rem 0 0.75rem;
+}
+
+.field-status {
+	font-weight: 600;
+	margin: 0.5rem 0 1rem;
+}
+
+.field-status.mismatch {
+	display: inline-block;
+	color: #92400e;
+	background: #fef3c7;
+	border: 1px solid #f59e0b;
+	border-radius: var(--radius-field);
+	padding: 0.5rem 0.75rem;
+}
+
 button,
 .btn {
 	display: inline-block;

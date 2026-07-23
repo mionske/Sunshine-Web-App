@@ -106,9 +106,9 @@ const newPropertyId = crypto.randomUUID();
 			<label>City <input type="text" name="city" /></label>
 			<label>State <input type="text" name="state" maxlength="2" placeholder="CO" /></label>
 			<label>Zip <input type="text" name="zip" /></label>
-			<label>Stories <input type="text" name="stories" /></label>
-			<label>Total window units (subjective — what counts as one "window" varies) <input type="text" name="totalWindowUnits" /></label>
-			<label>Total glass panes (objective — actual pane count) <input type="text" name="totalGlassPanes" /></label>
+			<label>Stories <input type="number" class="field-numeric" name="stories" /></label>
+			<label>Total window units (subjective — what counts as one "window" varies) <input type="number" class="field-numeric" name="totalWindowUnits" /></label>
+			<label>Total panes (all glass — objective count) <input type="number" class="field-numeric" name="totalGlassPanes" /></label>
 			<label>Desired maintenance frequency <input type="text" name="desiredMaintenanceFrequency" /></label>
 			<label>Building/complex name (optional — groups units in the same building) <input type="text" name="buildingComplexName" /></label>
 			<label>Unit identifier (optional) <input type="text" name="unitIdentifier" /></label>

@@ -310,19 +310,31 @@ const timeline = activityRows
 
 				<fieldset>
 					<legend>Windows &amp; doors</legend>
-					<label>Total window units (subjective — what counts as one "window" varies) <input type="text" name="totalWindowUnits" value={property['Total Window Units']} /></label>
-					<label>Total glass panes (objective — actual pane count) <input type="text" name="totalGlassPanes" value={property['Total Glass Panes']} /></label>
-					<label>Double hung <input type="text" name="countDoubleHung" value={property['Count - Double Hung']} /></label>
-					<label>Casement <input type="text" name="countCasement" value={property['Count - Casement']} /></label>
-					<label>Picture <input type="text" name="countPicture" value={property['Count - Picture']} /></label>
-					<label>Sliding windows <input type="text" name="countSliding" value={property['Count - Sliding']} /></label>
-					<label>French / divided-light <input type="text" name="countFrench" value={property['Count - French']} /></label>
-					<label>Awning <input type="text" name="countAwning" value={property['Count - Awning']} /></label>
-					<label>Skylights <input type="text" name="countSkylights" value={property['Count - Skylights']} /></label>
-					<label>Solar panels <input type="text" name="countSolarPanels" value={property['Count - Solar Panels']} /></label>
-					<label>Sliding glass door panes <input type="text" name="slidingGlassDoorPaneCount" value={property['Sliding Glass Door Pane Count']} /></label>
-					<label>Screens <input type="text" name="screenCount" value={property['Screen Count']} /></label>
-					<label>Tracks <input type="text" name="trackCount" value={property['Track Count']} /></label>
+					<label>
+						Total window units (subjective — what counts as one "window" varies)
+						<input type="number" class="field-numeric" name="totalWindowUnits" value={property['Total Window Units']} />
+					</label>
+					<label>
+						Total panes (all glass — sum of the breakdown below)
+						<input type="number" class="field-numeric" id="totalPanes" name="totalGlassPanes" value={property['Total Glass Panes']} />
+					</label>
+
+					<p>Pane breakdown by type</p>
+					<span class="field-hint">These should add up to Total panes above.</span>
+					<label>Double hung <input type="number" class="field-numeric pane-breakdown-field" name="countDoubleHung" value={property['Count - Double Hung']} /></label>
+					<label>Casement <input type="number" class="field-numeric pane-breakdown-field" name="countCasement" value={property['Count - Casement']} /></label>
+					<label>Picture <input type="number" class="field-numeric pane-breakdown-field" name="countPicture" value={property['Count - Picture']} /></label>
+					<label>Sliding windows <input type="number" class="field-numeric pane-breakdown-field" name="countSliding" value={property['Count - Sliding']} /></label>
+					<label>French / divided-light <input type="number" class="field-numeric pane-breakdown-field" name="countFrench" value={property['Count - French']} /></label>
+					<label>Awning <input type="number" class="field-numeric pane-breakdown-field" name="countAwning" value={property['Count - Awning']} /></label>
+					<label>Skylights <input type="number" class="field-numeric pane-breakdown-field" name="countSkylights" value={property['Count - Skylights']} /></label>
+					<label>Sliding glass door panes <input type="number" class="field-numeric pane-breakdown-field" name="slidingGlassDoorPaneCount" value={property['Sliding Glass Door Pane Count']} /></label>
+					<p id="paneBreakdownStatus" class="field-status"></p>
+
+					<p>Accessories</p>
+					<label>Solar panels <input type="number" class="field-numeric" name="countSolarPanels" value={property['Count - Solar Panels']} /></label>
+					<label>Screens <input type="number" class="field-numeric" name="screenCount" value={property['Screen Count']} /></label>
+					<label>Tracks <input type="number" class="field-numeric" name="trackCount" value={property['Track Count']} /></label>
 				</fieldset>
 
 				<fieldset>
@@ -430,4 +442,32 @@ const timeline = activityRows
 			</section>
 		)}
 	</main>
+
+	<script>
+		const totalPanesInput = document.getElementById('totalPanes') as HTMLInputElement;
+		const breakdownFields = Array.from(document.querySelectorAll('.pane-breakdown-field')) as HTMLInputElement[];
+		const status = document.getElementById('paneBreakdownStatus') as HTMLElement;
+
+		function checkPaneBreakdown() {
+			const breakdownTotal = breakdownFields.reduce((sum, field) => sum + (Number(field.value) || 0), 0);
+			const totalPanes = Number(totalPanesInput.value) || 0;
+
+			if (breakdownTotal === 0 && totalPanes === 0) {
+				status.textContent = '';
+				status.className = 'field-status';
+				return;
+			}
+			if (breakdownTotal === totalPanes) {
+				status.textContent = `✓ Breakdown total (${breakdownTotal}) matches Total panes`;
+				status.className = 'field-status';
+			} else {
+				status.textContent = `Breakdown total (${breakdownTotal}) doesn't match Total panes (${totalPanes}) — double-check your count`;
+				status.className = 'field-status mismatch';
+			}
+		}
+
+		totalPanesInput.addEventListener('input', checkPaneBreakdown);
+		breakdownFields.forEach((field) => field.addEventListener('input', checkPaneBreakdown));
+		checkPaneBreakdown();
+	</script>
 </BaseLayout>
