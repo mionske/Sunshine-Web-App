@@ -48,11 +48,16 @@ const cards = opportunities.map((o) => {
 		id: o['Opportunity ID'],
 		stage: o.Stage,
 		clientName: client ? `${client['First Name']} ${client['Last Name']}` : o['Client ID'],
-		propertyAddress: property ? property['Street Address'] : o['Property ID'],
+		propertyAddress: property ? property['Street Address'] : '',
 		estimatedValue: o['Estimated Value'],
 		nextFollowUpDate: o['Next Follow-up Date'],
 	};
 });
+
+const propertyOptions = properties.map((p) => ({
+	id: p['Property ID'],
+	address: `${p['Street Address']} (${clientById[p['Client ID']]?.['Last Name'] ?? '?'})`,
+}));
 
 const newOpportunityId = crypto.randomUUID();
 ---
@@ -62,7 +67,7 @@ const newOpportunityId = crypto.randomUUID();
 		<h1>Pipeline</h1>
 		{error && <p role="alert">{error}</p>}
 
-		<PipelineBoard client:load stages={PIPELINE_STAGES} cards={cards} />
+		<PipelineBoard client:load stages={PIPELINE_STAGES} cards={cards} properties={propertyOptions} />
 
 		<h2>New opportunity</h2>
 		<form method="POST">
@@ -76,8 +81,9 @@ const newOpportunityId = crypto.randomUUID();
 				</select>
 			</label>
 			<label>
-				Property
-				<select name="propertyId" required>
+				Property (optional — a contact often comes in before a property is attached)
+				<select name="propertyId">
+					<option value="">— none yet —</option>
 					{properties.map((p) => (
 						<option value={p['Property ID']}>{p['Street Address']}</option>
 					))}

@@ -8,13 +8,26 @@
 // labor/revenue/cost/callback fields are filled in (enforced in Phase 9's
 // calibration query, not here).
 import { createRow, findById, listActiveRows, logActivity, updateRow, type SheetsEnv } from '../sheets';
-import { jobConfig, JOB_STATUSES, type Job } from '../models/job';
+import { jobConfig, JOB_STATUSES, MAINTENANCE_FREQUENCY_INTERVAL_MONTHS, type Job } from '../models/job';
 import { quoteConfig, type Quote } from '../models/quote';
 import { propertyConfig } from '../models/property';
 import { pipelineConfig } from '../models/pipeline';
 import { recalculateCalibration } from './calibration';
 
 const CALIBRATION_TRIGGER_STATUSES = new Set(['Completed', 'Invoiced', 'Paid']);
+
+/** Only Quarterly/Twice Yearly/Yearly (Properties' "Desired Maintenance
+ * Frequency") have a defined interval — One Time/Custom/Unknown/blank
+ * never auto-compute a date, since there's no global default cadence.
+ * Returns '' when there's nothing to compute from. */
+export function computeNextMaintenanceFollowUpDate(completionDate: string, maintenanceFrequency: string): string {
+	const months = MAINTENANCE_FREQUENCY_INTERVAL_MONTHS[maintenanceFrequency];
+	if (!months || !completionDate) return '';
+	const date = new Date(completionDate);
+	if (Number.isNaN(date.getTime())) return '';
+	date.setUTCMonth(date.getUTCMonth() + months);
+	return date.toISOString().slice(0, 10);
+}
 
 export async function findJobByQuoteId(env: SheetsEnv, quoteId: string): Promise<Job | undefined> {
 	const jobs = await listActiveRows(env, jobConfig);
@@ -103,6 +116,13 @@ export { JOB_STATUSES };
  * time (e.g. Actual Time/Final Price when marking Completed). Existing
  * legacy columns on the row are preserved untouched (see job.ts).
  *
+ * On a transition into Completed/Invoiced/Paid, pre-fills Next Maintenance
+ * Follow-up Date from the property's Desired Maintenance Frequency —
+ * unless the caller already supplied one, or the frequency doesn't map to
+ * a defined interval. Always just a starting value: never re-computed or
+ * locked on a later update, since the right follow-up date varies by
+ * client/property/job and the owner may always override it.
+ *
  * Recalculates the calibration snapshot right after a transition into
  * Completed/Invoiced/Paid — one of the plan's documented recalculation
  * triggers, alongside the manual "Recalculate Calibration" action. */
@@ -113,13 +133,24 @@ export async function updateJobStatus(
 	patch: Partial<Job> = {},
 	meta: { user?: string; requestId?: string } = {}
 ): Promise<Job> {
-	const job = await updateRow(
-		env,
-		jobConfig,
-		jobId,
-		{ ...patch, 'Job Status': status },
-		{ ...meta, action: `Job marked ${status}` }
-	);
+	const finalPatch: Partial<Job> = { ...patch, 'Job Status': status };
+
+	if (CALIBRATION_TRIGGER_STATUSES.has(status) && !patch['Next Maintenance Follow-up Date']) {
+		const currentJob = await findById(env, jobConfig, jobId);
+		if (currentJob?.['Property ID']) {
+			const property = await findById(env, propertyConfig, currentJob['Property ID']);
+			const completionDate = patch['Date Completed'] || currentJob['Date Completed'] || new Date().toISOString().slice(0, 10);
+			const followUpDate = property
+				? computeNextMaintenanceFollowUpDate(completionDate, property['Desired Maintenance Frequency'])
+				: '';
+			if (followUpDate) {
+				finalPatch['Next Maintenance Follow-up Date'] = followUpDate;
+				finalPatch['Maintenance Follow-up Status'] = finalPatch['Maintenance Follow-up Status'] || 'Not yet due';
+			}
+		}
+	}
+
+	const job = await updateRow(env, jobConfig, jobId, finalPatch, { ...meta, action: `Job marked ${status}` });
 
 	if (CALIBRATION_TRIGGER_STATUSES.has(status)) {
 		await recalculateCalibration(env, meta);

@@ -7,6 +7,8 @@ import { quoteItemConfig } from '../../lib/models/quoteItem';
 import { clientConfig } from '../../lib/models/client';
 import { propertyConfig } from '../../lib/models/property';
 import { acceptQuote, findJobByQuoteId, updateJobStatus, JOB_STATUSES } from '../../lib/pricing/jobLifecycle';
+import { updateRow } from '../../lib/sheets';
+import { REVIEW_LEFT_VALUES, MAINTENANCE_FOLLOW_UP_STATUSES } from '../../lib/models/job';
 
 const { id } = Astro.params;
 let error: string | null = null;
@@ -24,7 +26,14 @@ if (Astro.request.method === 'POST') {
 			await updateJobStatus(env, jobId, status, {
 				'Actual Time (hrs)': String(form.get('actualTime') ?? ''),
 				'Final Price ($)': String(form.get('finalPrice') ?? ''),
+				'QB Invoice Link': String(form.get('qbInvoiceLink') ?? ''),
+				'Review Requested At': String(form.get('reviewRequestedAt') ?? ''),
+				'Review Left': String(form.get('reviewLeft') ?? ''),
+				'Next Maintenance Follow-up Date': String(form.get('nextMaintenanceFollowUpDate') ?? ''),
+				'Maintenance Follow-up Status': String(form.get('maintenanceFollowUpStatus') ?? ''),
 			});
+		} else if (action === 'update-qb-estimate-link') {
+			await updateRow(env, quoteConfig, id!, { 'QB Estimate Link': String(form.get('qbEstimateLink') ?? '') });
 		}
 		return Astro.redirect(`/quotes/${id}`);
 	} catch (e) {
@@ -83,6 +92,18 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 			</p>
 		</div>
 
+		<div class="card">
+			<h2>QuickBooks</h2>
+			{quote['QB Estimate Link'] && (
+				<p><a href={quote['QB Estimate Link']} target="_blank" rel="noopener noreferrer">Open in QuickBooks →</a></p>
+			)}
+			<form method="POST">
+				<input type="hidden" name="_action" value="update-qb-estimate-link" />
+				<label>QB Estimate Link <input type="url" name="qbEstimateLink" value={quote['QB Estimate Link']} placeholder="https://..." /></label>
+				<button type="submit">Save link</button>
+			</form>
+		</div>
+
 		{canAccept && (
 			<div class="card">
 				<form method="POST">
@@ -107,6 +128,26 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 					</label>
 					<label>Actual time (hrs) <input type="text" name="actualTime" value={job['Actual Time (hrs)']} /></label>
 					<label>Final price ($) <input type="text" name="finalPrice" value={job['Final Price ($)']} /></label>
+					<label>QB Invoice Link <input type="url" name="qbInvoiceLink" value={job['QB Invoice Link']} placeholder="https://..." /></label>
+					{job['QB Invoice Link'] && (
+						<p><a href={job['QB Invoice Link']} target="_blank" rel="noopener noreferrer">Open in QuickBooks →</a></p>
+					)}
+					<label>Review requested at <input type="date" name="reviewRequestedAt" value={job['Review Requested At']} /></label>
+					<label>
+						Review left
+						<select name="reviewLeft">
+							<option value="" selected={!job['Review Left']} />
+							{REVIEW_LEFT_VALUES.map((v) => <option value={v} selected={v === job['Review Left']}>{v}</option>)}
+						</select>
+					</label>
+					<label>Next maintenance follow-up date <input type="date" name="nextMaintenanceFollowUpDate" value={job['Next Maintenance Follow-up Date']} /></label>
+					<label>
+						Maintenance follow-up status
+						<select name="maintenanceFollowUpStatus">
+							<option value="" selected={!job['Maintenance Follow-up Status']} />
+							{MAINTENANCE_FOLLOW_UP_STATUSES.map((v) => <option value={v} selected={v === job['Maintenance Follow-up Status']}>{v}</option>)}
+						</select>
+					</label>
 					<button type="submit">Update job</button>
 				</form>
 			</div>

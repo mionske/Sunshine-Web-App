@@ -29,8 +29,21 @@ export const PATCH: APIRoute = ({ params, request }) =>
 			patch['Closed At'] = new Date().toISOString();
 		}
 
+		// A distinct, named action (not just the generic "updated") when this
+		// update is specifically attaching a property to a lead that didn't
+		// have one yet — the normal case: contact comes in first, a property
+		// gets attached once the walkthrough happens.
+		let action: string | undefined;
+		if (patch['Property ID']) {
+			const current = await findById(env, pipelineConfig, params.id!);
+			if (current && !current['Property ID']) {
+				action = 'Property attached';
+			}
+		}
+
 		const row = await updateRow(env, pipelineConfig, params.id!, patch, {
 			expectedUpdatedAt: body.expectedUpdatedAt,
+			action,
 		});
 		return json({ ok: true, row });
 	});

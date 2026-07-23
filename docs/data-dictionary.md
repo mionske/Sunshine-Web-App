@@ -47,6 +47,13 @@ Stages: New Lead → Contacted → Walkthrough Scheduled → Quote Draft →
 Quote Sent → Follow-up → Accepted → Lost. Paid is never a pipeline stage —
 Accepted closes the opportunity and starts the Job workflow.
 
+Property ID is normally blank when a lead is first created — a contact
+comes in before a property exists, and one gets attached later via a
+dedicated "Attach property" action (not a plain field edit), logged to
+ActivityLog as `Property attached`. The Pipeline board shows a
+"No property yet — add one" prompt on any card without one, rather than a
+blank/broken address.
+
 ## Quotes
 Quote ID, Client ID, Property ID, Opportunity ID, Walkthrough ID (link —
 set when the quote was generated from a completed Walkthrough), Pricing Config ID,
@@ -56,7 +63,9 @@ Calculated Add-ons, Calculated Surcharges, Estimated Labor Hours,
 Target Hourly Rate, Target Price Before Adjustments, Manual Adjustment,
 Discount, Final Quoted Price, Expected Revenue Per Labor Hour,
 Override Reason, Quote Status, Created At, Updated At, Sent At,
-Accepted At, Declined At, Expired At, Archived At, Created By, Notes.
+Accepted At, Declined At, Expired At, Archived At, Created By, Notes,
+QB Estimate Link (URL — set once created/sent in QuickBooks; the app only
+stores the link, never talks to the QuickBooks API).
 
 The saved Quote + QuoteItems rows are always the authoritative record of
 what was charged. Reproducibility means the stored snapshots + config
@@ -126,6 +135,15 @@ Data Quality Notes. These five are free-text columns, not enforced
 enums — unlike Job Status, most existing rows simply won't have them set,
 and forcing a default value would fabricate false completeness on legacy
 data; the allowed-value lists only constrain what forms offer.
+
+Review Requested At (timestamp), Review Left (Yes/No/Unknown),
+Next Maintenance Follow-up Date (pre-filled as Job completion date +
+Property's Desired Maintenance Frequency interval when the Job is marked
+Completed/Invoiced/Paid — only for Quarterly/Twice Yearly/Yearly, since
+there's no global default cadence — but always manually editable and
+never re-computed afterward), Maintenance Follow-up Status (Not yet due/
+Due/Contacted/Scheduled/Declined — manual, no auto-transitions),
+QB Invoice Link (URL, link only — no QuickBooks API integration).
 
 A Job counts toward calibration only once Status is Completed/Invoiced/Paid
 AND actual labor time, final revenue, and callback info are all entered

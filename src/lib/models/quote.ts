@@ -40,6 +40,7 @@ export const quoteSchema = z.object({
 	'Archived At': blank(),
 	'Created By': blank(),
 	Notes: blank(),
+	'QB Estimate Link': blank(),
 });
 
 export type Quote = z.infer<typeof quoteSchema>;

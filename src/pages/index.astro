@@ -43,6 +43,16 @@ const thisMonthRevenue = thisMonthJobs.reduce((sum, j) => {
 }, 0);
 
 const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
+
+const CLOSED_FOLLOW_UP_STATUSES = new Set(['Scheduled', 'Declined']);
+const maintenanceFollowUps = jobs
+	.filter(
+		(j) =>
+			j['Next Maintenance Follow-up Date'] &&
+			j['Next Maintenance Follow-up Date'] <= today &&
+			!CLOSED_FOLLOW_UP_STATUSES.has(j['Maintenance Follow-up Status'])
+	)
+	.sort((a, b) => a['Next Maintenance Follow-up Date'].localeCompare(b['Next Maintenance Follow-up Date']));
 ---
 
 <BaseLayout title="Dashboard">
@@ -59,6 +69,23 @@ const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
 					{followUps.map(({ opportunity, clientName, propertyAddress }) => (
 						<li>
 							<strong>{opportunity['Next Follow-up Date']}</strong> — {propertyAddress} ({clientName}) — <span class="badge">{opportunity.Stage}</span>
+						</li>
+					))}
+				</ul>
+			)}
+		</div>
+
+		<div class="card">
+			<h2>Maintenance follow-ups due ({maintenanceFollowUps.length})</h2>
+			{maintenanceFollowUps.length === 0 ? (
+				<p>Nothing due.</p>
+			) : (
+				<ul>
+					{maintenanceFollowUps.map((j) => (
+						<li>
+							<strong>{j['Next Maintenance Follow-up Date']}</strong> — {j['Property Address']} —{' '}
+							<span class="badge">{j['Maintenance Follow-up Status'] || 'Not yet due'}</span>
+							{' · '}<a href={`/quotes/${j['Quote ID']}`}>view job</a>
 						</li>
 					))}
 				</ul>

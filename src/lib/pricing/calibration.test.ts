@@ -245,6 +245,11 @@ const JOBS_HEADERS = [
 	'Standard Price Equivalent',
 	'Data Quality',
 	'Data Quality Notes',
+	'Review Requested At',
+	'Review Left',
+	'Next Maintenance Follow-up Date',
+	'Maintenance Follow-up Status',
+	'QB Invoice Link',
 ];
 
 describe('recalculateCalibration (Sheets-backed)', () => {

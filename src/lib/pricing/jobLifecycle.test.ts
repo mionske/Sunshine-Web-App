@@ -4,12 +4,13 @@ import { _clearHeaderCacheForTests } from '../sheets/rows';
 import { quoteSchema } from '../models/quote';
 import { pipelineSchema } from '../models/pipeline';
 import { propertySchema } from '../models/property';
+import { calibrationSnapshotSchema } from '../models/calibrationSnapshot';
 import { createRow } from '../sheets';
 import { quoteConfig } from '../models/quote';
 import { pipelineConfig } from '../models/pipeline';
 import { propertyConfig } from '../models/property';
 import { jobConfig } from '../models/job';
-import { acceptQuote, findJobByQuoteId, updateJobStatus } from './jobLifecycle';
+import { acceptQuote, computeNextMaintenanceFollowUpDate, findJobByQuoteId, updateJobStatus } from './jobLifecycle';
 
 // Mirrors the actual legacy Jobs tab: existing columns this app's schema
 // doesn't declare, plus the 22 columns appended in Phase 8.
@@ -30,6 +31,11 @@ const JOBS_HEADERS = [
 	'Standard Price Equivalent',
 	'Data Quality',
 	'Data Quality Notes',
+	'Review Requested At',
+	'Review Left',
+	'Next Maintenance Follow-up Date',
+	'Maintenance Follow-up Status',
+	'QB Invoice Link',
 ];
 
 const ACTIVITY_LOG_HEADERS = [
@@ -46,6 +52,7 @@ describe('quote acceptance and job lifecycle', () => {
 		harness.spreadsheet.setTab('Quotes', [Object.keys(quoteSchema.shape)]);
 		harness.spreadsheet.setTab('Pipeline', [Object.keys(pipelineSchema.shape)]);
 		harness.spreadsheet.setTab('Properties', [Object.keys(propertySchema.shape)]);
+		harness.spreadsheet.setTab('CalibrationSnapshot', [Object.keys(calibrationSnapshotSchema.shape)]);
 		harness.spreadsheet.setTab('ActivityLog', [ACTIVITY_LOG_HEADERS]);
 	});
 
@@ -145,5 +152,73 @@ describe('quote acceptance and job lifecycle', () => {
 		expect(updatedRow?.[headers.indexOf('Windows - Small')]).toBe('8');
 		expect(updatedRow?.[headers.indexOf('Lead Source')]).toBe('Referral');
 		expect(updatedRow?.[headers.indexOf('Job Status')]).toBe('Scheduled');
+	});
+
+	it('pre-fills Next Maintenance Follow-up Date from the property frequency on completion', async () => {
+		await createRow(harness.env, propertyConfig, {
+			id: 'property-1',
+			'Street Address': '123 Main St',
+			City: 'Boulder',
+			'Desired Maintenance Frequency': 'Quarterly',
+		});
+		const quote = await makeQuote();
+		const { job } = await acceptQuote(harness.env, quote['Quote ID']);
+
+		const updated = await updateJobStatus(harness.env, job['Job ID'], 'Completed', { 'Date Completed': '2026-01-15' });
+
+		expect(updated['Next Maintenance Follow-up Date']).toBe('2026-04-15');
+		expect(updated['Maintenance Follow-up Status']).toBe('Not yet due');
+	});
+
+	it('does not overwrite a manually-supplied follow-up date', async () => {
+		await createRow(harness.env, propertyConfig, {
+			id: 'property-1',
+			'Street Address': '123 Main St',
+			City: 'Boulder',
+			'Desired Maintenance Frequency': 'Quarterly',
+		});
+		const quote = await makeQuote();
+		const { job } = await acceptQuote(harness.env, quote['Quote ID']);
+
+		const updated = await updateJobStatus(harness.env, job['Job ID'], 'Completed', {
+			'Date Completed': '2026-01-15',
+			'Next Maintenance Follow-up Date': '2026-06-01',
+		});
+
+		expect(updated['Next Maintenance Follow-up Date']).toBe('2026-06-01');
+	});
+
+	it('leaves the follow-up date blank when the property has no defined-interval frequency', async () => {
+		await createRow(harness.env, propertyConfig, {
+			id: 'property-1',
+			'Street Address': '123 Main St',
+			City: 'Boulder',
+			'Desired Maintenance Frequency': 'As needed',
+		});
+		const quote = await makeQuote();
+		const { job } = await acceptQuote(harness.env, quote['Quote ID']);
+
+		const updated = await updateJobStatus(harness.env, job['Job ID'], 'Completed', { 'Date Completed': '2026-01-15' });
+
+		expect(updated['Next Maintenance Follow-up Date']).toBe('');
+	});
+});
+
+describe('computeNextMaintenanceFollowUpDate', () => {
+	it('adds the interval for a recognized frequency', () => {
+		expect(computeNextMaintenanceFollowUpDate('2026-01-15', 'Quarterly')).toBe('2026-04-15');
+		expect(computeNextMaintenanceFollowUpDate('2026-01-15', 'Twice Yearly')).toBe('2026-07-15');
+		expect(computeNextMaintenanceFollowUpDate('2026-01-15', 'Yearly')).toBe('2027-01-15');
+	});
+
+	it('returns blank for an unrecognized or missing frequency', () => {
+		expect(computeNextMaintenanceFollowUpDate('2026-01-15', 'One Time')).toBe('');
+		expect(computeNextMaintenanceFollowUpDate('2026-01-15', '')).toBe('');
+		expect(computeNextMaintenanceFollowUpDate('2026-01-15', 'Unknown')).toBe('');
+	});
+
+	it('returns blank for a missing or invalid completion date', () => {
+		expect(computeNextMaintenanceFollowUpDate('', 'Quarterly')).toBe('');
+		expect(computeNextMaintenanceFollowUpDate('not-a-date', 'Quarterly')).toBe('');
 	});
 });

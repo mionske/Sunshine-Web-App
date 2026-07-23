@@ -28,6 +28,21 @@ export const REVENUE_TREATMENTS = ['Full Price', 'Discounted', 'No Charge', 'Tes
 
 export const DATA_QUALITY_LEVELS = ['Complete', 'Mostly Complete', 'Partial', 'Estimate Only'] as const;
 
+export const REVIEW_LEFT_VALUES = ['Yes', 'No', 'Unknown'] as const;
+
+export const MAINTENANCE_FOLLOW_UP_STATUSES = ['Not yet due', 'Due', 'Contacted', 'Scheduled', 'Declined'] as const;
+
+// Only these values have a defined interval (see
+// jobLifecycle.ts's computeNextMaintenanceFollowUpDate) — matches
+// Properties' "Desired Maintenance Frequency" options. Anything else
+// (One Time/Custom/Unknown/blank) never auto-computes a follow-up date;
+// there is no global default cadence.
+export const MAINTENANCE_FREQUENCY_INTERVAL_MONTHS: Record<string, number> = {
+	Quarterly: 3,
+	'Twice Yearly': 6,
+	Yearly: 12,
+};
+
 // The Jobs tab is the pre-existing, hand-edited legacy sheet (see the Jobs-
 // preservation protocol) — it has many columns this app never touches
 // (Windows - Small/Medium/..., Total Panes, the calibration block, etc.).
@@ -89,6 +104,15 @@ export const jobSchema = z
 		'Callback Required (Y/N)': blank(),
 		Photos: blank(),
 		Version: blank(),
+		'Review Requested At': blank(),
+		'Review Left': blank(),
+		// Pre-filled by jobLifecycle.ts's updateJobStatus() when the job is
+		// marked Completed/Invoiced/Paid, from the property's maintenance
+		// frequency — but always a plain editable field, never re-computed
+		// or locked afterward (varies per client/property/job).
+		'Next Maintenance Follow-up Date': blank(),
+		'Maintenance Follow-up Status': blank(),
+		'QB Invoice Link': blank(),
 		'Archived At': blank(),
 	})
 	.catchall(z.union([z.string(), z.number(), z.boolean(), z.null()]));
