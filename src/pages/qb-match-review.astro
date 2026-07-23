@@ -1,0 +1,108 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { listActiveRows } from '../lib/sheets';
+import { qbCustomerConfig } from '../lib/models/qbCustomer';
+import { clientConfig } from '../lib/models/client';
+import { confirmQBLink, findMatchCandidates, QBRelinkConfirmationRequiredError } from '../lib/qb/matching';
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	try {
+		if (action === 'confirm-link') {
+			const clientId = String(form.get('clientId') ?? '');
+			const qbCustomerId = String(form.get('qbCustomerId') ?? '');
+			const confirmRelink = form.get('confirmRelink') === 'on';
+			await confirmQBLink(env, clientId, qbCustomerId, { confirmRelink });
+		}
+		return Astro.redirect('/qb-match-review');
+	} catch (e) {
+		if (e instanceof QBRelinkConfirmationRequiredError) {
+			error = `${e.message} Check "Confirm re-link" below and submit again to proceed.`;
+		} else {
+			error = (e as Error).message;
+		}
+	}
+}
+
+const [qbCustomers, clients] = await Promise.all([listActiveRows(env, qbCustomerConfig), listActiveRows(env, clientConfig)]);
+const linkedQBIds = new Set(clients.map((c) => c['QB Customer ID']).filter(Boolean));
+const unlinkedCustomers = qbCustomers.filter((c) => !linkedQBIds.has(c['QB Customer ID']));
+
+const rows = await Promise.all(
+	unlinkedCustomers.map(async (customer) => ({
+		customer,
+		candidates: (await findMatchCandidates(env, customer)).slice(0, 5),
+	}))
+);
+---
+
+<BaseLayout title="QuickBooks Match Review">
+	<main>
+		<h1>QuickBooks Match Review</h1>
+		<p>
+			Unlinked QB Customers with scored candidate Clients. Nothing here is ever auto-linked — every link
+			is an explicit confirmation, and re-linking a Client already linked to a different QB Customer
+			requires checking "Confirm re-link" first.
+		</p>
+		{error && <p role="alert">{error}</p>}
+
+		{rows.length === 0 ? (
+			<p>No unlinked QB Customers — either nothing has synced yet, or everything is already linked.</p>
+		) : (
+			rows.map(({ customer, candidates }) => (
+				<section class="card">
+					<h2>{customer['Display Name'] || customer['QB Customer ID']}</h2>
+					<p>
+						{customer.Email && <>{customer.Email} · </>}
+						{customer.Phone && <>{customer.Phone} · </>}
+						{customer.Address}
+					</p>
+
+					{candidates.length === 0 ? (
+						<p>No candidate Clients scored above the low-confidence threshold.</p>
+					) : (
+						<table>
+							<thead>
+								<tr><th>Client</th><th>Confidence</th><th>Score</th><th>Signals</th><th></th></tr>
+							</thead>
+							<tbody>
+								{candidates.map(({ client, breakdown, confidence }) => (
+									<tr>
+										<td>{client['First Name']} {client['Last Name']}</td>
+										<td><span class="badge">{confidence}</span></td>
+										<td>{breakdown.score.toFixed(2)}</td>
+										<td>
+											{[
+												breakdown.emailMatch && 'email',
+												breakdown.phoneMatch && 'phone',
+												breakdown.nameSimilarity >= 0.6 && `name (${breakdown.nameSimilarity.toFixed(2)})`,
+												breakdown.addressMatch && 'address',
+											].filter(Boolean).join(', ') || 'none'}
+										</td>
+										<td>
+											<form method="POST">
+												<input type="hidden" name="_action" value="confirm-link" />
+												<input type="hidden" name="clientId" value={client['Client ID']} />
+												<input type="hidden" name="qbCustomerId" value={customer['QB Customer ID']} />
+												{client['QB Customer ID'] && client['QB Customer ID'] !== customer['QB Customer ID'] && (
+													<label><input type="checkbox" name="confirmRelink" /> Confirm re-link (currently linked to {client['QB Customer ID']})</label>
+												)}
+												<button type="submit">Confirm link</button>
+											</form>
+										</td>
+									</tr>
+								))}
+							</tbody>
+						</table>
+					)}
+				</section>
+			))
+		)}
+
+		<p><a href="/qb-settings">← QuickBooks settings</a></p>
+	</main>
+</BaseLayout>

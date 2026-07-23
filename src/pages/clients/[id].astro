@@ -6,6 +6,7 @@ import { clientConfig } from '../../lib/models/client';
 import { propertyConfig, PROPERTY_TYPES, MAINTENANCE_FREQUENCY_OPTIONS } from '../../lib/models/property';
 import { formatPhoneDigits } from '../../lib/phoneFormat';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
+import { qboEstimateWebUrl, qboInvoiceWebUrl, suggestQBLinksForClient } from '../../lib/qb/matching';
 
 const { id } = Astro.params;
 let error: string | null = null;
@@ -59,6 +60,8 @@ if (!client) {
 const allProperties = await listActiveRows(env, propertyConfig);
 const properties = allProperties.filter((p) => p['Client ID'] === id);
 const newPropertyId = crypto.randomUUID();
+
+const qbLinked = client['QB Customer ID'] ? await suggestQBLinksForClient(env, id!) : null;
 ---
 
 <BaseLayout title={`${client['First Name']} ${client['Last Name']}`}>
@@ -120,6 +123,38 @@ const newPropertyId = crypto.randomUUID();
 			<label>Unit identifier (optional) <input type="text" name="unitIdentifier" /></label>
 			<button type="submit">Add property</button>
 		</form>
+
+		<section class="card">
+			<h2>QuickBooks</h2>
+			{client['QB Customer ID'] ? (
+				<>
+					<p>Linked to QB Customer <code>{client['QB Customer ID']}</code></p>
+					<h3>Estimates ({qbLinked?.estimates.length ?? 0})</h3>
+					<ul>
+						{qbLinked?.estimates.map((e) => (
+							<li><a href={qboEstimateWebUrl(e['QB Estimate ID'])} target="_blank" rel="noopener noreferrer">{e['Doc Number'] || e['QB Estimate ID']}</a> — {e.Status} — ${e.Total} ({e['Txn Date']})</li>
+						))}
+						{(qbLinked?.estimates.length ?? 0) === 0 && <li>None synced.</li>}
+					</ul>
+					<h3>Invoices ({qbLinked?.invoices.length ?? 0})</h3>
+					<ul>
+						{qbLinked?.invoices.map((i) => (
+							<li><a href={qboInvoiceWebUrl(i['QB Invoice ID'])} target="_blank" rel="noopener noreferrer">{i['Doc Number'] || i['QB Invoice ID']}</a> — {i.Status} — ${i.Total} (balance ${i.Balance}, due {i['Due Date']})</li>
+						))}
+						{(qbLinked?.invoices.length ?? 0) === 0 && <li>None synced.</li>}
+					</ul>
+					<h3>Payments ({qbLinked?.payments.length ?? 0})</h3>
+					<ul>
+						{qbLinked?.payments.map((p) => (
+							<li>${p.Total} — {p['Payment Date']} — {p.Method} {p['Linked Invoice IDs'] && <>(applied to invoice(s) {p['Linked Invoice IDs']})</>}</li>
+						))}
+						{(qbLinked?.payments.length ?? 0) === 0 && <li>None synced.</li>}
+					</ul>
+				</>
+			) : (
+				<p>Not linked to QuickBooks yet — see the <a href="/qb-match-review">match review queue</a>.</p>
+			)}
+		</section>
 	</main>
 
 	<script>

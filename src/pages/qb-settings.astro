@@ -1,0 +1,128 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { readRows } from '../lib/sheets/rows';
+import { buildAuthorizeUrl, disconnectQuickBooks } from '../lib/qb/oauth';
+import { getStoredTokens } from '../lib/qb/tokens';
+import { getLastSyncAt, runFullSync } from '../lib/qb/sync';
+
+// Reuses the app's session cookie convention (see lib/auth.ts's
+// sessionCookieOptions) for the short-lived OAuth state cookie — same
+// httpOnly/secure/sameSite=strict shape, much shorter lifetime.
+const STATE_COOKIE_NAME = 'qb_oauth_state';
+
+let error: string | null = null;
+let syncResult: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	try {
+		if (action === 'disconnect') {
+			await disconnectQuickBooks(env);
+			return Astro.redirect('/qb-settings?disconnected=1');
+		} else if (action === 'sync-now') {
+			const result = await runFullSync(env);
+			syncResult = `Customers +${result.customers.created}/${result.customers.updated} · Estimates +${result.estimates.created}/${result.estimates.updated} · Invoices +${result.invoices.created}/${result.invoices.updated} · Payments +${result.payments.created}/${result.payments.updated}`;
+		}
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const queryError = Astro.url.searchParams.get('error');
+if (queryError) error = queryError;
+const justConnected = Astro.url.searchParams.get('connected') === '1';
+const justDisconnected = Astro.url.searchParams.get('disconnected') === '1';
+
+const credentialsConfigured = Boolean(env.QB_CLIENT_ID && env.QB_CLIENT_SECRET && env.QB_WEBHOOK_VERIFIER_TOKEN && env.QB_REDIRECT_URI);
+const tokens = await getStoredTokens(env);
+const connected = Boolean(tokens);
+const lastSyncAt = await getLastSyncAt(env.QB_TOKENS);
+
+let authorizeUrl: string | null = null;
+if (credentialsConfigured && !connected) {
+	const state = crypto.randomUUID();
+	Astro.cookies.set(STATE_COOKIE_NAME, state, {
+		path: '/',
+		httpOnly: true,
+		secure: import.meta.env.PROD,
+		sameSite: 'strict',
+		maxAge: 600,
+	});
+	authorizeUrl = buildAuthorizeUrl(env, state);
+}
+
+// Sync health: last N QuickBooks sync attempts, newest first — lives in
+// ActivityLog (Entity Type "QBSync") rather than a dedicated tab, per the
+// spec's own "can live in ActivityLog if that's simpler" note.
+const activityRows = await readRows(env, 'ActivityLog', { idColumn: 'Activity ID' });
+const syncHistory = activityRows
+	.map((r) => r.data)
+	.filter((r) => r['Entity Type'] === 'QBSync')
+	.sort((a, b) => String(b.Timestamp).localeCompare(String(a.Timestamp)))
+	.slice(0, 20);
+---
+
+<BaseLayout title="QuickBooks Settings">
+	<main>
+		<h1>QuickBooks Settings</h1>
+		{error && <p role="alert">{error}</p>}
+		{justConnected && <p>Connected to QuickBooks.</p>}
+		{justDisconnected && <p>Disconnected from QuickBooks.</p>}
+		{syncResult && <p>Sync complete — {syncResult}</p>}
+
+		<section class="card">
+			<h2>Connection</h2>
+			<ul>
+				<li>Environment: <span class="badge badge-accent">Production</span></li>
+				<li>Credentials configured: {credentialsConfigured ? 'Yes' : 'No — set QB_CLIENT_ID, QB_CLIENT_SECRET, QB_WEBHOOK_VERIFIER_TOKEN, QB_REDIRECT_URI as Cloudflare secrets'}</li>
+				<li>Status: <span class="badge">{connected ? 'Connected' : 'Not connected'}</span></li>
+				<li>Last sync: {lastSyncAt || 'never'}</li>
+			</ul>
+
+			{!credentialsConfigured && <p class="field-hint">This app never writes back to QuickBooks — one-way, read-only mirror only. See docs/data-dictionary.md's QuickBooks section for the setup checklist.</p>}
+
+			{credentialsConfigured && !connected && authorizeUrl && (
+				<p><a class="btn" href={authorizeUrl}>Connect to QuickBooks</a></p>
+			)}
+
+			{connected && (
+				<>
+					<form method="POST" style="display: inline-block; margin-right: 1rem;">
+						<input type="hidden" name="_action" value="sync-now" />
+						<button type="submit">Sync now</button>
+					</form>
+					<form method="POST" style="display: inline-block;">
+						<input type="hidden" name="_action" value="disconnect" />
+						<button type="submit">Disconnect</button>
+					</form>
+				</>
+			)}
+		</section>
+
+		<p><a href="/qb-match-review">Match review queue →</a></p>
+
+		<section class="card">
+			<h2>Sync health</h2>
+			{syncHistory.length === 0 ? (
+				<p>No sync attempts yet.</p>
+			) : (
+				<table>
+					<thead>
+						<tr><th>Timestamp</th><th>Result</th><th>Details</th></tr>
+					</thead>
+					<tbody>
+						{syncHistory.map((entry) => (
+							<tr>
+								<td>{entry.Timestamp}</td>
+								<td><span class="badge">{entry.Action}</span></td>
+								<td>{entry.Notes}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			)}
+		</section>
+	</main>
+</BaseLayout>

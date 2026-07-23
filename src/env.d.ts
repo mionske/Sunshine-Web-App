@@ -11,5 +11,13 @@ declare namespace Cloudflare {
 		SPREADSHEET_ID: string;
 		AUTH_PASSWORD: string;
 		SESSION_SIGNING_SECRET: string;
+		// Phase 14: QuickBooks one-way sync. QB_TOKENS is a dedicated KV
+		// namespace (not the Sheet) since it holds secrets/session state,
+		// not business records — see lib/qb/tokens.ts.
+		QB_TOKENS: KVNamespace;
+		QB_CLIENT_ID: string;
+		QB_CLIENT_SECRET: string;
+		QB_WEBHOOK_VERIFIER_TOKEN: string;
+		QB_REDIRECT_URI: string;
 	}
 }

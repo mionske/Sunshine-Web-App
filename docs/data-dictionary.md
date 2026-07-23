@@ -440,3 +440,94 @@ performed.
 Dedicated scratch tab for live Sheets round-trip verification. Never used
 for production business data — no writing to/deleting from Jobs, Clients,
 etc. just to prove connectivity.
+
+## QuickBooks one-way sync (Phase 14) — read-only mirror, QB stays source of truth
+
+This app never writes back to QuickBooks. Four new tabs mirror QB's own
+entities as read-only copies — they are never merged into Clients/Quotes/
+Jobs:
+
+- **QBCustomers**: QB Customer ID, Display Name, Email, Phone, Address
+  (flattened billing address), QB Last Updated, Created At, Updated At,
+  Archived At.
+- **QBEstimates**: QB Estimate ID, QB Customer ID, Status, Total, Doc
+  Number, Txn Date, QB Last Updated, Created At, Updated At, Archived At.
+- **QBInvoices**: QB Invoice ID, QB Customer ID, Status (derived from
+  Balance/Due Date — QB's Invoice API doesn't return a single status
+  field the way Estimate does), Total, Balance, Due Date, Doc Number, Txn
+  Date, QB Last Updated, Created At, Updated At, Archived At.
+- **QBPayments**: QB Payment ID, QB Customer ID, Total, Payment Date,
+  Method, Linked Invoice IDs (comma-joined QB Invoice IDs this payment
+  applied to), QB Last Updated, Created At, Updated At, Archived At.
+
+**The only connection to this app's own data** is `Clients.QB Customer
+ID` — set once a human confirms a match in the match-review queue
+(`/qb-match-review`, `lib/qb/matching.ts`), never auto-linked. Once set,
+a Client's linked QBEstimates/QBInvoices/QBPayments display together on
+that Client's detail page (`suggestQBLinksForClient`). The pre-existing
+`Quotes.QB Estimate Link`/`Jobs.QB Invoice Link` fields stay manual,
+owner-pasted URLs — QBO deep-link URLs
+(`https://qbo.intuit.com/app/estimate?txnId={id}`) are available from
+`qboEstimateWebUrl`/`qboInvoiceWebUrl` for convenience but nothing
+auto-fills those fields.
+
+**Auth**: OAuth2 Authorization Code flow against Intuit's Production
+endpoints only (no Sandbox). Redirect URI is a real route on this app's
+own domain (`/api/qb/callback`) — no loopback-server workaround needed.
+Tokens (`lib/qb/tokens.ts`) live in a dedicated Cloudflare KV namespace
+(`QB_TOKENS` — see `wrangler.toml`), not the Sheet, since they're
+secrets/session state rather than business records. Refreshed
+proactively within 60 seconds of expiry (`lib/qb/oauth.ts`'s
+`getValidAccessToken`); Intuit rotates the refresh token on every
+refresh call, and the rotated token is always persisted.
+
+**Sync** (`lib/qb/sync.ts`): incremental by watermark (the *start* time
+of the previous successful sync, so anything edited in QB mid-sync is
+picked up next round rather than missed), all-or-nothing per entity
+(every mapped record is schema-validated before anything is written),
+idempotent upsert by QB's own ID against a `{qbId: row}` map fetched once
+per entity. Two mechanisms:
+
+- **Manual full sync** — the "Sync now" button on `/qb-settings`, the
+  reliable baseline.
+- **Webhook** (`/api/qb/webhook`, `lib/qb/webhook.ts`) — verifies the
+  `intuit-signature` HMAC-SHA256 header (timing-safe compare) against
+  the Webhook Verifier Token, then runs a targeted single-record sync
+  directly in the same request — no relay Worker or KV event queue (that
+  complexity only existed in the native-app predecessor to work around
+  having no public endpoint, which doesn't apply here). `Delete`/`Merge`
+  operations soft-delete the mirror row for the old id and, on a merge,
+  re-fetch the surviving record under its new id. Explicitly
+  non-critical: any failure here is logged to ActivityLog (Entity Type
+  `QBSync`) and swallowed — the manual full sync remains authoritative
+  regardless.
+
+**Matching** (`lib/qb/matching.ts`): stateless, recomputed live whenever
+`/qb-match-review` opens, never cached. Weighted signals: email exact
+match (0.6), phone match on the last 10 digits (0.3), name similarity by
+normalized edit distance — only counted if similarity ≥ 0.6 — (up to
+0.3), address match on zip + leading street number against the
+candidate's linked Property (0.2). Confidence tiers (UI grouping only,
+never stored): ≥0.85 likely, ≥0.5 possible, ≥0.3 low-confidence (still
+shown), below that filtered out entirely. `confirmQBLink` requires
+explicit `confirmRelink` confirmation before overwriting a Client's
+existing link to a *different* QB Customer.
+
+**Setup** (this app's code is ready; connecting a real QuickBooks account
+is a setup step the owner does, not something this app can do on its
+own): create an Intuit Developer app and get Production Client ID/
+Secret, enable webhooks for a Webhook Verifier Token, register
+`https://{domain}/api/qb/callback` under Intuit's Production Redirect
+URIs and a webhook subscription pointing at `https://{domain}/api/qb/
+webhook` (Customer/Estimate/Invoice/Payment), create the real
+`QB_TOKENS` KV namespace (`wrangler kv namespace create QB_TOKENS`) and
+replace the placeholder id in `wrangler.toml`, then set
+`QB_CLIENT_ID`/`QB_CLIENT_SECRET`/`QB_WEBHOOK_VERIFIER_TOKEN`/
+`QB_REDIRECT_URI` as Cloudflare secrets (`wrangler pages secret put`) —
+see `.dev.vars.example` for local dev. `/qb-settings` shows whether
+credentials are configured and connection status.
+
+**Explicitly out of scope**: no writing back to QuickBooks, ever; no
+auto-linking of any QB Customer to any Client regardless of match
+confidence; no multi-tenant/multi-company support (single realmId,
+single KV blob); no relay Worker or KV event queue for webhooks.

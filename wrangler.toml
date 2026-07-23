@@ -2,3 +2,14 @@ name = "sww-web-app"
 pages_build_output_dir = "dist"
 compatibility_date = "2026-07-22"
 compatibility_flags = ["nodejs_compat"]
+
+# Phase 14: QuickBooks one-way sync. Token storage only (accessToken/
+# refreshToken/realmId/expiries) — never business data, so it lives in KV
+# rather than the Sheet. Create the real namespace with:
+#   wrangler kv namespace create QB_TOKENS
+# then replace the placeholder id below with the one it prints. Local
+# `astro dev`/`wrangler pages dev` works against a local Miniflare KV store
+# without a real id.
+[[kv_namespaces]]
+binding = "QB_TOKENS"
+id = "REPLACE_WITH_REAL_KV_NAMESPACE_ID"

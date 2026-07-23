@@ -21,6 +21,12 @@ export const clientSchema = z.object({
 	'Customer Since': blank(),
 	'Preferred Contact Method': blank(),
 	Notes: blank(),
+	// Phase 14 (QuickBooks one-way sync): set only once a human confirms a
+	// match in the QB match-review queue — never auto-linked. This is the
+	// only field connecting this app's data to QB's; QBCustomers/
+	// QBEstimates/QBInvoices/QBPayments stay parallel mirror tabs, never
+	// merged into Clients/Quotes/Jobs.
+	'QB Customer ID': blank(),
 	'Created At': blank(),
 	'Updated At': blank(),
 	'Archived At': blank(),

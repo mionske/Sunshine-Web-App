@@ -14,3 +14,14 @@ AUTH_PASSWORD=change-me-locally
 # HMAC key used to sign session cookies. Must be a different value than
 # AUTH_PASSWORD. Generate with: openssl rand -base64 32
 SESSION_SIGNING_SECRET=change-me-locally-too
+
+# Phase 14: QuickBooks one-way sync (Production only — no Sandbox app).
+# From the Intuit Developer dashboard for this app.
+QB_CLIENT_ID=
+QB_CLIENT_SECRET=
+# From the Intuit Developer dashboard's Webhooks tab — verifies the
+# `intuit-signature` header on incoming webhook POSTs.
+QB_WEBHOOK_VERIFIER_TOKEN=
+# Must exactly match a URI registered under Intuit's Production Redirect
+# URIs list, e.g. https://your-domain.example/api/qb/callback
+QB_REDIRECT_URI=
