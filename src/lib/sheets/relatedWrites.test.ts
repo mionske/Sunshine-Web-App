@@ -91,6 +91,27 @@ describe('createRelatedRows', () => {
 		}
 	});
 
+	it('is idempotent by ID: retrying the same submission does not create duplicates', async () => {
+		const quoteId = 'quote-retry';
+		const params = [
+			{ config: quoteConfig, records: [{ id: quoteId, 'Final Quoted Price': 500 }] },
+			{
+				config: quoteItemConfig,
+				records: [{ id: 'item-retry', 'Quote ID': quoteId, 'Service Code': 'SCREEN_CLEAN', 'Line Total': 200 }],
+			},
+		];
+
+		await createRelatedRows(harness.env, params);
+		const retryResult = await createRelatedRows(harness.env, params);
+
+		expect(harness.spreadsheet.getTab('Quotes')).toHaveLength(2); // header + 1, not 2
+		expect(harness.spreadsheet.getTab('QuoteItems')).toHaveLength(2); // header + 1, not 2
+		// The retry's own ActivityLog "committed" entries are skipped too —
+		// only the first call's 2 entries exist.
+		expect(harness.spreadsheet.getTab('ActivityLog').slice(1)).toHaveLength(2);
+		expect(retryResult.created[0][0]['Quote ID']).toBe(quoteId);
+	});
+
 	it('rejects the whole operation if any record fails validation, writing nothing', async () => {
 		await expect(
 			createRelatedRows(harness.env, [
