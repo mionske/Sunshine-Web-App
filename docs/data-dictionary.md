@@ -135,6 +135,18 @@ does not by itself exclude a job from calibration — reports can filter by
 it, but a fully-documented Test Job is still informative data, just kept
 visually separate from real customer performance.
 
+The `/calibration` page filters by Record Classification (checkboxes,
+`?classifications=` query param). Default view: Customer Job +
+Discounted Customer Job + unclassified/legacy rows (a blank classification
+is treated as real customer work, not silently dropped — the same
+assumption calibration already made before this column existed). Test
+Job/Practice Job/Owner Property/Historical Import are excluded by
+default and shown only when explicitly selected. A separate "excluded
+from calibration" table lists non-qualifying completed jobs with their
+specific missing-field reasons. A "standard-price-equivalent analysis"
+section is kept entirely separate from the actual-revenue metrics —
+never blended into the same average.
+
 ## JobItems
 Job Item ID, Job ID, Source Quote Item ID, Service Code, Description,
 Actual Quantity, Unit, Final Unit Price, Actual Labor Minutes, Line Total,

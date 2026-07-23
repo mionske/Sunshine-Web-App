@@ -2,9 +2,10 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { listActiveRows } from '../lib/sheets';
-import { jobConfig } from '../lib/models/job';
+import { jobConfig, RECORD_CLASSIFICATIONS, type Job } from '../lib/models/job';
 import { getActivePricingConfig } from '../lib/pricing/config';
 import {
+	calibrationExclusionReasons,
 	computeJobPerformance,
 	getLatestCalibrationSnapshot,
 	isCalibrationEligible,
@@ -22,15 +23,57 @@ if (Astro.request.method === 'POST') {
 	}
 }
 
-const [snapshot, pricingConfig, jobs] = await Promise.all([
+// A blank Record Classification means either a legacy job predating this
+// column, or a live-flow job the app hasn't classified yet — both are
+// treated as real customer work by default (the assumption this app's
+// calibration already made before classification existed), not silently
+// dropped from the default business-performance view.
+const UNCLASSIFIED = 'Unclassified (legacy/unset)';
+function classificationOf(job: Job): string {
+	return job['Record Classification'] || UNCLASSIFIED;
+}
+
+const ALL_CLASSIFICATIONS = [...RECORD_CLASSIFICATIONS, UNCLASSIFIED];
+const DEFAULT_CLASSIFICATIONS = ['Customer Job', 'Discounted Customer Job', UNCLASSIFIED];
+
+const selectedParam = Astro.url.searchParams.get('classifications');
+const selectedClassifications = selectedParam ? selectedParam.split(',').filter(Boolean) : DEFAULT_CLASSIFICATIONS;
+const usingDefaultFilter = !selectedParam;
+
+const [snapshot, pricingConfig, allJobs] = await Promise.all([
 	getLatestCalibrationSnapshot(env),
 	getActivePricingConfig(env),
 	listActiveRows(env, jobConfig),
 ]);
 
 const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
-const completedJobs = jobs.filter(isCalibrationEligible);
-const rows = completedJobs.map((job) => ({ job, perf: computeJobPerformance(job, targetHourlyRate) }));
+
+const COMPLETED_JOB_STATUSES = new Set(['Completed', 'Invoiced', 'Paid']);
+const completedStatusJobs = allJobs.filter((j) => COMPLETED_JOB_STATUSES.has(j['Job Status']));
+const inFilter = (job: Job) => selectedClassifications.includes(classificationOf(job));
+
+const eligibleJobs = completedStatusJobs.filter(isCalibrationEligible).filter(inFilter);
+const rows = eligibleJobs.map((job) => ({ job, perf: computeJobPerformance(job, targetHourlyRate) }));
+
+const excludedJobs = completedStatusJobs
+	.filter((job) => !isCalibrationEligible(job))
+	.filter(inFilter)
+	.map((job) => ({ job, reasons: calibrationExclusionReasons(job) }));
+
+// Standard-price-equivalent analysis: informational only, and always kept
+// visually and numerically separate from the actual-revenue metrics above
+// — never blended into the same average.
+const standardEquivalentJobs = eligibleJobs.filter(
+	(job) => job['Revenue Treatment'] && job['Revenue Treatment'] !== 'Full Price' && Number(job['Standard Price Equivalent']) > 0
+);
+const standardEquivalentRates = standardEquivalentJobs
+	.map((job) => {
+		const hours = Number(job['Actual Time (hrs)']) || 0;
+		return hours > 0 ? Number(job['Standard Price Equivalent']) / hours : 0;
+	})
+	.filter((rate) => rate > 0);
+const standardEquivalentAvgPerHour =
+	standardEquivalentRates.length > 0 ? standardEquivalentRates.reduce((a, b) => a + b, 0) / standardEquivalentRates.length : 0;
 ---
 
 <BaseLayout title="Calibration">
@@ -70,11 +113,27 @@ const rows = completedJobs.map((job) => ({ job, perf: computeJobPerformance(job,
 			<button type="submit">Recalculate calibration</button>
 		</form>
 
+		<section class="card">
+			<h2>Filter by classification</h2>
+			<p>{usingDefaultFilter ? 'Showing the default business-performance view.' : 'Custom filter applied.'}</p>
+			<form method="GET">
+				{ALL_CLASSIFICATIONS.map((c) => (
+					<label style="display: block;">
+						<input type="checkbox" name="classifications" value={c} checked={selectedClassifications.includes(c)} /> {c}
+					</label>
+				))}
+				<button type="submit">Apply filter</button>
+				{!usingDefaultFilter && <a href="/calibration">Reset to default</a>}
+			</form>
+		</section>
+
 		<h2>Completed jobs — target vs. actual (${targetHourlyRate}/hr target)</h2>
 		<table>
 			<thead>
 				<tr>
 					<th>Property</th>
+					<th>Classification</th>
+					<th>Data Quality</th>
 					<th>Quoted $/est. hr</th>
 					<th>Actual $/labor hr</th>
 					<th>Variance</th>
@@ -88,6 +147,8 @@ const rows = completedJobs.map((job) => ({ job, perf: computeJobPerformance(job,
 				{rows.map(({ job, perf }) => (
 					<tr>
 						<td>{job['Property Address']}</td>
+						<td><span class="badge">{classificationOf(job)}</span></td>
+						<td>{job['Data Quality'] || '—'}</td>
 						<td>${perf.quotedRevenuePerEstimatedHour.toFixed(2)}</td>
 						<td>${perf.actualRevenuePerLaborHour.toFixed(2)}</td>
 						<td>{perf.varianceFromTarget >= 0 ? '+' : ''}${perf.varianceFromTarget.toFixed(2)}</td>
@@ -97,8 +158,48 @@ const rows = completedJobs.map((job) => ({ job, perf: computeJobPerformance(job,
 						<td>${perf.netContribution.toFixed(2)}</td>
 					</tr>
 				))}
-				{rows.length === 0 && <tr><td colspan="8">No completed jobs yet.</td></tr>}
+				{rows.length === 0 && <tr><td colspan="10">No completed jobs match this filter.</td></tr>}
 			</tbody>
 		</table>
+
+		<section class="card">
+			<h2>Excluded from calibration ({excludedJobs.length})</h2>
+			{excludedJobs.length === 0 ? (
+				<p>Nothing excluded within this filter.</p>
+			) : (
+				<table>
+					<thead>
+						<tr><th>Property</th><th>Classification</th><th>Missing</th></tr>
+					</thead>
+					<tbody>
+						{excludedJobs.map(({ job, reasons }) => (
+							<tr>
+								<td>{job['Property Address']}</td>
+								<td><span class="badge">{classificationOf(job)}</span></td>
+								<td>{reasons.join('; ')}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			)}
+		</section>
+
+		<section class="card">
+			<h2>Standard-price-equivalent analysis (informational only)</h2>
+			<p>
+				For discounted/test/no-charge jobs where a standard-customer-price
+				equivalent was recorded. This is a separate, hypothetical analysis —
+				it is never blended with the actual-revenue figures above, since
+				actual calibration always uses Final Revenue, not this estimate.
+			</p>
+			{standardEquivalentJobs.length === 0 ? (
+				<p>No jobs with a recorded standard-price equivalent in this filter.</p>
+			) : (
+				<p>
+					{standardEquivalentJobs.length} job{standardEquivalentJobs.length === 1 ? '' : 's'} — average
+					standard-equivalent revenue per on-site hour: ${standardEquivalentAvgPerHour.toFixed(2)}
+				</p>
+			)}
+		</section>
 	</main>
 </BaseLayout>
