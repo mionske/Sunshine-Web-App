@@ -6,22 +6,15 @@ import { walkthroughConfig } from '../../lib/models/walkthrough';
 import { walkthroughItemConfig } from '../../lib/models/walkthroughItem';
 import { propertyConfig } from '../../lib/models/property';
 import { clientConfig } from '../../lib/models/client';
+import { createQuoteFromWalkthrough } from '../../lib/pricing/walkthroughToQuote';
 
 const { id } = Astro.params;
 let error: string | null = null;
 
 if (Astro.request.method === 'POST') {
 	try {
-		const res = await fetch(new URL('/api/walkthrough', Astro.url.origin), {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({ action: 'create-quote', walkthroughId: id }),
-		});
-		const body = (await res.json()) as { ok: boolean; quote?: { 'Quote ID': string }; error?: string };
-		if (body.ok && body.quote) {
-			return Astro.redirect(`/quotes/${body.quote['Quote ID']}`);
-		}
-		error = body.error ?? 'Could not create a quote from this walkthrough.';
+		const result = await createQuoteFromWalkthrough(env, id!);
+		return Astro.redirect(`/quotes/${result.quote['Quote ID']}`);
 	} catch (e) {
 		error = (e as Error).message;
 	}
@@ -51,39 +44,41 @@ const items = allItems.filter((i) => i['Walkthrough ID'] === id);
 		</p>
 		{error && <p role="alert">{error}</p>}
 
-		<section class="card">
-			<h2>Summary</h2>
-			<ul>
-				<li>Stories observed: {walkthrough['Story Count Observed']}</li>
-				<li>Exterior condition: {walkthrough['Exterior Condition']}</li>
-				<li>Interior condition: {walkthrough['Interior Condition']}</li>
-				<li>Access difficulty: {walkthrough['Access Difficulty']}</li>
-				<li>Hard water present: {walkthrough['Hard Water Present (Y/N)']}</li>
-				<li>Construction debris present: {walkthrough['Construction Debris Present (Y/N)']}</li>
-				<li>Water-fed pole suitable: {walkthrough['Water-Fed Pole Suitable (Y/N)']}</li>
-				{walkthrough['Ladder Required'] && <li>Ladder requirement: {walkthrough['Ladder Required']}</li>}
-				<li>Silicone/adhesive/sticker residue: {walkthrough['Silicone Adhesive Or Sticker Residue (Y/N)']}</li>
-				<li>Heavy interior residue: {walkthrough['Heavy Interior Residue (Y/N)']}</li>
-				<li>Oxidized frames or screens: {walkthrough['Oxidized Frames Or Screens (Y/N)']}</li>
-				<li>Condition varies by area: {walkthrough['Condition Varies By Area (Y/N)']}</li>
-				<li>Exterior access obstructed: {walkthrough['Exterior Access Obstructed (Y/N)']}</li>
-				<li>Furniture/belongings movement required: {walkthrough['Furniture Or Belongings Movement Required (Y/N)']}</li>
-			</ul>
-			{walkthrough['Condition Notes'] && <p>Condition notes: {walkthrough['Condition Notes']}</p>}
-			{walkthrough['Temporary Access Notes'] && <p>Temporary access notes: {walkthrough['Temporary Access Notes']}</p>}
-			{walkthrough.Notes && <p>{walkthrough.Notes}</p>}
-		</section>
+		<div class="card-grid">
+			<section class="card">
+				<h2>Summary</h2>
+				<div class="field-display-grid">
+					<div><span class="field-display-label">Stories observed</span><span class="field-display-value">{walkthrough['Story Count Observed']}</span></div>
+					<div><span class="field-display-label">Exterior condition</span><span class="field-display-value">{walkthrough['Exterior Condition']}</span></div>
+					<div><span class="field-display-label">Interior condition</span><span class="field-display-value">{walkthrough['Interior Condition']}</span></div>
+					<div><span class="field-display-label">Access difficulty</span><span class="field-display-value">{walkthrough['Access Difficulty']}</span></div>
+					<div><span class="field-display-label">Hard water present</span><span class="field-display-value">{walkthrough['Hard Water Present (Y/N)']}</span></div>
+					<div><span class="field-display-label">Construction debris present</span><span class="field-display-value">{walkthrough['Construction Debris Present (Y/N)']}</span></div>
+					<div><span class="field-display-label">Water-fed pole suitable</span><span class="field-display-value">{walkthrough['Water-Fed Pole Suitable (Y/N)']}</span></div>
+					{walkthrough['Ladder Required'] && <div><span class="field-display-label">Ladder requirement</span><span class="field-display-value">{walkthrough['Ladder Required']}</span></div>}
+					<div><span class="field-display-label">Silicone/adhesive/sticker residue</span><span class="field-display-value">{walkthrough['Silicone Adhesive Or Sticker Residue (Y/N)']}</span></div>
+					<div><span class="field-display-label">Heavy interior residue</span><span class="field-display-value">{walkthrough['Heavy Interior Residue (Y/N)']}</span></div>
+					<div><span class="field-display-label">Oxidized frames or screens</span><span class="field-display-value">{walkthrough['Oxidized Frames Or Screens (Y/N)']}</span></div>
+					<div><span class="field-display-label">Condition varies by area</span><span class="field-display-value">{walkthrough['Condition Varies By Area (Y/N)']}</span></div>
+					<div><span class="field-display-label">Exterior access obstructed</span><span class="field-display-value">{walkthrough['Exterior Access Obstructed (Y/N)']}</span></div>
+					<div><span class="field-display-label">Furniture/belongings movement required</span><span class="field-display-value">{walkthrough['Furniture Or Belongings Movement Required (Y/N)']}</span></div>
+				</div>
+				{walkthrough['Condition Notes'] && <p>Condition notes: {walkthrough['Condition Notes']}</p>}
+				{walkthrough['Temporary Access Notes'] && <p>Temporary access notes: {walkthrough['Temporary Access Notes']}</p>}
+				{walkthrough.Notes && <p>{walkthrough.Notes}</p>}
+			</section>
 
-		<section class="card">
-			<h2>Pricing summary</h2>
-			<p>Estimated on-site labor: {walkthrough['Estimated On-Site Labor Hours']} hours</p>
-			<p>
-				Suggested low: ${walkthrough['Suggested Low Price']} — Suggested target:{' '}
-				<strong>${walkthrough['Suggested Target Price']}</strong> — Suggested high: ${walkthrough['Suggested High Price']}
-			</p>
-			{walkthrough['Owner Override Price'] && <p>Owner-selected price: ${walkthrough['Owner Override Price']}</p>}
-			<p>Pricing Config used: {walkthrough['Pricing Config ID']}</p>
-		</section>
+			<section class="card">
+				<h2>Pricing summary</h2>
+				<p>Estimated on-site labor: {walkthrough['Estimated On-Site Labor Hours']} hours</p>
+				<p>
+					Suggested low: ${walkthrough['Suggested Low Price']} — Suggested target:{' '}
+					<strong>${walkthrough['Suggested Target Price']}</strong> — Suggested high: ${walkthrough['Suggested High Price']}
+				</p>
+				{walkthrough['Owner Override Price'] && <p>Owner-selected price: ${walkthrough['Owner Override Price']}</p>}
+				<p>Pricing Config used: {walkthrough['Pricing Config ID']}</p>
+			</section>
+		</div>
 
 		<section class="card">
 			<h2>Items ({items.length})</h2>

@@ -147,27 +147,27 @@ try {
 			)}
 
 			{connected && (
-				<>
-					<form method="POST" style="display: inline-block; margin-right: 1rem;">
+				<div class="button-row">
+					<form method="POST">
 						<input type="hidden" name="_action" value="sync-now" />
 						<button type="submit">Sync now</button>
 					</form>
-					<form method="POST" style="display: inline-block;">
+					<form method="POST">
 						<input type="hidden" name="_action" value="disconnect" />
-						<button type="submit">Disconnect</button>
+						<button type="submit" class="btn-secondary">Disconnect</button>
 					</form>
-				</>
+				</div>
 			)}
 
 			{connected && Object.keys(rawCounts).length > 0 && (
 				<>
 					<h3>Raw QuickBooks record counts</h3>
 					<p class="field-hint">Straight from QuickBooks (COUNT query), independent of this app's own sync — for confirming whether QuickBooks itself sees existing records.</p>
-					<ul>
+					<div class="stats-grid">
 						{Object.entries(rawCounts).map(([entity, count]) => (
-							<li>{entity}: {count}</li>
+							<div class="card"><span class="stat">{count}</span><span class="stat-label">{entity}</span></div>
 						))}
-					</ul>
+					</div>
 				</>
 			)}
 			{connected && Object.keys(rawCounts).length === 0 && (
@@ -175,10 +175,11 @@ try {
 			)}
 		</section>
 
-		<p><a href="/qb-match-review">Match review queue →</a></p>
-
 		<section class="card">
-			<h2>Sync health</h2>
+			<div class="card-header-row">
+				<h2>Sync health</h2>
+				<a href="/qb-match-review">Match review queue →</a>
+			</div>
 			{syncHistory.length === 0 ? (
 				<p>No sync attempts yet.</p>
 			) : (

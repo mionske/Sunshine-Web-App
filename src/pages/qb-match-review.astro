@@ -75,20 +75,24 @@ const rows = await Promise.all(
 			<p>No unlinked QB Customers — either nothing has synced yet, or everything is already linked.</p>
 		) : (
 			rows.map(({ customer, candidates }) => (
-				<section class="card">
-					<h2>{customer['Display Name'] || customer['QB Customer ID']}</h2>
+				<details class="card">
+					<summary>
+						{customer['Display Name'] || customer['QB Customer ID']}
+						{' — '}{candidates.length} candidate{candidates.length === 1 ? '' : 's'}
+						{candidates.length > 0 && `, top score ${candidates[0].breakdown.score.toFixed(2)}`}
+					</summary>
 					<p>
 						{customer.Email && <>{customer.Email} · </>}
 						{customer.Phone && <>{customer.Phone} · </>}
 						{customer.Address}
 					</p>
 
-					<form method="POST" style="margin-bottom: 1rem;">
+					<form method="POST">
 						<input type="hidden" name="_action" value="create-client" />
 						<input type="hidden" name="qbCustomerId" value={customer['QB Customer ID']} />
 						<button type="submit">Create Client from this QB Customer</button>
-						<p class="field-hint">Pulls name/email/phone straight from QuickBooks into a new Client, linked immediately — no retyping. Its billing address prefills the new Client's "Add property" form for you to review before saving.</p>
 					</form>
+					<p class="field-hint">Pulls name/email/phone straight from QuickBooks into a new Client, linked immediately — no retyping. Its billing address prefills the new Client's "Add property" form for you to review before saving.</p>
 
 					{candidates.length === 0 ? (
 						<p>No Clients exist yet to link this QB Customer to.</p>
@@ -127,7 +131,7 @@ const rows = await Promise.all(
 							</tbody>
 						</table>
 					)}
-				</section>
+				</details>
 			))
 		)}
 

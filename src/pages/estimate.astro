@@ -16,25 +16,29 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 				<label>Email <input type="email" name="email" /></label>
 				<label>Phone <input type="tel" name="phone" inputmode="numeric" placeholder="303-931-3903" /></label>
 				<label>Property address <input type="text" name="streetAddress" required /></label>
-				<label>City <input type="text" name="city" /></label>
-				<label>State <input type="text" name="state" maxlength="2" placeholder="CO" /></label>
-				<label>Zip <input type="text" name="zip" /></label>
-				<label>
-					Stories
-					<select name="stories">
-						<option value="1">1</option>
-						<option value="2">2</option>
-						<option value="3">3</option>
-					</select>
-				</label>
-				<label>Approximate number of windows <input type="number" name="approxWindowCount" min="1" required /></label>
-				<label>
-					Property type
-					<select name="propertyType">
-						<option value="residential">Residential</option>
-						<option value="commercial">Commercial</option>
-					</select>
-				</label>
+				<div class="field-trio">
+					<label>City <input type="text" name="city" /></label>
+					<label>State <input type="text" name="state" maxlength="2" placeholder="CO" /></label>
+					<label>Zip <input type="text" name="zip" /></label>
+				</div>
+				<div class="field-trio-even">
+					<label>
+						Stories
+						<select name="stories">
+							<option value="1">1</option>
+							<option value="2">2</option>
+							<option value="3">3</option>
+						</select>
+					</label>
+					<label>Approx. windows <input type="number" name="approxWindowCount" min="1" required /></label>
+					<label>
+						Property type
+						<select name="propertyType">
+							<option value="residential">Residential</option>
+							<option value="commercial">Commercial</option>
+						</select>
+					</label>
+				</div>
 				<label>How did you hear about us? <input type="text" name="referralSource" /></label>
 				<button type="submit">Get my estimate</button>
 			</form>
@@ -54,13 +58,31 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 			color: var(--color-ink-muted);
 		}
 		.estimate-card {
-			max-width: 34rem;
+			max-width: 38rem;
 			margin: 0 auto;
 		}
 		#estimate-result:not(:empty) {
 			margin-top: 1rem;
 			padding-top: 1rem;
 			border-top: 2px solid var(--color-tan);
+		}
+		.field-trio,
+		.field-trio-even {
+			grid-column: 1 / -1;
+			display: grid;
+			gap: 0 1.5rem;
+		}
+		.field-trio {
+			grid-template-columns: 2fr 1fr 1fr;
+		}
+		.field-trio-even {
+			grid-template-columns: repeat(3, 1fr);
+		}
+		@media (max-width: 500px) {
+			.field-trio,
+			.field-trio-even {
+				grid-template-columns: 1fr;
+			}
 		}
 	</style>
 

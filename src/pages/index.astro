@@ -132,181 +132,204 @@ const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted
 
 		<section class="card">
 			<h2>Today</h2>
-			<h3>Scheduled jobs ({scheduledJobsToday.length})</h3>
-			{scheduledJobsToday.length === 0 ? <p>None due today.</p> : (
-				<ul>
-					{scheduledJobsToday.map((j) => (
-						<li>
-							{j['Property Address'] && <a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>}
-							{' · '}<a href={`/jobs/${j['Job ID']}`}>Job Day</a>
-						</li>
-					))}
-				</ul>
-			)}
 
-			<h3>Walkthroughs needing follow-up ({walkthroughFollowUps.length})</h3>
-			{walkthroughFollowUps.length === 0 ? <p>Nothing waiting.</p> : (
-				<ul>
-					{walkthroughFollowUps.map((w) => (
-						<li>{clientNameFor(w['Client ID'])} — {addressFor(w['Property ID'])} · <a href={`/walkthroughs/${w['Walkthrough ID']}`}>view</a></li>
-					))}
-				</ul>
-			)}
-
-			<h3>Open follow-ups ({quoteFollowUps.length})</h3>
-			{quoteFollowUps.length === 0 ? <p>Nothing overdue.</p> : (
-				<ul>
-					{quoteFollowUps.map((o) => (
-						<li>
-							<strong>{o['Next Follow-up Date']}</strong> —{' '}
-							{addressFor(o['Property ID']) ? (
-								<a href={googleMapsUrl(addressFor(o['Property ID']))} target="_blank" rel="noopener noreferrer">{addressFor(o['Property ID'])}</a>
-							) : (
-								o['Property ID']
-							)}
-							{' '}({clientNameFor(o['Client ID'])}) — <span class="badge">{o.Stage}</span>
-						</li>
-					))}
-				</ul>
-			)}
-
-			<h3>Unpaid jobs ({unpaidJobs.length})</h3>
-			{unpaidJobs.length === 0 ? <p>Nothing outstanding.</p> : (
-				<ul>
-					{unpaidJobs.map((j) => (
-						<li>
-							{j['Property Address']} — <span class="badge">{j['Payment Status'] || 'unknown'}</span> · <a href={`/quotes/${j['Quote ID']}`}>view</a>
-						</li>
-					))}
-				</ul>
-			)}
-		</section>
-
-		<section class="card">
-			<h2>Pipeline</h2>
-			<ul>
-				<li>New leads: {newLeadCount}</li>
-				<li>Walkthroughs scheduled: {walkthroughScheduledCount}</li>
-				<li>Quotes awaiting response: {quotesAwaitingResponse}</li>
-				<li>Accepted jobs awaiting scheduling: {acceptedJobsAwaitingScheduling.length}</li>
-			</ul>
-			{acceptedJobsAwaitingScheduling.length > 0 && (
-				<ul>
-					{acceptedJobsAwaitingScheduling.map((j) => (
-						<li>{j['Property Address']} · <a href={`/quotes/${j['Quote ID']}`}>schedule</a></li>
-					))}
-				</ul>
-			)}
-		</section>
-
-		<section class="card">
-			<h2>Recent performance (this month)</h2>
-			<div style="display: flex; gap: 3rem; flex-wrap: wrap;">
-				<div><span class="stat">{thisMonthJobs.length}</span><span class="stat-label">Completed jobs</span></div>
-				<div><span class="stat">${thisMonthRevenue.toFixed(0)}</span><span class="stat-label">Revenue</span></div>
-				<div><span class="stat">{thisMonthOnSiteHours.toFixed(1)}</span><span class="stat-label">On-site hours</span></div>
-				<div><span class="stat">${thisMonthRevenuePerHour.toFixed(2)}</span><span class="stat-label">Revenue/on-site hr</span></div>
-				<div><span class="stat">{thisMonthCallbacks}</span><span class="stat-label">Callbacks</span></div>
-			</div>
-		</section>
-
-		<section class="card">
-			<h2>Calibration</h2>
-			{snapshot ? (
+			{scheduledJobsToday.length > 0 ? (
 				<>
-					<p><span class="badge badge-accent">{snapshot['Confidence Level']}</span> — {snapshot['Comparable Job Count']} comparable jobs — {excludedCount} excluded</p>
-					<p>
-						Target: ${targetHourlyRate}/on-site hour — Observed average: ${Number(snapshot['Observed Revenue Per Hour']).toFixed(2)}/hour
-						{' '}— Observed median: ${median(perHourRates).toFixed(2)}/hour
-					</p>
-					<p class="field-hint">No automatic pricing changes — see <a href="/calibration">Calibration</a> to review and, if warranted, create a draft PricingConfig for explicit review and activation.</p>
+					<h3>Scheduled jobs ({scheduledJobsToday.length})</h3>
+					<ul>
+						{scheduledJobsToday.map((j) => (
+							<li>
+								{j['Property Address'] && <a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>}
+								{' · '}<a href={`/jobs/${j['Job ID']}`}>Job Day</a>
+							</li>
+						))}
+					</ul>
 				</>
 			) : (
-				<p>No calibration data yet — <a href="/calibration">recalculate</a> once jobs are completed.</p>
+				<p class="field-hint">Scheduled jobs: none due today.</p>
 			)}
-		</section>
 
-		<section class="card">
-			<h2>Data quality</h2>
-			<ul>
-				<li>
-					Jobs missing labor time: {jobsMissingLaborTime.length}
-					{jobsMissingLaborTime.length > 0 && (
-						<>
-							{' — '}
-							{jobsMissingLaborTime.map((j, i) => (
-								<>
-									{i > 0 && ', '}
-									<a href={`/jobs/${j['Job ID']}`}>{j['Property Address'] || j['Job ID']}</a>
-								</>
-							))}
-						</>
-					)}
-				</li>
-				<li>Jobs missing direct costs: {jobsMissingDirectCosts.length}</li>
-				<li>Jobs missing callback information: {jobsMissingCallbackInfo.length}</li>
-				<li>Jobs missing final revenue: {jobsMissingFinalRevenue.length}</li>
-				<li>
-					Properties missing window counts: {propertiesMissingCounts.length}
-					{propertiesMissingCounts.length > 0 && (
-						<>
-							{' — '}
-							{propertiesMissingCounts.map((p, i) => (
-								<>
-									{i > 0 && ', '}
-									<a href={`/properties/${p['Property ID']}`}>{p['Street Address'] || p['Property ID']}</a>
-								</>
-							))}
-						</>
-					)}
-				</li>
-				<li>
-					Walkthroughs not converted or closed: {walkthroughsNotClosed.length}
-					{walkthroughsNotClosed.length > 0 && (
-						<>
-							{' — '}
-							{walkthroughsNotClosed.map((w, i) => (
-								<>
-									{i > 0 && ', '}
-									<a href={`/walkthroughs/${w['Walkthrough ID']}`}>{addressFor(w['Property ID']) || w['Walkthrough ID']}</a>
-								</>
-							))}
-						</>
-					)}
-				</li>
-			</ul>
-		</section>
-
-		<section class="card">
-			<h2>Maintenance follow-ups due ({maintenanceFollowUps.length})</h2>
-			{maintenanceFollowUps.length === 0 ? (
-				<p>Nothing due.</p>
+			{walkthroughFollowUps.length > 0 ? (
+				<>
+					<h3>Walkthroughs needing follow-up ({walkthroughFollowUps.length})</h3>
+					<ul>
+						{walkthroughFollowUps.map((w) => (
+							<li>{clientNameFor(w['Client ID'])} — {addressFor(w['Property ID'])} · <a href={`/walkthroughs/${w['Walkthrough ID']}`}>view</a></li>
+						))}
+					</ul>
+				</>
 			) : (
-				<ul>
-					{maintenanceFollowUps.map((j) => (
-						<li>
-							<strong>{j['Next Maintenance Follow-up Date']}</strong> —{' '}
-							{j['Property Address'] && <a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>}
-							{' '}— <span class="badge">{j['Maintenance Follow-up Status'] || 'Not yet due'}</span>
-							{' · '}<a href={`/quotes/${j['Quote ID']}`}>view job</a>
-						</li>
-					))}
-				</ul>
+				<p class="field-hint">Walkthroughs needing follow-up: none waiting.</p>
+			)}
+
+			{quoteFollowUps.length > 0 ? (
+				<>
+					<h3>Open follow-ups ({quoteFollowUps.length})</h3>
+					<ul>
+						{quoteFollowUps.map((o) => (
+							<li>
+								<strong>{o['Next Follow-up Date']}</strong> —{' '}
+								{addressFor(o['Property ID']) ? (
+									<a href={googleMapsUrl(addressFor(o['Property ID']))} target="_blank" rel="noopener noreferrer">{addressFor(o['Property ID'])}</a>
+								) : (
+									o['Property ID']
+								)}
+								{' '}({clientNameFor(o['Client ID'])}) — <span class="badge">{o.Stage}</span>
+							</li>
+						))}
+					</ul>
+				</>
+			) : (
+				<p class="field-hint">Open follow-ups: nothing overdue.</p>
+			)}
+
+			{unpaidJobs.length > 0 ? (
+				<>
+					<h3>Unpaid jobs ({unpaidJobs.length})</h3>
+					<ul>
+						{unpaidJobs.map((j) => (
+							<li>
+								{j['Property Address']} — <span class="badge">{j['Payment Status'] || 'unknown'}</span> · <a href={`/quotes/${j['Quote ID']}`}>view</a>
+							</li>
+						))}
+					</ul>
+				</>
+			) : (
+				<p class="field-hint">Unpaid jobs: nothing outstanding.</p>
 			)}
 		</section>
 
-		<section class="card">
-			<h2>Requesting reviews ({reviewReminders.length})</h2>
-			{reviewReminders.length === 0 ? <p>Nothing pending.</p> : (
+		<div class="card-grid">
+			<section class="card">
+				<h2>Pipeline</h2>
 				<ul>
-					{reviewReminders.map((j) => (
-						<li>
-							{j['Property Address']} — {j['Review Requested At'] ? `requested ${j['Review Requested At']}, no answer yet` : 'not yet requested'}
-							{' · '}<a href={`/quotes/${j['Quote ID']}`}>view job</a>
-						</li>
-					))}
+					<li>New leads: {newLeadCount}</li>
+					<li>Walkthroughs scheduled: {walkthroughScheduledCount}</li>
+					<li>Quotes awaiting response: {quotesAwaitingResponse}</li>
+					<li>Accepted jobs awaiting scheduling: {acceptedJobsAwaitingScheduling.length}</li>
 				</ul>
-			)}
-		</section>
+				{acceptedJobsAwaitingScheduling.length > 0 && (
+					<ul>
+						{acceptedJobsAwaitingScheduling.map((j) => (
+							<li>{j['Property Address']} · <a href={`/quotes/${j['Quote ID']}`}>schedule</a></li>
+						))}
+					</ul>
+				)}
+			</section>
+
+			<section class="card">
+				<h2>Recent performance (this month)</h2>
+				<div class="stats-grid" style="margin-bottom: 0;">
+					<div class="card"><span class="stat">{thisMonthJobs.length}</span><span class="stat-label">Completed jobs</span></div>
+					<div class="card"><span class="stat">${thisMonthRevenue.toFixed(0)}</span><span class="stat-label">Revenue</span></div>
+					<div class="card"><span class="stat">{thisMonthOnSiteHours.toFixed(1)}</span><span class="stat-label">On-site hours</span></div>
+					<div class="card"><span class="stat">${thisMonthRevenuePerHour.toFixed(2)}</span><span class="stat-label">Revenue/on-site hr</span></div>
+					<div class="card"><span class="stat">{thisMonthCallbacks}</span><span class="stat-label">Callbacks</span></div>
+				</div>
+			</section>
+		</div>
+
+		<div class="card-grid">
+			<section class="card">
+				<h2>Calibration</h2>
+				{snapshot ? (
+					<>
+						<p><span class="badge badge-accent">{snapshot['Confidence Level']}</span> — {snapshot['Comparable Job Count']} comparable jobs — {excludedCount} excluded</p>
+						<p>
+							Target: ${targetHourlyRate}/on-site hour — Observed average: ${Number(snapshot['Observed Revenue Per Hour']).toFixed(2)}/hour
+							{' '}— Observed median: ${median(perHourRates).toFixed(2)}/hour
+						</p>
+						<p class="field-hint">No automatic pricing changes — see <a href="/calibration">Calibration</a> to review and, if warranted, create a draft PricingConfig for explicit review and activation.</p>
+					</>
+				) : (
+					<p>No calibration data yet — <a href="/calibration">recalculate</a> once jobs are completed.</p>
+				)}
+			</section>
+
+			<section class="card">
+				<h2>Data quality</h2>
+				<ul>
+					<li>
+						Jobs missing labor time: {jobsMissingLaborTime.length}
+						{jobsMissingLaborTime.length > 0 && (
+							<>
+								{' — '}
+								{jobsMissingLaborTime.map((j, i) => (
+									<>
+										{i > 0 && ', '}
+										<a href={`/jobs/${j['Job ID']}`}>{j['Property Address'] || j['Job ID']}</a>
+									</>
+								))}
+							</>
+						)}
+					</li>
+					<li>Jobs missing direct costs: {jobsMissingDirectCosts.length}</li>
+					<li>Jobs missing callback information: {jobsMissingCallbackInfo.length}</li>
+					<li>Jobs missing final revenue: {jobsMissingFinalRevenue.length}</li>
+					<li>
+						Properties missing window counts: {propertiesMissingCounts.length}
+						{propertiesMissingCounts.length > 0 && (
+							<>
+								{' — '}
+								{propertiesMissingCounts.map((p, i) => (
+									<>
+										{i > 0 && ', '}
+										<a href={`/properties/${p['Property ID']}`}>{p['Street Address'] || p['Property ID']}</a>
+									</>
+								))}
+							</>
+						)}
+					</li>
+					<li>
+						Walkthroughs not converted or closed: {walkthroughsNotClosed.length}
+						{walkthroughsNotClosed.length > 0 && (
+							<>
+								{' — '}
+								{walkthroughsNotClosed.map((w, i) => (
+									<>
+										{i > 0 && ', '}
+										<a href={`/walkthroughs/${w['Walkthrough ID']}`}>{addressFor(w['Property ID']) || w['Walkthrough ID']}</a>
+									</>
+								))}
+							</>
+						)}
+					</li>
+				</ul>
+			</section>
+		</div>
+
+		<div class="card-grid">
+			<section class="card">
+				<h2>Maintenance follow-ups due ({maintenanceFollowUps.length})</h2>
+				{maintenanceFollowUps.length === 0 ? (
+					<p class="field-hint">Nothing due.</p>
+				) : (
+					<ul>
+						{maintenanceFollowUps.map((j) => (
+							<li>
+								<strong>{j['Next Maintenance Follow-up Date']}</strong> —{' '}
+								{j['Property Address'] && <a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>}
+								{' '}— <span class="badge">{j['Maintenance Follow-up Status'] || 'Not yet due'}</span>
+								{' · '}<a href={`/quotes/${j['Quote ID']}`}>view job</a>
+							</li>
+						))}
+					</ul>
+				)}
+			</section>
+
+			<section class="card">
+				<h2>Requesting reviews ({reviewReminders.length})</h2>
+				{reviewReminders.length === 0 ? <p class="field-hint">Nothing pending.</p> : (
+					<ul>
+						{reviewReminders.map((j) => (
+							<li>
+								{j['Property Address']} — {j['Review Requested At'] ? `requested ${j['Review Requested At']}, no answer yet` : 'not yet requested'}
+								{' · '}<a href={`/quotes/${j['Quote ID']}`}>view job</a>
+							</li>
+						))}
+					</ul>
+				)}
+			</section>
+		</div>
 	</main>
 </BaseLayout>

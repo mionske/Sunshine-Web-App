@@ -110,66 +110,68 @@ const jobDayState = job['Job Day State'] || 'Not Started';
 		</p>
 		{error && <p role="alert">{error}</p>}
 
-		<section class="card">
-			<h2>Job info</h2>
-			<ul>
-				{quote && <li>Quote scope: <a href={`/quotes/${quote['Quote ID']}`}>${Number(quote['Final Quoted Price']).toFixed(2)} — view quote</a></li>}
-				{property?.['Access Notes'] && <li>Access notes: {property['Access Notes']}</li>}
-				{property?.['Water Source'] && <li>Water source: {property['Water Source']}</li>}
-				{property?.['Exterior Cleaning Method'] && <li>Exterior cleaning: {property['Exterior Cleaning Method']}</li>}
-				{property?.['Ladder Requirement'] && <li>Ladder requirement: {property['Ladder Requirement']}</li>}
-				{property?.['Roof Access Required (Y/N)'] === 'Y' && <li>Roof access required</li>}
-				{property?.['Pet Notes'] && <li>Pet notes: {property['Pet Notes']}</li>}
-				{property?.['General Notes'] && <li>Property notes: {property['General Notes']}</li>}
-			</ul>
-		</section>
+		<div class="card-grid">
+			<section class="card">
+				<h2>Job info</h2>
+				<div class="field-display-grid">
+					{quote && <div><span class="field-display-label">Quote scope</span><span class="field-display-value"><a href={`/quotes/${quote['Quote ID']}`}>${Number(quote['Final Quoted Price']).toFixed(2)} — view quote</a></span></div>}
+					{property?.['Access Notes'] && <div><span class="field-display-label">Access notes</span><span class="field-display-value">{property['Access Notes']}</span></div>}
+					{property?.['Water Source'] && <div><span class="field-display-label">Water source</span><span class="field-display-value">{property['Water Source']}</span></div>}
+					{property?.['Exterior Cleaning Method'] && <div><span class="field-display-label">Exterior cleaning</span><span class="field-display-value">{property['Exterior Cleaning Method']}</span></div>}
+					{property?.['Ladder Requirement'] && <div><span class="field-display-label">Ladder requirement</span><span class="field-display-value">{property['Ladder Requirement']}</span></div>}
+					{property?.['Roof Access Required (Y/N)'] === 'Y' && <div><span class="field-display-label">Roof access</span><span class="field-display-value">Required</span></div>}
+					{property?.['Pet Notes'] && <div><span class="field-display-label">Pet notes</span><span class="field-display-value">{property['Pet Notes']}</span></div>}
+					{property?.['General Notes'] && <div><span class="field-display-label">Property notes</span><span class="field-display-value">{property['General Notes']}</span></div>}
+				</div>
+			</section>
 
-		<section class="card">
-			<h2>Timer</h2>
-			<p>On-site hours so far: <strong>{onSiteHours.toFixed(2)}</strong></p>
-			<ul>
-				{TIME_CATEGORIES.map((cat) => (
-					<li>
-						{cat}: {(byCategoryMinutes[cat] ?? 0)} min
-						{!ON_SITE_TIME_CATEGORIES.includes(cat as (typeof ON_SITE_TIME_CATEGORIES)[number]) && ' (not on-site labor)'}
-					</li>
-				))}
-			</ul>
-			{activeEntry && <p>Currently running: <strong>{activeEntry['Time Category']}</strong> (started {activeEntry['Started At']})</p>}
+			<section class="card">
+				<h2>Timer</h2>
+				<p>On-site hours so far: <strong>{onSiteHours.toFixed(2)}</strong></p>
+				<div class="field-display-grid">
+					{TIME_CATEGORIES.map((cat) => (
+						<div>
+							<span class="field-display-label">{cat}{!ON_SITE_TIME_CATEGORIES.includes(cat as (typeof ON_SITE_TIME_CATEGORIES)[number]) && ' (not on-site)'}</span>
+							<span class="field-display-value">{(byCategoryMinutes[cat] ?? 0)} min</span>
+						</div>
+					))}
+				</div>
+				{activeEntry && <p>Currently running: <strong>{activeEntry['Time Category']}</strong> (started {activeEntry['Started At']})</p>}
 
-			{!isDone && (
-				<div class="button-row">
-					{JOB_DAY_STATES.filter((s) => s !== 'Not Started' && s !== 'Paused' && s !== 'Completed').map((s) => (
+				{!isDone && (
+					<div class="button-row">
+						{JOB_DAY_STATES.filter((s) => s !== 'Not Started' && s !== 'Paused' && s !== 'Completed').map((s) => (
+							<form method="POST">
+								<input type="hidden" name="_action" value="start-segment" />
+								<input type="hidden" name="category" value={s} />
+								<button type="submit" disabled={jobDayState === s}>{jobDayState === s ? `${s} (running)` : `Start ${s}`}</button>
+							</form>
+						))}
 						<form method="POST">
 							<input type="hidden" name="_action" value="start-segment" />
-							<input type="hidden" name="category" value={s} />
-							<button type="submit" disabled={jobDayState === s}>{jobDayState === s ? `${s} (running)` : `Start ${s}`}</button>
+							<input type="hidden" name="category" value="Travel" />
+							<button type="submit">Log travel</button>
 						</form>
-					))}
-					<form method="POST">
-						<input type="hidden" name="_action" value="start-segment" />
-						<input type="hidden" name="category" value="Travel" />
-						<button type="submit">Log travel</button>
-					</form>
+						<form method="POST">
+							<input type="hidden" name="_action" value="start-segment" />
+							<input type="hidden" name="category" value="Callback" />
+							<button type="submit">Log callback</button>
+						</form>
+						<form method="POST">
+							<input type="hidden" name="_action" value="pause" />
+							<button type="submit">Pause</button>
+						</form>
+					</div>
+				)}
+				{isDone && (
 					<form method="POST">
 						<input type="hidden" name="_action" value="start-segment" />
 						<input type="hidden" name="category" value="Callback" />
-						<button type="submit">Log callback</button>
+						<button type="submit">Log callback time</button>
 					</form>
-					<form method="POST">
-						<input type="hidden" name="_action" value="pause" />
-						<button type="submit">Pause</button>
-					</form>
-				</div>
-			)}
-			{isDone && (
-				<form method="POST">
-					<input type="hidden" name="_action" value="start-segment" />
-					<input type="hidden" name="category" value="Callback" />
-					<button type="submit">Log callback time</button>
-				</form>
-			)}
-		</section>
+				)}
+			</section>
+		</div>
 
 		<section class="card">
 			<h2>Time entries</h2>
@@ -245,18 +247,22 @@ const jobDayState = job['Job Day State'] || 'Not Started';
 				<form method="POST">
 					<input type="hidden" name="_action" value="complete" />
 					<label>Final revenue ($) <input type="text" inputmode="decimal" name="finalPrice" class="field-numeric" value={quote?.['Final Quoted Price'] ?? job['Quoted Price ($)']} required /></label>
-					<label>Supplies cost ($) <input type="text" inputmode="decimal" name="suppliesCost" class="field-numeric" /></label>
-					<label>Gas ($) <input type="text" inputmode="decimal" name="gas" class="field-numeric" /></label>
-					<label>Other expenses ($) <input type="text" inputmode="decimal" name="otherExpenses" class="field-numeric" /></label>
-					<label>
-						Callback required?
-						<select name="callbackRequired">
-							<option value="">— unknown —</option>
-							<option value="Y">Yes</option>
-							<option value="N">No</option>
-						</select>
-					</label>
-					<label>Callback cost ($) <input type="text" inputmode="decimal" name="callbackCost" class="field-numeric" /></label>
+					<div class="count-grid">
+						<label>Supplies cost ($) <input type="text" inputmode="decimal" name="suppliesCost" class="field-numeric" /></label>
+						<label>Gas ($) <input type="text" inputmode="decimal" name="gas" class="field-numeric" /></label>
+						<label>Other expenses ($) <input type="text" inputmode="decimal" name="otherExpenses" class="field-numeric" /></label>
+					</div>
+					<div class="pane-grid">
+						<label>
+							Callback required?
+							<select name="callbackRequired">
+								<option value="">— unknown —</option>
+								<option value="Y">Yes</option>
+								<option value="N">No</option>
+							</select>
+						</label>
+						<label>Callback cost ($) <input type="text" inputmode="decimal" name="callbackCost" class="field-numeric" /></label>
+					</div>
 					<label>
 						Customer payment status
 						<select name="paymentStatus" required>

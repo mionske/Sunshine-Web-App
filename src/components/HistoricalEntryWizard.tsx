@@ -524,6 +524,7 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 						</div>
 					) : (
 						<>
+						<div className="card-grid">
 							<fieldset>
 								<legend>Client</legend>
 								<label>
@@ -621,6 +622,7 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 									/>
 								</label>
 							</fieldset>
+						</div>
 							<button type="button" onClick={() => goTo(1)}>
 								Back
 							</button>{' '}
@@ -637,7 +639,7 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 			)}
 
 			{state.step === 3 && (
-				<section className="card">
+				<section className="card form-grid">
 					<h2>3. Property characteristics (optional)</h2>
 					<label>
 						Stories
@@ -685,7 +687,7 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 			)}
 
 			{state.step === 4 && showsWalkthrough(state.recordType) && (
-				<section className="card">
+				<section className="card form-grid">
 					<h2>4. Walkthrough details</h2>
 					<label>
 						<input type="checkbox" checked={state.walkthrough.include} onChange={(e) => update('walkthrough', { include: e.target.checked })} />{' '}
@@ -764,7 +766,7 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 			)}
 
 			{state.step === 5 && showsQuote(state.recordType) && (
-				<section className="card">
+				<section className="card form-grid">
 					<h2>5. Quote details</h2>
 					<label>
 						<input type="checkbox" checked={state.quote.include} onChange={(e) => update('quote', { include: e.target.checked })} />{' '}
@@ -818,7 +820,7 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 			)}
 
 			{state.step === 6 && showsJob(state.recordType) && (
-				<section className="card">
+				<section className="card form-grid">
 					<h2>6. Job details</h2>
 					<label>
 						<input type="checkbox" checked={state.job.include} onChange={(e) => update('job', { include: e.target.checked })} />{' '}

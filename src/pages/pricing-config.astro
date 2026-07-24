@@ -58,6 +58,7 @@ const newId = crypto.randomUUID();
 		</p>
 		{error && <p role="alert">{error}</p>}
 
+		<section class="card">
 		<table>
 			<thead>
 				<tr>
@@ -110,23 +111,26 @@ const newId = crypto.randomUUID();
 				))}
 			</tbody>
 		</table>
+		</section>
 
-		<h2>New pricing config (draft)</h2>
-		<form method="POST">
-			<input type="hidden" name="_action" value="create" />
-			<input type="hidden" name="id" value={newId} />
-			<label>Config name <input type="text" name="configName" required /></label>
-			<label>
-				Property type
-				<select name="propertyType" required>
-					<option value="" />
-					{PROPERTY_TYPES.map((t) => <option value={t}>{t}</option>)}
-				</select>
-			</label>
-			<label>Target hourly rate <input type="text" name="targetHourlyRate" required /></label>
-			<label>Minimum job price <input type="text" name="minimumJobPrice" /></label>
-			<label>Notes <textarea name="notes"></textarea></label>
-			<button type="submit">Save as draft</button>
-		</form>
+		<section class="card card-narrow">
+			<h2>New pricing config (draft)</h2>
+			<form method="POST">
+				<input type="hidden" name="_action" value="create" />
+				<input type="hidden" name="id" value={newId} />
+				<label>Config name <input type="text" name="configName" required /></label>
+				<label>
+					Property type
+					<select name="propertyType" required>
+						<option value="" />
+						{PROPERTY_TYPES.map((t) => <option value={t}>{t}</option>)}
+					</select>
+				</label>
+				<label>Target hourly rate <input type="text" name="targetHourlyRate" required /></label>
+				<label>Minimum job price <input type="text" name="minimumJobPrice" /></label>
+				<label>Notes <textarea name="notes"></textarea></label>
+				<button type="submit">Save as draft</button>
+			</form>
+		</section>
 	</main>
 </BaseLayout>

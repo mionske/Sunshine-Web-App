@@ -60,9 +60,22 @@ h1 {
 }
 h2 {
 	font-size: 1.5rem;
+	margin-top: 1rem;
 }
 h3 {
 	font-size: 1.125rem;
+	margin-top: 0.85rem;
+}
+
+/* Section headings are almost always the first thing inside a .card —
+ * without this they pay both the card's own padding AND their own top
+ * margin, which is the single biggest source of dead space repeated
+ * across every card in the app. */
+.card > h2:first-child,
+.card > h3:first-child,
+details.card > summary + h2,
+details.card > summary + h3 {
+	margin-top: 0;
 }
 
 p {
@@ -94,6 +107,14 @@ form {
 	margin: 1.5rem 0;
 }
 
+/* A form nested inside a card already sits inside the card's own
+ * 1.25rem 1.5rem padding — its own top/bottom margin on top of that is
+ * pure double-spacing. */
+.card form,
+details.card form {
+	margin: 0;
+}
+
 fieldset {
 	border: 2px solid var(--color-tan);
 	border-radius: var(--radius-card);
@@ -111,7 +132,7 @@ legend {
 
 label {
 	display: block;
-	margin-bottom: 1rem;
+	margin-bottom: 0.75rem;
 	font-weight: 600;
 }
 
@@ -206,6 +227,9 @@ input.field-numeric {
 
 	form > button,
 	form > .btn,
+	form > .pane-grid,
+	form > .count-grid,
+	form > .checkbox-grid,
 	label:has(textarea) {
 		grid-column: 1 / -1;
 	}
@@ -842,7 +866,8 @@ tr:last-child td {
 
 /* Property Detail redesign ---------------------------------------------- */
 
-.property-layout {
+.property-layout,
+.split-layout {
 	display: grid;
 	grid-template-columns: 1.5fr 1fr;
 	gap: 1.5rem;
@@ -850,7 +875,8 @@ tr:last-child td {
 }
 
 @media (max-width: 900px) {
-	.property-layout {
+	.property-layout,
+	.split-layout {
 		grid-template-columns: 1fr;
 	}
 }
@@ -964,7 +990,8 @@ details.card[open] > summary {
 /* Quoter redesign: main survey column + a sticky total/action panel that
  * stays visible while scrolling a long form — the "always show the final
  * quote amount" requirement from the handoff. */
-.quoter-layout {
+.quoter-layout,
+.split-layout {
 	display: grid;
 	grid-template-columns: 1.5fr 1fr;
 	gap: 1.5rem;
@@ -1017,4 +1044,73 @@ details.card[open] > summary {
 	color: #92400e;
 	font-size: 0.85rem;
 	margin-bottom: 1rem;
+}
+
+/* UX Architecture & Density Pass — reusable layout primitives -------------- */
+
+/* Opt-in multi-column field grid for wrappers that aren't a plain <form>
+ * (e.g. a React <section className="card"> wizard step) so the default
+ * form-element auto-grid rule (which only matches actual <form> elements)
+ * has an equivalent for non-form containers. Same shape as that rule. */
+@media (min-width: 700px) {
+	.form-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+		column-gap: 1.5rem;
+		align-items: start;
+	}
+
+	.form-grid button,
+	.form-grid .btn,
+	.form-grid > .pane-grid,
+	.form-grid > .count-grid,
+	.form-grid > .checkbox-grid,
+	.form-grid > fieldset,
+	.form-grid > h2,
+	.form-grid > h3,
+	.form-grid > p,
+	.form-grid label:has(textarea) {
+		grid-column: 1 / -1;
+	}
+}
+
+/* Compact grid for clusters of checkboxes (Walkthrough Wizard's condition
+ * flags) — plain one-per-line checkboxes are cheap individually but add up
+ * fast in a 6-9 item cluster. */
+.checkbox-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+	gap: 0.5rem 1rem;
+	margin-bottom: 1rem;
+}
+
+.checkbox-grid label {
+	margin-bottom: 0;
+}
+
+/* Single-field-plus-button forms (QB Estimate Link, Accept Quote, "Create
+ * quote from this walkthrough") that don't need a whole card's vertical
+ * stack for one control. */
+.inline-field-form {
+	display: flex;
+	align-items: flex-end;
+	gap: 0.75rem;
+	flex-wrap: wrap;
+}
+
+.inline-field-form label {
+	margin-bottom: 0;
+	flex: 1 1 200px;
+}
+
+.inline-field-form button,
+.inline-field-form .btn {
+	flex: 0 0 auto;
+}
+
+/* Caps a short form's width so it settles at a sane 2-3 columns on a wide
+ * viewport instead of spreading its fields across 5+ skinny auto-fill
+ * columns (e.g. Clients' "Add client" form). */
+.card-narrow {
+	max-width: 40rem;
 }

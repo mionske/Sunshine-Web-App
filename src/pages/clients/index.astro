@@ -65,21 +65,23 @@ const newId = crypto.randomUUID();
 			</tbody>
 		</table>
 
-		<h2>Add client</h2>
-		<p>Add the property address after creating the client — no need to enter it twice.</p>
-		{error && <p role="alert">{error}</p>}
-		<form method="POST" id="add-client-form">
-			<input type="hidden" name="id" value={newId} />
-			<label>First name <input type="text" name="firstName" required /></label>
-			<label>Last name <input type="text" name="lastName" required /></label>
-			<label>Phone <input type="tel" name="phone" inputmode="numeric" placeholder="303-931-3903" /></label>
-			<label>Email <input type="email" name="email" /></label>
-			<label>Referral source <input type="text" name="referralSource" /></label>
-			<label>First contact date <input type="date" name="firstContactDate" /></label>
-			<label>Preferred contact method <input type="text" name="preferredContactMethod" /></label>
-			<label>Notes <textarea name="notes"></textarea></label>
-			<button type="submit">Add client</button>
-		</form>
+		<section class="card card-narrow">
+			<h2>Add client</h2>
+			<p class="field-hint">Add the property address after creating the client — no need to enter it twice.</p>
+			{error && <p role="alert">{error}</p>}
+			<form method="POST" id="add-client-form">
+				<input type="hidden" name="id" value={newId} />
+				<label>First name <input type="text" name="firstName" required /></label>
+				<label>Last name <input type="text" name="lastName" required /></label>
+				<label>Phone <input type="tel" name="phone" inputmode="numeric" placeholder="303-931-3903" /></label>
+				<label>Email <input type="email" name="email" /></label>
+				<label>Referral source <input type="text" name="referralSource" /></label>
+				<label>First contact date <input type="date" name="firstContactDate" /></label>
+				<label>Preferred contact method <input type="text" name="preferredContactMethod" /></label>
+				<label>Notes <textarea name="notes"></textarea></label>
+				<button type="submit">Add client</button>
+			</form>
+		</section>
 	</main>
 
 	<script>

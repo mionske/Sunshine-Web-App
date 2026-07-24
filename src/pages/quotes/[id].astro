@@ -94,17 +94,39 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 			</table>
 
 			<p class="stat">${Number(quote['Final Quoted Price']).toFixed(2)}</p>
-			<p>
-				Estimated labor hours: {Number(quote['Estimated Labor Hours']).toFixed(2)}<br />
-				Expected revenue per labor hour: ${Number(quote['Expected Revenue Per Labor Hour']).toFixed(2)}<br />
-				Target hourly rate: ${quote['Target Hourly Rate']}<br />
-				Pricing Config: {quote['Pricing Config ID']} (calculator v{quote['Calculator Version']})
-			</p>
+			<div class="field-display-grid">
+				<div>
+					<span class="field-display-label">Estimated labor hours</span>
+					<span class="field-display-value">{Number(quote['Estimated Labor Hours']).toFixed(2)}</span>
+				</div>
+				<div>
+					<span class="field-display-label">Expected revenue/labor hr</span>
+					<span class="field-display-value">${Number(quote['Expected Revenue Per Labor Hour']).toFixed(2)}</span>
+				</div>
+				<div>
+					<span class="field-display-label">Target hourly rate</span>
+					<span class="field-display-value">${quote['Target Hourly Rate']}</span>
+				</div>
+				<div>
+					<span class="field-display-label">Pricing Config</span>
+					<span class="field-display-value">{quote['Pricing Config ID']} (v{quote['Calculator Version']})</span>
+				</div>
+			</div>
 			{(Number(quote['Manual Adjustment']) !== 0 || Number(quote.Discount) !== 0) && (
-				<p>
-					Manual adjustment: ${Number(quote['Manual Adjustment']).toFixed(2)} · Discount: ${Number(quote.Discount).toFixed(2)}<br />
-					Adjustment reason: {quote['Override Reason'] || '— none given'}
-				</p>
+				<div class="field-display-grid">
+					<div>
+						<span class="field-display-label">Manual adjustment</span>
+						<span class="field-display-value">${Number(quote['Manual Adjustment']).toFixed(2)}</span>
+					</div>
+					<div>
+						<span class="field-display-label">Discount</span>
+						<span class="field-display-value">${Number(quote.Discount).toFixed(2)}</span>
+					</div>
+					<div>
+						<span class="field-display-label">Adjustment reason</span>
+						<span class="field-display-value">{quote['Override Reason'] || '— none given'}</span>
+					</div>
+				</div>
 			)}
 		</div>
 
@@ -141,27 +163,30 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 			</div>
 		)}
 
-		<div class="card">
-			<h2>QuickBooks</h2>
-			{quote['QB Estimate Link'] && (
-				<p><a href={quote['QB Estimate Link']} target="_blank" rel="noopener noreferrer">Open in QuickBooks →</a></p>
-			)}
-			<form method="POST">
-				<input type="hidden" name="_action" value="update-qb-estimate-link" />
-				<label>QB Estimate Link <input type="url" name="qbEstimateLink" value={quote['QB Estimate Link']} placeholder="https://..." /></label>
-				<button type="submit">Save link</button>
-			</form>
-		</div>
-
-		{canAccept && (
+		<div class="card-grid">
 			<div class="card">
-				<form method="POST">
-					<input type="hidden" name="_action" value="accept" />
-					<label>Scheduled date (optional) <input type="date" name="scheduledDate" /></label>
-					<button type="submit">Accept quote</button>
+				<h2>QuickBooks</h2>
+				{quote['QB Estimate Link'] && (
+					<p><a href={quote['QB Estimate Link']} target="_blank" rel="noopener noreferrer">Open in QuickBooks →</a></p>
+				)}
+				<form method="POST" class="inline-field-form">
+					<input type="hidden" name="_action" value="update-qb-estimate-link" />
+					<label>QB Estimate Link <input type="url" name="qbEstimateLink" value={quote['QB Estimate Link']} placeholder="https://..." /></label>
+					<button type="submit">Save link</button>
 				</form>
 			</div>
-		)}
+
+			{canAccept && (
+				<div class="card">
+					<h2>Accept quote</h2>
+					<form method="POST" class="inline-field-form">
+						<input type="hidden" name="_action" value="accept" />
+						<label>Scheduled date (optional) <input type="date" name="scheduledDate" /></label>
+						<button type="submit">Accept quote</button>
+					</form>
+				</div>
+			)}
+		</div>
 
 		{job && (
 			<div class="card">
@@ -176,21 +201,25 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 							{JOB_STATUSES.map((s) => <option value={s} selected={s === job['Job Status']}>{s}</option>)}
 						</select>
 					</label>
-					<label>Scheduled date <input type="date" name="scheduledDate" value={job['Scheduled Date']} /></label>
-					<label>Actual time (hrs) <input type="text" name="actualTime" value={job['Actual Time (hrs)']} /></label>
+					<div class="pane-grid">
+						<label>Scheduled date <input type="date" name="scheduledDate" value={job['Scheduled Date']} /></label>
+						<label>Actual time (hrs) <input type="text" name="actualTime" value={job['Actual Time (hrs)']} /></label>
+					</div>
 					<label>Final price ($) <input type="text" name="finalPrice" value={job['Final Price ($)']} /></label>
 					<label>QB Invoice Link <input type="url" name="qbInvoiceLink" value={job['QB Invoice Link']} placeholder="https://..." /></label>
 					{job['QB Invoice Link'] && (
 						<p><a href={job['QB Invoice Link']} target="_blank" rel="noopener noreferrer">Open in QuickBooks →</a></p>
 					)}
-					<label>Review requested at <input type="date" name="reviewRequestedAt" value={job['Review Requested At']} /></label>
-					<label>
-						Review left
-						<select name="reviewLeft">
-							<option value="" selected={!job['Review Left']} />
-							{REVIEW_LEFT_VALUES.map((v) => <option value={v} selected={v === job['Review Left']}>{v}</option>)}
-						</select>
-					</label>
+					<div class="pane-grid">
+						<label>Review requested at <input type="date" name="reviewRequestedAt" value={job['Review Requested At']} /></label>
+						<label>
+							Review left
+							<select name="reviewLeft">
+								<option value="" selected={!job['Review Left']} />
+								{REVIEW_LEFT_VALUES.map((v) => <option value={v} selected={v === job['Review Left']}>{v}</option>)}
+							</select>
+						</label>
+					</div>
 					<label>Next maintenance follow-up date <input type="date" name="nextMaintenanceFollowUpDate" value={job['Next Maintenance Follow-up Date']} /></label>
 					<label>
 						Maintenance follow-up status

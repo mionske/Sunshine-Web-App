@@ -356,117 +356,123 @@ export default function WalkthroughWizard({
 						</div>
 					)}
 
-					<label>
-						Walkthrough date
-						<input type="date" value={state.walkthroughDate} onChange={(e) => update({ walkthroughDate: e.target.value })} />
-					</label>
-					<label>
-						Conducted by
-						<input type="text" value={state.conductedBy} onChange={(e) => update({ conductedBy: e.target.value })} />
-					</label>
-					<label>
-						Stories
-						<select value={state.storyCountObserved} onChange={(e) => update({ storyCountObserved: e.target.value })}>
-							<option value="1">1</option>
-							<option value="2">2</option>
-							<option value="3">3</option>
-						</select>
-					</label>
-					<label>
-						Overall access difficulty
-						<select value={state.accessDifficulty} onChange={(e) => update({ accessDifficulty: e.target.value })}>
-							{ACCESS_LEVELS.map((a) => (
-								<option key={a}>{a}</option>
-							))}
-						</select>
-					</label>
-					<label>
-						Current condition
-						<select value={state.exteriorCondition} onChange={(e) => update({ exteriorCondition: e.target.value })}>
-							{CONDITION_LEVELS.filter((c) => c !== 'Unknown').map((c) => (
-								<option key={c}>{c}</option>
-							))}
-						</select>
-					</label>
-					<label>
-						<input
-							type="checkbox"
-							checked={state.hardWaterPresent}
-							onChange={(e) => update({ hardWaterPresent: e.target.checked })}
-						/>{' '}
-						Hard water present
-					</label>
-					<label>
-						<input
-							type="checkbox"
-							checked={state.constructionDebrisPresent}
-							onChange={(e) => update({ constructionDebrisPresent: e.target.checked })}
-						/>{' '}
-						Construction debris present
-					</label>
-					<label>
-						<input
-							type="checkbox"
-							checked={state.siliconeResidue}
-							onChange={(e) => update({ siliconeResidue: e.target.checked })}
-						/>{' '}
-						Silicone, adhesive, or sticker residue
-					</label>
-					<label>
-						<input
-							type="checkbox"
-							checked={state.heavyInteriorResidue}
-							onChange={(e) => update({ heavyInteriorResidue: e.target.checked })}
-						/>{' '}
-						Heavy interior residue
-					</label>
-					<label>
-						<input
-							type="checkbox"
-							checked={state.oxidizedFramesOrScreens}
-							onChange={(e) => update({ oxidizedFramesOrScreens: e.target.checked })}
-						/>{' '}
-						Oxidized frames or screens
-					</label>
-					<label>
-						<input
-							type="checkbox"
-							checked={state.conditionVariesByArea}
-							onChange={(e) => update({ conditionVariesByArea: e.target.checked })}
-						/>{' '}
-						Condition varies by area
-					</label>
+					<div className="form-grid">
+						<label>
+							Walkthrough date
+							<input type="date" value={state.walkthroughDate} onChange={(e) => update({ walkthroughDate: e.target.value })} />
+						</label>
+						<label>
+							Conducted by
+							<input type="text" value={state.conductedBy} onChange={(e) => update({ conductedBy: e.target.value })} />
+						</label>
+						<label>
+							Stories
+							<select value={state.storyCountObserved} onChange={(e) => update({ storyCountObserved: e.target.value })}>
+								<option value="1">1</option>
+								<option value="2">2</option>
+								<option value="3">3</option>
+							</select>
+						</label>
+						<label>
+							Overall access difficulty
+							<select value={state.accessDifficulty} onChange={(e) => update({ accessDifficulty: e.target.value })}>
+								{ACCESS_LEVELS.map((a) => (
+									<option key={a}>{a}</option>
+								))}
+							</select>
+						</label>
+						<label>
+							Current condition
+							<select value={state.exteriorCondition} onChange={(e) => update({ exteriorCondition: e.target.value })}>
+								{CONDITION_LEVELS.filter((c) => c !== 'Unknown').map((c) => (
+									<option key={c}>{c}</option>
+								))}
+							</select>
+						</label>
+						<label>
+							Ladder requirement
+							<input type="text" value={state.ladderRequired} onChange={(e) => update({ ladderRequired: e.target.value })} />
+						</label>
+					</div>
+
+					<div className="checkbox-grid">
+						<label>
+							<input
+								type="checkbox"
+								checked={state.hardWaterPresent}
+								onChange={(e) => update({ hardWaterPresent: e.target.checked })}
+							/>{' '}
+							Hard water present
+						</label>
+						<label>
+							<input
+								type="checkbox"
+								checked={state.constructionDebrisPresent}
+								onChange={(e) => update({ constructionDebrisPresent: e.target.checked })}
+							/>{' '}
+							Construction debris present
+						</label>
+						<label>
+							<input
+								type="checkbox"
+								checked={state.siliconeResidue}
+								onChange={(e) => update({ siliconeResidue: e.target.checked })}
+							/>{' '}
+							Silicone, adhesive, or sticker residue
+						</label>
+						<label>
+							<input
+								type="checkbox"
+								checked={state.heavyInteriorResidue}
+								onChange={(e) => update({ heavyInteriorResidue: e.target.checked })}
+							/>{' '}
+							Heavy interior residue
+						</label>
+						<label>
+							<input
+								type="checkbox"
+								checked={state.oxidizedFramesOrScreens}
+								onChange={(e) => update({ oxidizedFramesOrScreens: e.target.checked })}
+							/>{' '}
+							Oxidized frames or screens
+						</label>
+						<label>
+							<input
+								type="checkbox"
+								checked={state.conditionVariesByArea}
+								onChange={(e) => update({ conditionVariesByArea: e.target.checked })}
+							/>{' '}
+							Condition varies by area
+						</label>
+						<label>
+							<input
+								type="checkbox"
+								checked={state.waterFedPoleSuitable}
+								onChange={(e) => update({ waterFedPoleSuitable: e.target.checked })}
+							/>{' '}
+							Water-fed pole suitable
+						</label>
+						<label>
+							<input
+								type="checkbox"
+								checked={state.exteriorAccessObstructed}
+								onChange={(e) => update({ exteriorAccessObstructed: e.target.checked })}
+							/>{' '}
+							Exterior access currently obstructed
+						</label>
+						<label>
+							<input
+								type="checkbox"
+								checked={state.furnitureMovementRequired}
+								onChange={(e) => update({ furnitureMovementRequired: e.target.checked })}
+							/>{' '}
+							Furniture or belongings currently need to be moved
+						</label>
+					</div>
+
 					<label>
 						Condition notes
 						<textarea value={state.conditionNotes} onChange={(e) => update({ conditionNotes: e.target.value })} />
-					</label>
-					<label>
-						<input
-							type="checkbox"
-							checked={state.waterFedPoleSuitable}
-							onChange={(e) => update({ waterFedPoleSuitable: e.target.checked })}
-						/>{' '}
-						Water-fed pole suitable
-					</label>
-					<label>
-						Ladder requirement
-						<input type="text" value={state.ladderRequired} onChange={(e) => update({ ladderRequired: e.target.value })} />
-					</label>
-					<label>
-						<input
-							type="checkbox"
-							checked={state.exteriorAccessObstructed}
-							onChange={(e) => update({ exteriorAccessObstructed: e.target.checked })}
-						/>{' '}
-						Exterior access currently obstructed
-					</label>
-					<label>
-						<input
-							type="checkbox"
-							checked={state.furnitureMovementRequired}
-							onChange={(e) => update({ furnitureMovementRequired: e.target.checked })}
-						/>{' '}
-						Furniture or belongings currently need to be moved
 					</label>
 					<label>
 						Temporary access notes
@@ -661,106 +667,112 @@ function ItemForm({
 
 	return (
 		<div className="card">
-			<label>
-				Area
-				<select value={draft.area} onChange={(e) => setDraft({ ...draft, area: e.target.value })}>
-					{ALL_AREAS.map((a) => (
-						<option key={a} value={a}>
-							{a}
-						</option>
-					))}
-				</select>
-			</label>
-			<label>
-				Item type
-				<select value={draft.itemType} onChange={(e) => setDraft({ ...draft, itemType: e.target.value })}>
-					{ITEM_TYPES.map((t) => (
-						<option key={t}>{t}</option>
-					))}
-				</select>
-			</label>
-			{draft.itemType === 'Window' && (
+			<div className="form-grid">
 				<label>
-					Size class
-					<select value={draft.sizeClass} onChange={(e) => setDraft({ ...draft, sizeClass: e.target.value })}>
-						{SIZE_CLASSES.map((s) => (
-							<option key={s}>{s}</option>
+					Area
+					<select value={draft.area} onChange={(e) => setDraft({ ...draft, area: e.target.value })}>
+						{ALL_AREAS.map((a) => (
+							<option key={a} value={a}>
+								{a}
+							</option>
 						))}
 					</select>
 				</label>
-			)}
-			<label>
-				Quantity
-				<input
-					type="number"
-					className="field-numeric"
-					value={draft.quantity}
-					onChange={(e) => setDraft({ ...draft, quantity: e.target.value })}
-				/>
-			</label>
+				<label>
+					Item type
+					<select value={draft.itemType} onChange={(e) => setDraft({ ...draft, itemType: e.target.value })}>
+						{ITEM_TYPES.map((t) => (
+							<option key={t}>{t}</option>
+						))}
+					</select>
+				</label>
+				{draft.itemType === 'Window' && (
+					<label>
+						Size class
+						<select value={draft.sizeClass} onChange={(e) => setDraft({ ...draft, sizeClass: e.target.value })}>
+							{SIZE_CLASSES.map((s) => (
+								<option key={s}>{s}</option>
+							))}
+						</select>
+					</label>
+				)}
+				<label>
+					Quantity
+					<input
+						type="number"
+						className="field-numeric"
+						value={draft.quantity}
+						onChange={(e) => setDraft({ ...draft, quantity: e.target.value })}
+					/>
+				</label>
+				<label>
+					Condition
+					<select value={draft.condition} onChange={(e) => setDraft({ ...draft, condition: e.target.value })}>
+						{CONDITION_LEVELS.map((c) => (
+							<option key={c}>{c}</option>
+						))}
+					</select>
+				</label>
+				<label>
+					Access difficulty
+					<select value={draft.accessDifficulty} onChange={(e) => setDraft({ ...draft, accessDifficulty: e.target.value })}>
+						{ACCESS_LEVELS.map((a) => (
+							<option key={a}>{a}</option>
+						))}
+					</select>
+				</label>
+			</div>
 			{draft.itemType === 'Sliding Door' && (
 				<span className="field-hint">Count an oversized/XL slider as 2.</span>
 			)}
-			<label>
-				<input
-					type="checkbox"
-					checked={draft.exteriorIncluded}
-					onChange={(e) => setDraft({ ...draft, exteriorIncluded: e.target.checked })}
-				/>{' '}
-				Exterior
-			</label>
-			<label>
-				<input
-					type="checkbox"
-					checked={draft.interiorIncluded}
-					onChange={(e) => setDraft({ ...draft, interiorIncluded: e.target.checked })}
-				/>{' '}
-				Interior
-			</label>
-			<label>
-				<input
-					type="checkbox"
-					checked={draft.screenIncluded}
-					onChange={(e) => setDraft({ ...draft, screenIncluded: e.target.checked })}
-				/>{' '}
-				Screens
-			</label>
-			<label>
-				<input
-					type="checkbox"
-					checked={draft.trackIncluded}
-					onChange={(e) => setDraft({ ...draft, trackIncluded: e.target.checked })}
-				/>{' '}
-				Tracks
-			</label>
-			<label>
-				Condition
-				<select value={draft.condition} onChange={(e) => setDraft({ ...draft, condition: e.target.value })}>
-					{CONDITION_LEVELS.map((c) => (
-						<option key={c}>{c}</option>
-					))}
-				</select>
-			</label>
-			<label>
-				Access difficulty
-				<select value={draft.accessDifficulty} onChange={(e) => setDraft({ ...draft, accessDifficulty: e.target.value })}>
-					{ACCESS_LEVELS.map((a) => (
-						<option key={a}>{a}</option>
-					))}
-				</select>
-			</label>
-			<label>
-				<input type="checkbox" checked={draft.hardWater} onChange={(e) => setDraft({ ...draft, hardWater: e.target.checked })} />{' '}
-				Hard water
-			</label>
-			<label>
-				<input
-					type="checkbox"
-					checked={draft.constructionDebris}
-					onChange={(e) => setDraft({ ...draft, constructionDebris: e.target.checked })}
-				/>{' '}
-				Construction debris
-			</label>
+
+			<div className="checkbox-grid">
+				<label>
+					<input
+						type="checkbox"
+						checked={draft.exteriorIncluded}
+						onChange={(e) => setDraft({ ...draft, exteriorIncluded: e.target.checked })}
+					/>{' '}
+					Exterior
+				</label>
+				<label>
+					<input
+						type="checkbox"
+						checked={draft.interiorIncluded}
+						onChange={(e) => setDraft({ ...draft, interiorIncluded: e.target.checked })}
+					/>{' '}
+					Interior
+				</label>
+				<label>
+					<input
+						type="checkbox"
+						checked={draft.screenIncluded}
+						onChange={(e) => setDraft({ ...draft, screenIncluded: e.target.checked })}
+					/>{' '}
+					Screens
+				</label>
+				<label>
+					<input
+						type="checkbox"
+						checked={draft.trackIncluded}
+						onChange={(e) => setDraft({ ...draft, trackIncluded: e.target.checked })}
+					/>{' '}
+					Tracks
+				</label>
+				<label>
+					<input type="checkbox" checked={draft.hardWater} onChange={(e) => setDraft({ ...draft, hardWater: e.target.checked })} />{' '}
+					Hard water
+				</label>
+				<label>
+					<input
+						type="checkbox"
+						checked={draft.constructionDebris}
+						onChange={(e) => setDraft({ ...draft, constructionDebris: e.target.checked })}
+					/>{' '}
+					Construction debris
+				</label>
+			</div>
+
 			<label>
 				Notes
 				<textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
