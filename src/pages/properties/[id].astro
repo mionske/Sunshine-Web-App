@@ -175,157 +175,153 @@ const timeline = activityRows
 <BaseLayout title={property['Street Address']}>
 	<main>
 		<p><a href={`/clients/${property['Client ID']}`}>← Client</a></p>
-		<h1>
-			<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
-				{property['Street Address']}, {property.City}
-			</a>
-		</h1>
-		<p><span class="badge badge-accent">{propertyStatus}</span></p>
+		<div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+			<h1 style="margin: 0; white-space: nowrap;">
+				<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
+					{property['Street Address']}, {property.City}
+				</a>
+			</h1>
+			<span class="badge badge-accent">{propertyStatus}</span>
+		</div>
 		{error && <p role="alert">{error}</p>}
 
-		<section class="card">
-			<h2>Summary</h2>
-			<p>
-				<span class="badge">{property['Property Type']}</span>
-				{property['Building/Complex Name'] && <> — {property['Building/Complex Name']}{property['Unit Identifier'] && ` Unit ${property['Unit Identifier']}`}</>}
-			</p>
-			<p>
-				<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
-					{property['Street Address']}, {property.City}, {property.State} {property.Zip}
-				</a>
-			</p>
-			{client && (
-				<p>
-					<a href={`/clients/${client['Client ID']}`}>{client['First Name']} {client['Last Name']}</a>
-					{client.Phone && <> — {client.Phone}</>}
-					{client.Email && <> — {client.Email}</>}
-					{client['Preferred Contact Method'] && <> (prefers {client['Preferred Contact Method']})</>}
-				</p>
-			)}
-			{client?.['Referral Source'] && <p>Referral source: {client['Referral Source']}</p>}
-			<p>Created {property['Created At']} · Updated {property['Updated At']}</p>
-			<p>
-				<a href={`/walkthroughs/new?propertyId=${property['Property ID']}`}>Start walkthrough</a>
-				{' · '}
-				<a href={`/quoter?propertyId=${property['Property ID']}&clientId=${property['Client ID']}`}>Create quote</a>
-				{' · '}
-				<a href={`/clients/${property['Client ID']}`}>Edit client</a>
-				{' · '}
-				<a href={`/historical-entry?propertyId=${property['Property ID']}&clientId=${property['Client ID']}`}>Add historical record</a>
-			</p>
-		</section>
+		<div class="stats-grid">
+			<div class="card">
+				<span class="stat-label">Type</span>
+				<div class="stat" style="font-size: 1.25rem;">{property['Property Type']}</div>
+			</div>
+			<div class="card">
+				<span class="stat-label">Window Units</span>
+				<div class="stat" style="font-size: 1.25rem;">{property['Total Window Units'] || '0'}</div>
+			</div>
+			<div class="card">
+				<span class="stat-label">Glass Panes</span>
+				<div class="stat" style="font-size: 1.25rem;">{property['Total Glass Panes'] || '0'}</div>
+			</div>
+			<div class="card">
+				<span class="stat-label">Stories</span>
+				<div class="stat" style="font-size: 1.25rem;">{property.Stories || '— not set'}</div>
+			</div>
+			<div class="card">
+				<span class="stat-label">Next Service</span>
+				<div class="stat" style={{ fontSize: '1.25rem', color: property['Next Recommended Service Date'] ? undefined : 'var(--color-ink-muted)' }}>
+					{property['Next Recommended Service Date'] || '— not set'}
+				</div>
+			</div>
+		</div>
 
-		<section class="card">
-			<h2>Add a note</h2>
-			<form method="POST">
-				<input type="hidden" name="_action" value="add-note" />
-				<label>Note <textarea name="note" required></textarea></label>
-				<button type="submit">Add note</button>
-			</form>
-		</section>
+		<p class="field-hint" style="margin-top: -0.75rem;">
+			<a href={`/walkthroughs/new?propertyId=${property['Property ID']}`}>Start walkthrough</a>
+			{' · '}
+			<a href={`/quoter?propertyId=${property['Property ID']}&clientId=${property['Client ID']}`}>Create quote</a>
+			{' · '}
+			<a href={`/clients/${property['Client ID']}`}>Edit client</a>
+			{' · '}
+			<a href={`/historical-entry?propertyId=${property['Property ID']}&clientId=${property['Client ID']}`}>Add historical record</a>
+			{client?.['Referral Source'] && <> · Referral source: {client['Referral Source']}</>}
+		</p>
 
-		<section class="card">
-			<h2>Property characteristics</h2>
-			<form method="POST">
-				<input type="hidden" name="_action" value="update-property" />
+		<div class="property-layout">
+			<div>
+				<form method="POST">
+					<input type="hidden" name="_action" value="update-property" />
 
-				<fieldset>
-					<legend>Address</legend>
-					<label>
-						Property type
-						<select name="propertyType" required>
-							{PROPERTY_TYPES.map((t) => <option value={t} selected={t === property['Property Type']}>{t}</option>)}
-						</select>
-					</label>
-					<label>Street address <input type="text" name="streetAddress" value={property['Street Address']} required /></label>
-					<label>City <input type="text" name="city" value={property.City} /></label>
-					<label>State <input type="text" name="state" maxlength="2" value={property.State} placeholder="CO" /></label>
-					<label>Zip <input type="text" name="zip" value={property.Zip} /></label>
-					<label>Year built <input type="text" name="yearBuilt" value={property['Year Built']} /></label>
-					<label>Square footage <input type="text" name="squareFootage" value={property['Square Footage']} /></label>
-					<label>Stories <input type="text" name="stories" value={property.Stories} /></label>
-					<label>Building/complex name (optional) <input type="text" name="buildingComplexName" value={property['Building/Complex Name']} /></label>
-					<label>Unit identifier (optional) <input type="text" name="unitIdentifier" value={property['Unit Identifier']} /></label>
-				</fieldset>
+					<section class="card">
+						<h2>Address</h2>
+						<label>
+							Property type
+							<select name="propertyType" required>
+								{PROPERTY_TYPES.map((t) => <option value={t} selected={t === property['Property Type']}>{t}</option>)}
+							</select>
+						</label>
+						<label>Street address <input type="text" name="streetAddress" value={property['Street Address']} required /></label>
+						<label>City <input type="text" name="city" value={property.City} /></label>
+						<label>State <input type="text" name="state" maxlength="2" value={property.State} placeholder="CO" /></label>
+						<label>Zip <input type="text" name="zip" value={property.Zip} /></label>
+						<label>Year built <input type="text" name="yearBuilt" value={property['Year Built']} /></label>
+						<label>Square footage <input type="text" name="squareFootage" value={property['Square Footage']} /></label>
+						<label>Stories <input type="text" name="stories" value={property.Stories} /></label>
+						<label>Building/complex name (optional) <input type="text" name="buildingComplexName" value={property['Building/Complex Name']} /></label>
+						<label>Unit identifier (optional) <input type="text" name="unitIdentifier" value={property['Unit Identifier']} /></label>
+					</section>
 
-				<h3>Access &amp; conditions</h3>
-				<div class="card-grid">
-					<div class="card">
-						<h3>Access Difficulty</h3>
-						<div class="radio-group">
-							<p class="field-label">Interior Access</p>
-							{ACCESS_LEVEL_OPTIONS.map((o) => (
-								<label><input type="radio" name="interiorAccessDifficulty" value={o} checked={o === property['Interior Access Difficulty']} /> {o}</label>
-							))}
-						</div>
-						<div class="radio-group">
-							<p class="field-label">Exterior Access</p>
-							{ACCESS_LEVEL_OPTIONS.map((o) => (
-								<label><input type="radio" name="exteriorAccessDifficulty" value={o} checked={o === property['Exterior Access Difficulty']} /> {o}</label>
-							))}
+					<details class="card" open>
+						<summary>Access &amp; Conditions</summary>
+						<div class="card-grid">
+							<div>
+								<p class="field-label">Interior Access</p>
+								<div class="segmented">
+									{ACCESS_LEVEL_OPTIONS.map((o) => (
+										<label><input type="radio" name="interiorAccessDifficulty" value={o} checked={o === property['Interior Access Difficulty']} /> {o}</label>
+									))}
+								</div>
+							</div>
+							<div>
+								<p class="field-label">Exterior Access</p>
+								<div class="segmented">
+									{ACCESS_LEVEL_OPTIONS.map((o) => (
+										<label><input type="radio" name="exteriorAccessDifficulty" value={o} checked={o === property['Exterior Access Difficulty']} /> {o}</label>
+									))}
+								</div>
+							</div>
+							<div>
+								<p class="field-label">Water Source</p>
+								<div class="segmented">
+									{WATER_SOURCE_OPTIONS.map((o) => (
+										<label><input type="radio" name="waterSource" value={o} checked={o === property['Water Source']} /> {o}</label>
+									))}
+								</div>
+							</div>
+							<div>
+								<p class="field-label">Exterior Cleaning Method</p>
+								<div class="segmented">
+									{EXTERIOR_CLEANING_METHOD_OPTIONS.map((o) => (
+										<label><input type="radio" name="exteriorCleaningMethod" value={o} checked={o === exteriorCleaningMethodValue} /> {o}</label>
+									))}
+								</div>
+							</div>
 						</div>
 						<label><input type="checkbox" name="roofAccessRequired" checked={property['Roof Access Required (Y/N)'] === 'Y'} /> Roof Access Required</label>
-					</div>
+					</details>
 
-					<div class="card">
-						<h3>Water &amp; Exterior Method</h3>
-						<div class="radio-group">
-							<p class="field-label">Water Source</p>
-							{WATER_SOURCE_OPTIONS.map((o) => (
-								<label><input type="radio" name="waterSource" value={o} checked={o === property['Water Source']} /> {o}</label>
-							))}
-						</div>
-						<div class="radio-group">
-							<p class="field-label">Exterior Cleaning Method</p>
-							{EXTERIOR_CLEANING_METHOD_OPTIONS.map((o) => (
-								<label><input type="radio" name="exteriorCleaningMethod" value={o} checked={o === exteriorCleaningMethodValue} /> {o}</label>
-							))}
-						</div>
-					</div>
+					<details class="card" open>
+						<summary>Windows &amp; Doors</summary>
+						<label>
+							Window Units
+							<span class="field-hint">Approximate number of window assemblies.</span>
+							<input type="number" class="field-numeric" name="totalWindowUnits" value={property['Total Window Units']} />
+						</label>
+						<label>
+							Total Glass Panes
+							<span class="field-hint">Total number of individual glass panes.</span>
+							<input type="number" class="field-numeric" id="totalPanes" name="totalGlassPanes" value={property['Total Glass Panes']} />
+						</label>
+						<p id="paneBreakdownStatus" class="field-status"></p>
 
-					<div class="card">
-						<h3>Ladder Requirement</h3>
-						<div class="radio-group">
-							<p class="field-label">Highest Ladder Required</p>
-							{LADDER_REQUIREMENT_OPTIONS.map((o) => (
-								<label><input type="radio" name="highestLadderRequired" value={o} checked={o === property['Ladder Requirement']} /> {o}</label>
-							))}
-						</div>
-					</div>
-
-					<div class="card">
-						<h3>Window Condition</h3>
-						<div class="radio-group">
-							{WINDOW_CONDITION_OPTIONS.map((o) => (
-								<label><input type="radio" name="windowCondition" value={o} checked={o === property['Window Condition']} /> {o}</label>
-							))}
+						<div class="card-grid">
+							<div>
+								<p class="field-label">Highest Ladder Required</p>
+								<div class="segmented">
+									{LADDER_REQUIREMENT_OPTIONS.map((o) => (
+										<label><input type="radio" name="highestLadderRequired" value={o} checked={o === property['Ladder Requirement']} /> {o}</label>
+									))}
+								</div>
+							</div>
+							<div>
+								<p class="field-label">Window Condition</p>
+								<div class="segmented">
+									{WINDOW_CONDITION_OPTIONS.map((o) => (
+										<label><input type="radio" name="windowCondition" value={o} checked={o === property['Window Condition']} /> {o}</label>
+									))}
+								</div>
+							</div>
 						</div>
 						<label><input type="checkbox" name="hardWaterStainingPresent" checked={property['Hard Water History (Y/N)'] === 'Y'} /> Hard Water Staining Present</label>
 						<label><input type="checkbox" name="constructionDebrisPresent" checked={property['Construction Debris (Y/N)'] === 'Y'} /> Construction Debris Present</label>
-					</div>
-				</div>
 
-				<h3>Windows &amp; doors</h3>
-				<div class="card">
-					<h3>Summary</h3>
-					<label>
-						Window Units
-						<span class="field-hint">Approximate number of window assemblies.</span>
-						<input type="number" class="field-numeric" name="totalWindowUnits" value={property['Total Window Units']} />
-					</label>
-					<label>
-						Total Glass Panes
-						<span class="field-hint">Total number of individual glass panes.</span>
-						<input type="number" class="field-numeric" id="totalPanes" name="totalGlassPanes" value={property['Total Glass Panes']} />
-					</label>
-					<p id="paneBreakdownStatus" class="field-status"></p>
-				</div>
-
-				<div class="card-grid">
-					<div class="card">
-						<h3>Pane Breakdown</h3>
+						<p class="field-label" style="margin-top: 1rem;">Pane Breakdown</p>
 						<span class="field-hint">These should add up to Total Glass Panes above.</span>
-						<div class="pane-grid">
+						<div class="count-grid">
 							<label>Double Hung <input type="number" class="field-numeric pane-breakdown-field" name="countDoubleHung" value={property['Count - Double Hung']} /></label>
 							<label>Casement <input type="number" class="field-numeric pane-breakdown-field" name="countCasement" value={property['Count - Casement']} /></label>
 							<label>Picture <input type="number" class="field-numeric pane-breakdown-field" name="countPicture" value={property['Count - Picture']} /></label>
@@ -335,159 +331,149 @@ const timeline = activityRows
 							<label>Skylight <input type="number" class="field-numeric pane-breakdown-field" name="countSkylights" value={property['Count - Skylights']} /></label>
 							<label>Sliding Glass Door <input type="number" class="field-numeric pane-breakdown-field" name="slidingGlassDoorPaneCount" value={property['Sliding Glass Door Pane Count']} /></label>
 						</div>
-					</div>
 
-					<div class="card">
-						<h3>Accessories</h3>
+						<p class="field-label">Accessories</p>
 						<span class="field-hint">Not included in pane totals.</span>
-						<label>Screens <input type="number" class="field-numeric" name="screenCount" value={property['Screen Count']} /></label>
-						<label>Tracks <input type="number" class="field-numeric" name="trackCount" value={property['Track Count']} /></label>
-						<label>Solar Panels <input type="number" class="field-numeric" name="countSolarPanels" value={property['Count - Solar Panels']} /></label>
-					</div>
-				</div>
+						<div class="count-grid">
+							<label>Screens <input type="number" class="field-numeric" name="screenCount" value={property['Screen Count']} /></label>
+							<label>Tracks <input type="number" class="field-numeric" name="trackCount" value={property['Track Count']} /></label>
+							<label>Solar Panels <input type="number" class="field-numeric" name="countSolarPanels" value={property['Count - Solar Panels']} /></label>
+						</div>
+					</details>
 
-				<fieldset>
-					<legend>Maintenance</legend>
-					<label>
-						Desired maintenance frequency
-						<select name="desiredMaintenanceFrequency">
-							<option value="" selected={!property['Desired Maintenance Frequency']} />
-							{MAINTENANCE_FREQUENCY_OPTIONS.map((v) => <option value={v} selected={v === property['Desired Maintenance Frequency']}>{v}</option>)}
-						</select>
-					</label>
-					<label>
-						Preferred service season
-						<select name="preferredServiceSeason">
-							<option value="" selected={!property['Preferred Service Season']} />
-							{PREFERRED_SERVICE_SEASON_OPTIONS.map((v) => <option value={v} selected={v === property['Preferred Service Season']}>{v}</option>)}
-						</select>
-					</label>
-					<label>Next recommended service date (planning estimate only) <input type="date" name="nextRecommendedServiceDate" value={property['Next Recommended Service Date']} /></label>
-					<label>Maintenance notes <textarea name="maintenanceNotes">{property['Maintenance Notes']}</textarea></label>
-					<label>Next scheduled visit <input type="date" name="nextScheduledVisit" value={property['Next Scheduled Visit']} /></label>
-					<label>Last review requested date <input type="date" name="lastReviewRequestedDate" value={property['Last Review Requested Date']} /></label>
-					<label>Last review received date <input type="date" name="lastReviewReceivedDate" value={property['Last Review Received Date']} /></label>
-				</fieldset>
+					<details class="card" open>
+						<summary>Maintenance &amp; Notes</summary>
+						<div class="card-grid">
+							<label>
+								Desired maintenance frequency
+								<select name="desiredMaintenanceFrequency">
+									<option value="" selected={!property['Desired Maintenance Frequency']} />
+									{MAINTENANCE_FREQUENCY_OPTIONS.map((v) => <option value={v} selected={v === property['Desired Maintenance Frequency']}>{v}</option>)}
+								</select>
+							</label>
+							<label>
+								Preferred service season
+								<select name="preferredServiceSeason">
+									<option value="" selected={!property['Preferred Service Season']} />
+									{PREFERRED_SERVICE_SEASON_OPTIONS.map((v) => <option value={v} selected={v === property['Preferred Service Season']}>{v}</option>)}
+								</select>
+							</label>
+							<label>Next recommended service date (planning estimate only) <input type="date" name="nextRecommendedServiceDate" value={property['Next Recommended Service Date']} /></label>
+							<label>Next scheduled visit <input type="date" name="nextScheduledVisit" value={property['Next Scheduled Visit']} /></label>
+							<label>Last review requested date <input type="date" name="lastReviewRequestedDate" value={property['Last Review Requested Date']} /></label>
+							<label>Last review received date <input type="date" name="lastReviewReceivedDate" value={property['Last Review Received Date']} /></label>
+						</div>
+						<label>Maintenance notes <textarea name="maintenanceNotes">{property['Maintenance Notes']}</textarea></label>
+						<label>Access notes <textarea name="accessNotes" placeholder="Parking, gate, water source, exterior/interior access">{property['Access Notes']}</textarea></label>
+						<label>Pet notes <textarea name="petNotes">{property['Pet Notes']}</textarea></label>
+						<label>General notes <textarea name="generalNotes">{property['General Notes']}</textarea></label>
+					</details>
 
-				<fieldset>
-					<legend>Notes</legend>
-					<label>Access notes <textarea name="accessNotes" placeholder="Parking, gate, water source, exterior/interior access">{property['Access Notes']}</textarea></label>
-					<label>Pet notes <textarea name="petNotes">{property['Pet Notes']}</textarea></label>
-					<label>General notes <textarea name="generalNotes">{property['General Notes']}</textarea></label>
-				</fieldset>
+					<button type="submit">Save</button>
+				</form>
+			</div>
 
-				<button type="submit">Save</button>
-			</form>
-		</section>
-
-		<section class="card">
-			<h2>Activity timeline</h2>
-			<ul>
-				{timeline.map((entry) => {
-					const link = timelineLink(String(entry['Entity Type'] ?? ''), String(entry['Entity ID'] ?? ''));
-					return (
-						<li>
-							<strong>{String(entry.Timestamp ?? '')}</strong> —{' '}
-							<span class="badge">{String(entry['Entity Type'] ?? '')}</span>{' '}
-							{String(entry.Action ?? '')}
-							{entry.Notes ? ` — ${entry.Notes}` : ''}
-							{link && <> (<a href={link}>view</a>)</>}
-						</li>
-					);
-				})}
-				{timeline.length === 0 && <li>No activity recorded yet.</li>}
-			</ul>
-		</section>
-
-		<section class="card">
-			<h2>Walkthroughs</h2>
-			<table>
-				<thead>
-					<tr><th>Date</th><th>Status</th><th>Suggested target</th><th></th></tr>
-				</thead>
-				<tbody>
+			<div>
+				<section class="card">
+					<h2>Walkthroughs</h2>
 					{propertyWalkthroughs.map((w) => (
-						<tr>
-							<td>{w['Walkthrough Date']}</td>
-							<td><span class="badge">{w.Status}</span></td>
-							<td>{w['Suggested Target Price'] && `$${w['Suggested Target Price']}`}</td>
-							<td><a href={`/walkthroughs/${w['Walkthrough ID']}`}>View</a></td>
-						</tr>
+						<div class="sidebar-row">
+							<div class="sidebar-row-main">
+								<a href={`/walkthroughs/${w['Walkthrough ID']}`}>{w['Walkthrough Date']}</a>
+								<span class="badge">{w.Status}</span>
+							</div>
+							{w['Suggested Target Price'] && <div class="sidebar-row-meta">${w['Suggested Target Price']} suggested</div>}
+						</div>
 					))}
-					{propertyWalkthroughs.length === 0 && <tr><td colspan="4">No walkthroughs yet.</td></tr>}
-				</tbody>
-			</table>
-		</section>
+					{propertyWalkthroughs.length === 0 && <p>No walkthroughs yet.</p>}
+				</section>
 
-		<section class="card">
-			<h2>Quotes</h2>
-			<table>
-				<thead>
-					<tr><th>Quote</th><th>Created</th><th>Status</th><th>Total</th><th>Calculator</th><th>Sent</th><th>Accepted</th><th></th></tr>
-				</thead>
-				<tbody>
+				<section class="card">
+					<h2>Quotes</h2>
 					{propertyQuotes.map((q) => (
-						<tr>
-							<td>{q['Quote ID'].slice(0, 8)}</td>
-							<td>{q['Created At']}</td>
-							<td><span class="badge">{q['Quote Status']}</span></td>
-							<td>${q['Final Quoted Price']}</td>
-							<td>{q['Calculator Version']}</td>
-							<td>{q['Sent At']}</td>
-							<td>{q['Accepted At']}</td>
-							<td><a href={`/quotes/${q['Quote ID']}`}>View</a></td>
-						</tr>
+						<div class="sidebar-row">
+							<div class="sidebar-row-main">
+								<a href={`/quotes/${q['Quote ID']}`}>{q['Quote ID'].slice(0, 8)}</a>
+								<span class="badge">{q['Quote Status']}</span>
+							</div>
+							<div class="sidebar-row-meta">
+								${q['Final Quoted Price']} · calc v{q['Calculator Version']} · created {q['Created At']}
+								{q['Sent At'] && <> · sent {q['Sent At']}</>}
+								{q['Accepted At'] && <> · accepted {q['Accepted At']}</>}
+							</div>
+						</div>
 					))}
-					{propertyQuotes.length === 0 && <tr><td colspan="8">No quotes yet.</td></tr>}
-				</tbody>
-			</table>
-		</section>
+					{propertyQuotes.length === 0 && <p>No quotes yet.</p>}
+				</section>
 
-		<section class="card">
-			<h2>Jobs</h2>
-			<table>
-				<thead>
-					<tr><th>Date</th><th>Status</th><th>Final revenue</th><th>On-site hrs</th><th>$/on-site hr</th><th>Callback</th><th></th></tr>
-				</thead>
-				<tbody>
+				<section class="card">
+					<h2>Jobs</h2>
 					{jobRows.map(({ job, perf }) => (
-						<tr>
-							<td>{job['Date Completed']}</td>
-							<td><span class="badge">{job['Job Status']}</span></td>
-							<td>${perf.finalRevenue.toFixed(2)}</td>
-							<td>{perf.actualHours.toFixed(2)}</td>
-							<td>${perf.actualRevenuePerLaborHour.toFixed(2)}</td>
-							<td>{job['Callback Required (Y/N)']}</td>
-							<td>
+						<div class="sidebar-row">
+							<div class="sidebar-row-main">
+								<span>{job['Date Completed']}</span>
+								<span class="badge">{job['Job Status']}</span>
+							</div>
+							<div class="sidebar-row-meta">
+								${perf.finalRevenue.toFixed(2)} · {perf.actualHours.toFixed(2)} on-site hrs · ${perf.actualRevenuePerLaborHour.toFixed(2)}/hr
+								{job['Callback Required (Y/N)'] === 'Y' && <> · callback</>}
+							</div>
+							<div class="sidebar-row-meta">
 								{job['Quote ID'] && <a href={`/quotes/${job['Quote ID']}`}>View quote</a>}
 								{' '}<a href={`/jobs/${job['Job ID']}`}>Job Day</a>
-							</td>
-						</tr>
+							</div>
+						</div>
 					))}
-					{jobRows.length === 0 && <tr><td colspan="7">No jobs logged yet.</td></tr>}
-				</tbody>
-			</table>
-		</section>
+					{jobRows.length === 0 && <p>No jobs logged yet.</p>}
+				</section>
 
-		{performance.completedJobCount > 0 && (
-			<section class="card">
-				<h2>Historical property performance</h2>
-				{performance.completedJobCount <= 2 && <p><em>Limited history. Treat as directional only.</em></p>}
-				<p>
-					<span class="stat-label">Completed jobs</span>
-					<span class="stat">{performance.completedJobCount}</span>
-				</p>
-				<ul>
-					<li>Included in calibration: {performance.includedCount}</li>
-					<li>Excluded from calibration: {performance.excludedCount}</li>
-					<li>Average on-site hours: {performance.averageOnSiteHours.toFixed(2)}</li>
-					<li>Average final revenue: ${performance.averageFinalRevenue.toFixed(2)}</li>
-					<li>Average revenue per on-site hour: ${performance.averageRevenuePerOnSiteHour.toFixed(2)}</li>
-					<li>Total callbacks: {performance.totalCallbacks}</li>
-					<li>Most recent service date: {performance.mostRecentServiceDate || 'unknown'}</li>
-				</ul>
-			</section>
-		)}
+				{performance.completedJobCount > 0 && (
+					<section class="card">
+						<h2>Historical property performance</h2>
+						{performance.completedJobCount <= 2 && <p><em>Limited history. Treat as directional only.</em></p>}
+						<p>
+							<span class="stat-label">Completed jobs</span>
+							<span class="stat">{performance.completedJobCount}</span>
+						</p>
+						<ul>
+							<li>Included in calibration: {performance.includedCount}</li>
+							<li>Excluded from calibration: {performance.excludedCount}</li>
+							<li>Average on-site hours: {performance.averageOnSiteHours.toFixed(2)}</li>
+							<li>Average final revenue: ${performance.averageFinalRevenue.toFixed(2)}</li>
+							<li>Average revenue per on-site hour: ${performance.averageRevenuePerOnSiteHour.toFixed(2)}</li>
+							<li>Total callbacks: {performance.totalCallbacks}</li>
+							<li>Most recent service date: {performance.mostRecentServiceDate || 'unknown'}</li>
+						</ul>
+					</section>
+				)}
+
+				<section class="card timeline-card">
+					<h2>Activity timeline</h2>
+					<form method="POST" style="margin-bottom: 1rem;">
+						<input type="hidden" name="_action" value="add-note" />
+						<label>Add a note <textarea name="note" required></textarea></label>
+						<button type="submit">Add note</button>
+					</form>
+					{timeline.map((entry) => {
+						const link = timelineLink(String(entry['Entity Type'] ?? ''), String(entry['Entity ID'] ?? ''));
+						return (
+							<div class="sidebar-row">
+								<div class="sidebar-row-main">
+									<span class="badge">{String(entry['Entity Type'] ?? '')}</span>
+									<span>{String(entry.Timestamp ?? '')}</span>
+								</div>
+								<div class="sidebar-row-meta">
+									{String(entry.Action ?? '')}
+									{entry.Notes ? ` — ${entry.Notes}` : ''}
+									{link && <> (<a href={link}>view</a>)</>}
+								</div>
+							</div>
+						);
+					})}
+					{timeline.length === 0 && <p>No activity recorded yet.</p>}
+				</section>
+			</div>
+		</div>
 	</main>
 
 	<script>

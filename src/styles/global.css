@@ -144,7 +144,7 @@ label:has(input[type='radio']) input {
 	margin-bottom: 1rem;
 }
 
-.radio-group .field-label {
+.field-label {
 	font-weight: 600;
 	margin: 0 0 0.4rem;
 }
@@ -190,12 +190,13 @@ input.field-numeric {
  * still span the full row so notes fields and "Save" don't get squeezed
  * into a narrow column. */
 @media (min-width: 700px) {
-	/* A form that directly wraps <fieldset> sections (e.g. the Property
-	 * page) must NOT become a grid itself — that would squeeze whole
-	 * fieldsets into narrow columns instead of just laying out the labels
-	 * inside each one. Only forms with no fieldset wrapper (Client,
-	 * PricingConfig, etc.) get the grid applied directly. */
-	form:not(:has(> fieldset)),
+	/* A form that directly wraps <fieldset>/<section class="card">/<details
+	 * class="card"> sections (e.g. the Property page) must NOT become a
+	 * grid itself — that would squeeze whole fieldsets/cards into narrow
+	 * columns instead of just laying out the labels inside each one. Only
+	 * forms with no such wrapper (Client, PricingConfig, etc.) get the grid
+	 * applied directly. */
+	form:not(:has(> fieldset)):not(:has(> .card)):not(:has(> details)),
 	fieldset {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -837,4 +838,125 @@ tr:last-child td {
 	background: var(--color-tan);
 	border-color: var(--color-tan);
 	color: var(--color-navy);
+}
+
+/* Property Detail redesign ---------------------------------------------- */
+
+.property-layout {
+	display: grid;
+	grid-template-columns: 1.5fr 1fr;
+	gap: 1.5rem;
+	align-items: start;
+}
+
+@media (max-width: 900px) {
+	.property-layout {
+		grid-template-columns: 1fr;
+	}
+}
+
+/* Collapsible survey-data cards (Access & Conditions, Windows & Doors,
+ * Maintenance & Notes) — plain <details>/<summary>, no JS needed; fields
+ * inside a closed <details> still submit normally with the form. */
+details.card > summary {
+	cursor: pointer;
+	font-family: var(--font-heading);
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	font-weight: 700;
+	color: var(--color-navy);
+	font-size: 1.125rem;
+}
+
+details.card[open] > summary {
+	margin-bottom: 1rem;
+	padding-bottom: 0.75rem;
+	border-bottom: 2px solid var(--color-tan);
+}
+
+/* Segmented pill control — a visual replacement for a radio-button list,
+ * same underlying <input type="radio"> semantics (still real, still
+ * submits with the form), just visually hidden and standing in for a
+ * clickable pill via label:has(:checked). */
+.segmented {
+	display: inline-flex;
+	flex-wrap: wrap;
+	background: var(--color-cream);
+	border: 1px solid var(--color-tan);
+	border-radius: var(--radius-field);
+	padding: 3px;
+	gap: 3px;
+	margin-bottom: 0.75rem;
+}
+
+.segmented label {
+	position: relative;
+	display: inline-flex;
+	align-items: center;
+	margin: 0;
+	padding: 0.4rem 0.75rem;
+	font-size: 0.8rem;
+	font-weight: 600;
+	color: var(--color-ink-muted);
+	border-radius: 6px;
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.segmented input[type='radio'] {
+	position: absolute;
+	width: 1px;
+	height: 1px;
+	padding: 0;
+	margin: -1px;
+	overflow: hidden;
+	clip: rect(0, 0, 0, 0);
+	white-space: nowrap;
+	border: 0;
+}
+
+.segmented label:has(input:checked) {
+	background: var(--color-navy);
+	color: var(--color-cream-text);
+}
+
+/* Compact numeric grid for pane-breakdown/accessory counts */
+.count-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+	gap: 0.75rem 1rem;
+	margin-bottom: 1rem;
+}
+
+/* Sidebar reference cards (Walkthroughs/Quotes/Jobs) — compact rows
+ * instead of a wide multi-column table, since the sidebar column is
+ * narrow. */
+.sidebar-row {
+	padding: 0.6rem 0;
+	border-top: 1px solid var(--color-tan);
+}
+
+.sidebar-row:first-child {
+	border-top: none;
+}
+
+.sidebar-row-main {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 0.5rem;
+	font-size: 0.9rem;
+	font-weight: 600;
+}
+
+.sidebar-row-meta {
+	font-size: 0.8rem;
+	color: var(--color-ink-muted);
+	margin-top: 0.15rem;
+}
+
+/* Activity timeline: tinted to visually read as a log, distinct from the
+ * survey/reference cards around it. */
+.timeline-card {
+	background: var(--color-cream);
 }
