@@ -1,38 +1,16 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
-import { createRow, listActiveRows } from '../lib/sheets';
+import { listActiveRows } from '../lib/sheets';
 import { pipelineConfig, PIPELINE_STAGES } from '../lib/models/pipeline';
 import { clientConfig } from '../lib/models/client';
 import { propertyConfig } from '../lib/models/property';
 import { fullAddress } from '../lib/mapsLink';
 import PipelineBoard from '../components/PipelineBoard';
 
-let error: string | null = null;
-
-if (Astro.request.method === 'POST') {
-	const form = await Astro.request.formData();
-	try {
-		await createRow(env, pipelineConfig, {
-			id: String(form.get('id') ?? ''),
-			'Client ID': String(form.get('clientId') ?? ''),
-			'Property ID': String(form.get('propertyId') ?? ''),
-			'Primary Quote ID': '',
-			Stage: 'New Lead',
-			Status: 'Open',
-			'Estimated Value': String(form.get('estimatedValue') ?? ''),
-			'Referral Source': String(form.get('referralSource') ?? ''),
-			'Next Follow-up Date': String(form.get('nextFollowUpDate') ?? ''),
-			'Last Contact Date': '',
-			'Lost Reason': '',
-			Notes: '',
-		});
-		return Astro.redirect('/pipeline');
-	} catch (e) {
-		error = (e as Error).message;
-	}
-}
-
+// Opportunity creation happens client-side now (the New Opportunity
+// drawer POSTs to /api/pipeline directly — see PipelineBoard.tsx), so this
+// page is read-only server-side: just the data the board needs to render.
 const [opportunities, clients, properties] = await Promise.all([
 	listActiveRows(env, pipelineConfig),
 	listActiveRows(env, clientConfig),
@@ -48,9 +26,11 @@ const cards = opportunities.map((o) => {
 	return {
 		id: o['Opportunity ID'],
 		stage: o.Stage,
+		clientId: o['Client ID'],
 		clientName: client ? `${client['First Name']} ${client['Last Name']}` : o['Client ID'],
 		propertyAddress: property ? fullAddress(property) : '',
 		estimatedValue: o['Estimated Value'],
+		referralSource: o['Referral Source'],
 		nextFollowUpDate: o['Next Follow-up Date'],
 	};
 });
@@ -61,40 +41,12 @@ const propertyOptions = properties.map((p) => ({
 	address: fullAddress(p),
 }));
 
-const newOpportunityId = crypto.randomUUID();
+const clientOptions = clients.map((c) => ({ id: c['Client ID'], label: `${c['First Name']} ${c['Last Name']}` }));
 ---
 
 <BaseLayout title="Pipeline">
 	<main>
 		<h1>Pipeline</h1>
-		{error && <p role="alert">{error}</p>}
-
-		<PipelineBoard client:load stages={PIPELINE_STAGES} cards={cards} properties={propertyOptions} />
-
-		<h2>New opportunity</h2>
-		<form method="POST">
-			<input type="hidden" name="id" value={newOpportunityId} />
-			<label>
-				Client
-				<select name="clientId" required>
-					{clients.map((c) => (
-						<option value={c['Client ID']}>{c['First Name']} {c['Last Name']}</option>
-					))}
-				</select>
-			</label>
-			<label>
-				Property (optional — a contact often comes in before a property is attached)
-				<select name="propertyId">
-					<option value="">— none yet —</option>
-					{properties.map((p) => (
-						<option value={p['Property ID']}>{p['Street Address']}</option>
-					))}
-				</select>
-			</label>
-			<label>Estimated value <input type="text" name="estimatedValue" /></label>
-			<label>Referral source <input type="text" name="referralSource" /></label>
-			<label>Next follow-up date <input type="date" name="nextFollowUpDate" /></label>
-			<button type="submit">Create opportunity</button>
-		</form>
+		<PipelineBoard client:load stages={PIPELINE_STAGES} cards={cards} properties={propertyOptions} clients={clientOptions} />
 	</main>
 </BaseLayout>

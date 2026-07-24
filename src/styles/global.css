@@ -466,37 +466,55 @@ tr:last-child td {
 
 /* Pipeline board ------------------------------------------------------------ */
 
-/* Breaks out of <main>'s centered max-width so the board can use the
- * full browser width — with 8 stages there often isn't room for all of
- * them even at full width, but any scrolling that's still needed should
- * happen across the whole viewport, not inside a narrow strip with big
- * unused margins on either side (the standard "full-bleed" CSS trick). */
+/* Breaks out of <main>'s centered max-width so the board can use the full
+ * browser width. Columns wrap onto additional rows via auto-fit instead of
+ * forcing horizontal scroll — the earlier flex/overflow-x layout required
+ * scrolling to see later stages even at full width; this doesn't. */
 .pipeline-board {
-	display: flex;
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 	gap: 1rem;
-	overflow-x: auto;
-	padding: 0 1.5rem 1rem;
+	align-items: start;
 	width: 100vw;
 	position: relative;
 	left: 50%;
 	right: 50%;
 	margin-left: -50vw;
 	margin-right: -50vw;
+	padding: 0 1.5rem 1rem;
 	box-sizing: border-box;
 }
 
 .pipeline-column {
-	min-width: 220px;
-	flex: 0 0 220px;
 	border: 2px solid var(--color-tan);
 	border-radius: var(--radius-card);
 	padding: 0.75rem;
 	background: #fff;
+	min-height: 140px;
+	box-sizing: border-box;
 }
 
-.pipeline-column h3 {
-	margin-top: 0;
+.pipeline-column-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+}
+
+.pipeline-column-header h3 {
+	margin: 0;
 	font-size: 1rem;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	min-width: 0;
+}
+
+.pipeline-column-value {
+	font-size: 0.85rem;
+	color: var(--color-ink-muted);
+	font-weight: 600;
+	margin: 0.35rem 0 0.85rem;
 }
 
 .pipeline-card {
@@ -508,11 +526,188 @@ tr:last-child td {
 	cursor: grab;
 }
 
-.pipeline-card-address {
-	font-weight: 600;
-	color: var(--color-navy);
+.pipeline-card:last-child {
+	margin-bottom: 0;
 }
 
 .pipeline-card-client {
+	font-weight: 700;
+	color: var(--color-navy);
+}
+
+.pipeline-card-address {
 	color: var(--color-ink-muted);
+	font-size: 0.9rem;
+	margin: 0.15rem 0 0.5rem;
+}
+
+.pipeline-card-footer {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.5rem;
+	font-size: 0.85rem;
+	margin-top: 0.5rem;
+}
+
+.pipeline-card-value {
+	font-weight: 700;
+	color: #1a7a4c;
+}
+
+.pipeline-empty-column {
+	font-size: 0.85rem;
+	color: var(--color-ink-muted);
+	text-align: center;
+	padding: 1rem 0;
+}
+
+.pipeline-empty-board {
+	border: 2px dashed var(--color-tan);
+	border-radius: var(--radius-card);
+	padding: 3rem 1.5rem;
+	text-align: center;
+	background: #fff;
+}
+
+/* Follow-up status coloring — reuses the app's existing semantic success
+ * (#1a7a4c, see .field-status-ok) and warning (#92400e, see
+ * .field-status.mismatch) colors and the brand red, rather than
+ * introducing a new palette just for this page. */
+.followup-overdue {
+	color: var(--color-red);
+	font-weight: 700;
+}
+
+.followup-today {
+	color: #92400e;
+	font-weight: 700;
+}
+
+.followup-none {
+	color: var(--color-ink-muted);
+}
+
+/* Toolbar: search + filters + Board/List toggle ----------------------------- */
+
+.pipeline-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.75rem;
+	align-items: center;
+	margin-bottom: 1.5rem;
+}
+
+.pipeline-toolbar input,
+.pipeline-toolbar select {
+	width: auto;
+	margin-top: 0;
+}
+
+.view-toggle {
+	display: inline-flex;
+	border: 2px solid var(--color-tan);
+	border-radius: var(--radius-pill);
+	overflow: hidden;
+}
+
+.view-toggle button {
+	border: none;
+	border-radius: 0;
+	background: #fff;
+	color: var(--color-navy);
+	padding: 0.5rem 1.25rem;
+}
+
+.view-toggle button:hover {
+	background: var(--color-tan);
+	color: var(--color-navy);
+}
+
+.view-toggle button.active {
+	background: var(--color-navy);
+	color: var(--color-cream-text);
+}
+
+/* Metrics -------------------------------------------------------------------- */
+
+.pipeline-metrics {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+	gap: 1rem;
+	margin-bottom: 1.5rem;
+}
+
+.pipeline-metrics .card {
+	margin-bottom: 0;
+	padding: 0.85rem 1rem;
+}
+
+.pipeline-metrics .stat {
+	font-size: 1.5rem;
+}
+
+/* New Opportunity drawer ----------------------------------------------------- */
+
+.drawer-scrim {
+	position: fixed;
+	inset: 0;
+	background: rgba(1, 36, 65, 0.45);
+	z-index: 50;
+	display: flex;
+	justify-content: flex-end;
+}
+
+.drawer {
+	background: #fff;
+	width: 420px;
+	max-width: 100vw;
+	height: 100%;
+	box-sizing: border-box;
+	padding: 1.5rem;
+	overflow-y: auto;
+}
+
+.drawer-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 1rem;
+}
+
+.drawer-close {
+	background: none;
+	border: none;
+	color: var(--color-ink-muted);
+	font-size: 1.5rem;
+	line-height: 1;
+	padding: 0;
+	cursor: pointer;
+}
+
+.drawer-close:hover {
+	background: none;
+	color: var(--color-red);
+}
+
+.drawer-footer {
+	display: flex;
+	gap: 0.75rem;
+	margin-top: 1rem;
+}
+
+.drawer-footer button {
+	flex: 1;
+}
+
+.btn-secondary {
+	background: var(--color-cream);
+	color: var(--color-navy);
+	border-color: var(--color-tan);
+}
+
+.btn-secondary:hover {
+	background: var(--color-tan);
+	border-color: var(--color-tan);
+	color: var(--color-navy);
 }
