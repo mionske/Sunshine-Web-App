@@ -405,16 +405,28 @@ tr:last-child td {
 
 /* Pipeline board ------------------------------------------------------------ */
 
+/* Breaks out of <main>'s centered max-width so the board can use the
+ * full browser width — with 8 stages there often isn't room for all of
+ * them even at full width, but any scrolling that's still needed should
+ * happen across the whole viewport, not inside a narrow strip with big
+ * unused margins on either side (the standard "full-bleed" CSS trick). */
 .pipeline-board {
 	display: flex;
 	gap: 1rem;
 	overflow-x: auto;
-	padding-bottom: 1rem;
+	padding: 0 1.5rem 1rem;
+	width: 100vw;
+	position: relative;
+	left: 50%;
+	right: 50%;
+	margin-left: -50vw;
+	margin-right: -50vw;
+	box-sizing: border-box;
 }
 
 .pipeline-column {
-	min-width: 240px;
-	flex: 0 0 240px;
+	min-width: 220px;
+	flex: 0 0 220px;
 	border: 2px solid var(--color-tan);
 	border-radius: var(--radius-card);
 	padding: 0.75rem;
