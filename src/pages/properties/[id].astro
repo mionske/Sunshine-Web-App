@@ -7,12 +7,14 @@ import {
 	propertyConfig,
 	PROPERTY_TYPES,
 	ACCESS_LEVEL_OPTIONS,
-	WATER_SOURCE_OPTIONS,
+	WATER_ACCESS_OPTIONS,
+	WATER_SUPPLY_OPTIONS,
 	EXTERIOR_CLEANING_METHOD_OPTIONS,
 	LADDER_REQUIREMENT_OPTIONS,
 	WINDOW_CONDITION_OPTIONS,
 	MAINTENANCE_FREQUENCY_OPTIONS,
 	PREFERRED_SERVICE_SEASON_OPTIONS,
+	derivePropertyCompatDefaults,
 } from '../../lib/models/property';
 import { clientConfig } from '../../lib/models/client';
 import { walkthroughConfig } from '../../lib/models/walkthrough';
@@ -30,7 +32,14 @@ if (Astro.request.method === 'POST') {
 	const form = await Astro.request.formData();
 	const action = String(form.get('_action') ?? '');
 	try {
-		if (action === 'update-property') {
+		// Checked first and independent of `_action`: the Mark Inventory
+		// Verified button lives inside the same <form> as every other field
+		// (forms can't nest), so a click submits both this and the hidden
+		// `_action=update-property` input — this field's presence, not
+		// `_action`, decides which branch runs.
+		if (form.get('markInventoryVerified')) {
+			await updateRow(env, propertyConfig, id!, { 'Inventory Verified At': new Date().toISOString() });
+		} else if (action === 'update-property') {
 			await updateRow(env, propertyConfig, id!, {
 				'Property Type': String(form.get('propertyType') ?? '') as (typeof PROPERTY_TYPES)[number],
 				'Street Address': String(form.get('streetAddress') ?? ''),
@@ -43,11 +52,28 @@ if (Astro.request.method === 'POST') {
 				'Interior Access Difficulty': String(form.get('interiorAccessDifficulty') ?? ''),
 				'Exterior Access Difficulty': String(form.get('exteriorAccessDifficulty') ?? ''),
 				'Roof Access Required (Y/N)': form.get('roofAccessRequired') === 'on' ? 'Y' : 'N',
-				'Water Source': String(form.get('waterSource') ?? ''),
+				'High Interior Glass (Y/N)': form.get('highInteriorGlass') === 'on' ? 'Y' : 'N',
+				'Steep Or Uneven Terrain (Y/N)': form.get('steepOrUnevenTerrain') === 'on' ? 'Y' : 'N',
+				'Exterior Access Obstructed (Y/N)': form.get('exteriorAccessObstructed') === 'on' ? 'Y' : 'N',
+				'Furniture Or Belongings Movement Required (Y/N)': form.get('furnitureMovementRequired') === 'on' ? 'Y' : 'N',
+				'Restricted Work Or Setup Area (Y/N)': form.get('restrictedWorkOrSetupArea') === 'on' ? 'Y' : 'N',
+				'Water Access Method': String(form.get('waterAccessMethod') ?? ''),
+				'Water Supply': String(form.get('waterSupply') ?? ''),
 				'Exterior Cleaning Method': String(form.get('exteriorCleaningMethod') ?? ''),
+				'Easy Parking And Setup (Y/N)': form.get('easyParkingAndSetup') === 'on' ? 'Y' : 'N',
+				'Limited Parking Or Setup Space (Y/N)': form.get('limitedParkingOrSetupSpace') === 'on' ? 'Y' : 'N',
+				'Gate Or Entry Restriction (Y/N)': form.get('gateOrEntryRestriction') === 'on' ? 'Y' : 'N',
+				'Long Hose Run (Y/N)': form.get('longHoseRun') === 'on' ? 'Y' : 'N',
+				'Water Source Far From Work Area (Y/N)': form.get('waterSourceFarFromWorkArea') === 'on' ? 'Y' : 'N',
+				'Site Access Notes': String(form.get('siteAccessNotes') ?? ''),
 				'Ladder Requirement': String(form.get('highestLadderRequired') ?? ''),
 				'Hard Water History (Y/N)': form.get('hardWaterStainingPresent') === 'on' ? 'Y' : 'N',
 				'Construction Debris (Y/N)': form.get('constructionDebrisPresent') === 'on' ? 'Y' : 'N',
+				'Silicone Adhesive Or Sticker Residue (Y/N)': form.get('siliconeResidue') === 'on' ? 'Y' : 'N',
+				'Heavy Interior Residue (Y/N)': form.get('heavyInteriorResidue') === 'on' ? 'Y' : 'N',
+				'Oxidized Frames Or Screens (Y/N)': form.get('oxidizedFramesOrScreens') === 'on' ? 'Y' : 'N',
+				'Condition Varies By Area (Y/N)': form.get('conditionVariesByArea') === 'on' ? 'Y' : 'N',
+				'Condition Notes': String(form.get('conditionNotes') ?? ''),
 				'Window Condition': String(form.get('windowCondition') ?? ''),
 				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
 				'Total Glass Panes': String(form.get('totalGlassPanes') ?? ''),
@@ -94,18 +120,12 @@ if (!property) {
 
 const client = property['Client ID'] ? await findById(env, clientConfig, property['Client ID']) : null;
 
-// One-time compatibility default: if this property predates 'Exterior
-// Cleaning Method' but has the legacy 'Water-Fed Pole Suitable (Y/N)'
-// checkbox set, pre-select the matching new radio option instead of
-// showing nothing selected — never writes anything until the form is
-// actually saved.
-const exteriorCleaningMethodValue =
-	property['Exterior Cleaning Method'] ||
-	(property['Water-Fed Pole Suitable (Y/N)'] === 'Y'
-		? 'Water-Fed Pole Suitable'
-		: property['Water-Fed Pole Suitable (Y/N)'] === 'N'
-			? 'Traditional Cleaning Required'
-			: '');
+// One-time compatibility defaults for the enum fields renamed/split during
+// the Property + In-Field Quote redesign — see derivePropertyCompatDefaults
+// in lib/models/property.ts (shared with the Quoter's read-only property
+// summary). None of these ever write to Sheets; the raw legacy value stays
+// exactly as stored until the owner actually saves this property.
+const { exteriorCleaningMethodValue, ladderRequirementValue, waterAccessValue, waterSupplyValue } = derivePropertyCompatDefaults(property);
 
 const [allQuotes, allJobs, allOpportunities, allWalkthroughs, pricingConfig, activityRows] = await Promise.all([
 	listActiveRows(env, quoteConfig),
@@ -175,7 +195,7 @@ const timeline = activityRows
 <BaseLayout title={property['Street Address']}>
 	<main>
 		<p><a href={`/clients/${property['Client ID']}`}>← Client</a></p>
-		<div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap;">
+		<div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
 			<h1 style="margin: 0; white-space: nowrap;">
 				<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
 					{property['Street Address']}, {property.City}
@@ -246,7 +266,7 @@ const timeline = activityRows
 					</section>
 
 					<details class="card" open>
-						<summary>Access &amp; Conditions</summary>
+						<summary>Access &amp; Equipment</summary>
 						<div class="card-grid">
 							<div>
 								<p class="field-label">Interior Access</p>
@@ -265,23 +285,86 @@ const timeline = activityRows
 								</div>
 							</div>
 							<div>
-								<p class="field-label">Water Source</p>
-								<div class="segmented">
-									{WATER_SOURCE_OPTIONS.map((o) => (
-										<label><input type="radio" name="waterSource" value={o} checked={o === property['Water Source']} /> {o}</label>
-									))}
-								</div>
-							</div>
-							<div>
-								<p class="field-label">Exterior Cleaning Method</p>
+								<p class="field-label">Typical Exterior Method</p>
 								<div class="segmented">
 									{EXTERIOR_CLEANING_METHOD_OPTIONS.map((o) => (
 										<label><input type="radio" name="exteriorCleaningMethod" value={o} checked={o === exteriorCleaningMethodValue} /> {o}</label>
 									))}
 								</div>
+								<span class="field-hint">How the exterior glass is typically cleaned at this property.</span>
+							</div>
+							<div>
+								<p class="field-label">Ladder Requirement</p>
+								<div class="segmented">
+									{LADDER_REQUIREMENT_OPTIONS.map((o) => (
+										<label><input type="radio" name="highestLadderRequired" value={o} checked={o === ladderRequirementValue} /> {o}</label>
+									))}
+								</div>
+								<span class="field-hint">Tallest ladder needed to reach any window on this property.</span>
 							</div>
 						</div>
+
+						<p class="field-label" style="margin-top: 1rem;">Access Considerations</p>
 						<label><input type="checkbox" name="roofAccessRequired" checked={property['Roof Access Required (Y/N)'] === 'Y'} /> Roof Access Required</label>
+						<label><input type="checkbox" name="highInteriorGlass" checked={property['High Interior Glass (Y/N)'] === 'Y'} /> High Interior Glass</label>
+						<label><input type="checkbox" name="steepOrUnevenTerrain" checked={property['Steep Or Uneven Terrain (Y/N)'] === 'Y'} /> Steep Or Uneven Terrain</label>
+						<label><input type="checkbox" name="exteriorAccessObstructed" checked={property['Exterior Access Obstructed (Y/N)'] === 'Y'} /> Exterior Access Obstructed</label>
+						<label><input type="checkbox" name="furnitureMovementRequired" checked={property['Furniture Or Belongings Movement Required (Y/N)'] === 'Y'} /> Furniture Or Belongings Movement Required</label>
+						<label><input type="checkbox" name="restrictedWorkOrSetupArea" checked={property['Restricted Work Or Setup Area (Y/N)'] === 'Y'} /> Restricted Work Or Setup Area</label>
+					</details>
+
+					<details class="card" open>
+						<summary>Water &amp; Site Access</summary>
+						<div class="card-grid">
+							<div>
+								<p class="field-label">Water Access</p>
+								<div class="segmented">
+									{WATER_ACCESS_OPTIONS.map((o) => (
+										<label><input type="radio" name="waterAccessMethod" value={o} checked={o === waterAccessValue} /> {o}</label>
+									))}
+								</div>
+								<span class="field-hint">How the crew connects to water at this property.</span>
+							</div>
+							<div>
+								<p class="field-label">Water Supply</p>
+								<div class="segmented">
+									{WATER_SUPPLY_OPTIONS.map((o) => (
+										<label><input type="radio" name="waterSupply" value={o} checked={o === waterSupplyValue} /> {o}</label>
+									))}
+								</div>
+								<span class="field-hint">Where the water actually comes from.</span>
+							</div>
+						</div>
+
+						<p class="field-label" style="margin-top: 1rem;">Site Access Considerations</p>
+						<label><input type="checkbox" name="easyParkingAndSetup" checked={property['Easy Parking And Setup (Y/N)'] === 'Y'} /> Easy Parking And Setup</label>
+						<label><input type="checkbox" name="limitedParkingOrSetupSpace" checked={property['Limited Parking Or Setup Space (Y/N)'] === 'Y'} /> Limited Parking Or Setup Space</label>
+						<label><input type="checkbox" name="gateOrEntryRestriction" checked={property['Gate Or Entry Restriction (Y/N)'] === 'Y'} /> Gate Or Entry Restriction</label>
+						<label><input type="checkbox" name="longHoseRun" checked={property['Long Hose Run (Y/N)'] === 'Y'} /> Long Hose Run</label>
+						<label><input type="checkbox" name="waterSourceFarFromWorkArea" checked={property['Water Source Far From Work Area (Y/N)'] === 'Y'} /> Water Source Far From Work Area</label>
+
+						<label>Site Access Notes <textarea name="siteAccessNotes" placeholder="Parking, gate codes, hose length, anything else about getting set up here">{property['Site Access Notes']}</textarea></label>
+					</details>
+
+					<details class="card" open>
+						<summary>Glass Condition</summary>
+						<div>
+							<p class="field-label">Window Condition</p>
+							<div class="segmented">
+								{WINDOW_CONDITION_OPTIONS.map((o) => (
+									<label><input type="radio" name="windowCondition" value={o} checked={o === property['Window Condition']} /> {o}</label>
+								))}
+							</div>
+						</div>
+
+						<label><input type="checkbox" name="hardWaterStainingPresent" checked={property['Hard Water History (Y/N)'] === 'Y'} /> Hard Water Staining Present</label>
+						<label><input type="checkbox" name="constructionDebrisPresent" checked={property['Construction Debris (Y/N)'] === 'Y'} /> Construction Debris Present</label>
+						<label><input type="checkbox" name="siliconeResidue" checked={property['Silicone Adhesive Or Sticker Residue (Y/N)'] === 'Y'} /> Silicone Adhesive Or Sticker Residue</label>
+						<label><input type="checkbox" name="heavyInteriorResidue" checked={property['Heavy Interior Residue (Y/N)'] === 'Y'} /> Heavy Interior Residue</label>
+						<label><input type="checkbox" name="oxidizedFramesOrScreens" checked={property['Oxidized Frames Or Screens (Y/N)'] === 'Y'} /> Oxidized Frames Or Screens</label>
+						<label><input type="checkbox" name="conditionVariesByArea" checked={property['Condition Varies By Area (Y/N)'] === 'Y'} /> Condition Varies By Area</label>
+
+						<label>Condition Notes <textarea name="conditionNotes">{property['Condition Notes']}</textarea></label>
 					</details>
 
 					<details class="card" open>
@@ -298,27 +381,6 @@ const timeline = activityRows
 						</label>
 						<p id="paneBreakdownStatus" class="field-status"></p>
 
-						<div class="card-grid">
-							<div>
-								<p class="field-label">Highest Ladder Required</p>
-								<div class="segmented">
-									{LADDER_REQUIREMENT_OPTIONS.map((o) => (
-										<label><input type="radio" name="highestLadderRequired" value={o} checked={o === property['Ladder Requirement']} /> {o}</label>
-									))}
-								</div>
-							</div>
-							<div>
-								<p class="field-label">Window Condition</p>
-								<div class="segmented">
-									{WINDOW_CONDITION_OPTIONS.map((o) => (
-										<label><input type="radio" name="windowCondition" value={o} checked={o === property['Window Condition']} /> {o}</label>
-									))}
-								</div>
-							</div>
-						</div>
-						<label><input type="checkbox" name="hardWaterStainingPresent" checked={property['Hard Water History (Y/N)'] === 'Y'} /> Hard Water Staining Present</label>
-						<label><input type="checkbox" name="constructionDebrisPresent" checked={property['Construction Debris (Y/N)'] === 'Y'} /> Construction Debris Present</label>
-
 						<p class="field-label" style="margin-top: 1rem;">Pane Breakdown</p>
 						<span class="field-hint">These should add up to Total Glass Panes above.</span>
 						<div class="count-grid">
@@ -326,19 +388,31 @@ const timeline = activityRows
 							<label>Casement <input type="number" class="field-numeric pane-breakdown-field" name="countCasement" value={property['Count - Casement']} /></label>
 							<label>Picture <input type="number" class="field-numeric pane-breakdown-field" name="countPicture" value={property['Count - Picture']} /></label>
 							<label>Sliding Window <input type="number" class="field-numeric pane-breakdown-field" name="countSliding" value={property['Count - Sliding']} /></label>
-							<label>French / Divided-Light <input type="number" class="field-numeric pane-breakdown-field" name="countFrench" value={property['Count - French']} /></label>
-							<label>Awning <input type="number" class="field-numeric pane-breakdown-field" name="countAwning" value={property['Count - Awning']} /></label>
 							<label>Skylight <input type="number" class="field-numeric pane-breakdown-field" name="countSkylights" value={property['Count - Skylights']} /></label>
-							<label>Sliding Glass Door <input type="number" class="field-numeric pane-breakdown-field" name="slidingGlassDoorPaneCount" value={property['Sliding Glass Door Pane Count']} /></label>
 						</div>
 
-						<p class="field-label">Accessories</p>
+						<details style="margin-top: 0.75rem;">
+							<summary>Show All Inventory</summary>
+							<div class="count-grid" style="margin-top: 0.5rem;">
+								<label>French / Divided-Light <input type="number" class="field-numeric pane-breakdown-field" name="countFrench" value={property['Count - French']} /></label>
+								<label>Awning <input type="number" class="field-numeric pane-breakdown-field" name="countAwning" value={property['Count - Awning']} /></label>
+								<label>Sliding Glass Door <input type="number" class="field-numeric pane-breakdown-field" name="slidingGlassDoorPaneCount" value={property['Sliding Glass Door Pane Count']} /></label>
+							</div>
+						</details>
+
+						<p class="field-label" style="margin-top: 1rem;">Accessories</p>
 						<span class="field-hint">Not included in pane totals.</span>
 						<div class="count-grid">
 							<label>Screens <input type="number" class="field-numeric" name="screenCount" value={property['Screen Count']} /></label>
 							<label>Tracks <input type="number" class="field-numeric" name="trackCount" value={property['Track Count']} /></label>
 							<label>Solar Panels <input type="number" class="field-numeric" name="countSolarPanels" value={property['Count - Solar Panels']} /></label>
 						</div>
+
+						<p class="field-hint" style="margin-top: 1rem;">
+							Inventory last verified: {property['Inventory Verified At'] ? new Date(property['Inventory Verified At']).toLocaleDateString() : 'Not verified'}
+							{' · '}
+							<button type="submit" name="markInventoryVerified" value="1" class="pipeline-card-add-property">Mark Inventory Verified</button>
+						</p>
 					</details>
 
 					<details class="card" open>
@@ -364,9 +438,9 @@ const timeline = activityRows
 							<label>Last review received date <input type="date" name="lastReviewReceivedDate" value={property['Last Review Received Date']} /></label>
 						</div>
 						<label>Maintenance notes <textarea name="maintenanceNotes">{property['Maintenance Notes']}</textarea></label>
-						<label>Access notes <textarea name="accessNotes" placeholder="Parking, gate, water source, exterior/interior access">{property['Access Notes']}</textarea></label>
+						<label>Access and Setup Notes <textarea name="accessNotes">{property['Access Notes']}</textarea></label>
 						<label>Pet notes <textarea name="petNotes">{property['Pet Notes']}</textarea></label>
-						<label>General notes <textarea name="generalNotes">{property['General Notes']}</textarea></label>
+						<label>Property Notes <textarea name="generalNotes">{property['General Notes']}</textarea></label>
 					</details>
 
 					<button type="submit">Save</button>

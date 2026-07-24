@@ -100,7 +100,46 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 				Target hourly rate: ${quote['Target Hourly Rate']}<br />
 				Pricing Config: {quote['Pricing Config ID']} (calculator v{quote['Calculator Version']})
 			</p>
+			{(Number(quote['Manual Adjustment']) !== 0 || Number(quote.Discount) !== 0) && (
+				<p>
+					Manual adjustment: ${Number(quote['Manual Adjustment']).toFixed(2)} · Discount: ${Number(quote.Discount).toFixed(2)}<br />
+					Adjustment reason: {quote['Override Reason'] || '— none given'}
+				</p>
+			)}
 		</div>
+
+		{(quote['Service Scope'] || quote['Inventory Coverage'] || quote['Labor Estimate Solo Hours']) && (
+			<div class="card">
+				<h2>Quote Details</h2>
+				{quote['Service Scope'] && <p>Service scope: {quote['Service Scope']}</p>}
+				{quote['Inventory Coverage'] && (
+					<p>
+						Inventory coverage: {quote['Inventory Coverage']}
+						{quote['Walkthrough ID'] && <> (from <a href={`/walkthroughs/${quote['Walkthrough ID']}`}>walkthrough</a>)</>}
+					</p>
+				)}
+				{quote['Labor Estimate Solo Hours'] && (
+					<p>
+						Labor estimate: {quote['Labor Estimate Solo Hours']} solo hrs × {quote['Labor Estimate Crew Size']} crew
+						{' '}({(Number(quote['Labor Estimate Solo Hours']) * (quote['Labor Estimate Crew Size'] === '3+' ? 3 : Number(quote['Labor Estimate Crew Size']) || 1)).toFixed(2)} total hrs)
+						{quote['Labor Estimate Confidence'] && <> · {quote['Labor Estimate Confidence']} confidence</>}
+						{quote['Labor Estimate Notes'] && <><br />{quote['Labor Estimate Notes']}</>}
+					</p>
+				)}
+				{[
+					['High interior glass', quote['Job High Interior Glass (Y/N)']],
+					['Steep or uneven terrain', quote['Job Steep Or Uneven Terrain (Y/N)']],
+					['Obstructed exterior access', quote['Job Exterior Access Obstructed (Y/N)']],
+					['Furniture/belongings movement required', quote['Job Furniture Movement Required (Y/N)']],
+					['Water unavailable or difficult to access', quote['Job Water Access Difficult (Y/N)']],
+					['Silicone/adhesive/sticker residue', quote['Job Silicone Or Sticker Residue (Y/N)']],
+					['Heavy interior residue', quote['Job Heavy Interior Residue (Y/N)']],
+				]
+					.filter(([, v]) => v === 'Y')
+					.map(([label]) => <span class="badge">{label}</span>)}
+				{quote['Job Other Condition Notes'] && <p>{quote['Job Other Condition Notes']}</p>}
+			</div>
+		)}
 
 		<div class="card">
 			<h2>QuickBooks</h2>

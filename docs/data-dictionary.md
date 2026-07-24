@@ -21,41 +21,80 @@ applies and is a calibration segmentation dimension), Street Address,
 City, State, Zip, Year Built, Square Footage, Stories, **Interior Access
 Difficulty**, **Exterior Access Difficulty** (each Easy/Standard/
 Difficult — radio, single-select), **Roof Access Required (Y/N)**,
-**Water Source** (Exterior Spigot/Well Water/No On-Site Water — radio),
-**Exterior Cleaning Method** (Water-Fed Pole Suitable/Traditional
-Cleaning Required — radio), Total Window Units (approximate number of
-window assemblies — subjective, what counts as "one window" varies),
-Total Glass Panes (total individual glass panes — objective; validated
-live against the pane breakdown below), Count — Double Hung, Count —
-Casement, Count — Picture, Count — Sliding (sliding *windows* — a window
-type, like Double Hung/Casement), Count — French (divided-light/
-grid-pane windows — same concept the quoter calls "French/grid pane"),
-Count — Awning, Count — Skylights, Count — Solar Panels, Screen Count,
-Track Count (Solar Panels/Screens/Tracks are accessories, not counted
-toward the pane totals), Desired Maintenance Frequency (One Time/
-Quarterly/Twice Yearly/Yearly/Custom/Unknown — Phase 9 gave this
-pre-existing free-text field a defined option set rather than adding a
-duplicate "Preferred Service Frequency" column), Preferred Service Season
-(Spring/Summer/Fall/Winter/No preference/Unknown), Next Recommended
-Service Date (a planning/reminder estimate — distinct from Next Scheduled
-Visit below, which is a confirmed date once something is actually on the
-calendar; this never auto-creates a Job, it's read-only input for
-reminders), Maintenance Notes, Next Scheduled Visit, Last Review
-Requested Date, Last Review Received Date, Sliding Glass Door Pane Count
-(sliding *doors* — a distinct pricing-catalog service from sliding
+**Exterior Cleaning Method** ("Typical Exterior Method" in the UI;
+Water-Fed Pole/Traditional/Mixed/Undetermined — radio), Access
+Considerations checkboxes — **High Interior Glass (Y/N)**, **Steep Or
+Uneven Terrain (Y/N)**, **Exterior Access Obstructed (Y/N)**, **Furniture
+Or Belongings Movement Required (Y/N)**, **Restricted Work Or Setup Area
+(Y/N)**, **Water Access Method** (Exterior Spigot/Interior Connection
+Only/No Usable Connection/Unknown — radio, "Water Access" in the UI) and
+**Water Supply** (Municipal/Well/Unknown — radio) — a real semantic split
+of the legacy Water Source field (see migration note below), Site Access
+Considerations checkboxes — **Easy Parking And Setup (Y/N)**, **Limited
+Parking Or Setup Space (Y/N)**, **Gate Or Entry Restriction (Y/N)**,
+**Long Hose Run (Y/N)**, **Water Source Far From Work Area (Y/N)**, Site
+Access Notes, Total Window Units (approximate number of window assemblies
+— subjective, what counts as "one window" varies), Total Glass Panes
+(total individual glass panes — objective; validated live against the
+pane breakdown below), **Inventory Verified At** (timestamp, set only via
+the "Mark Inventory Verified" action — never touched by a plain field
+save — reflecting an explicit "I checked this is still accurate" moment),
+Count — Double Hung, Count — Casement, Count — Picture, Count — Sliding
+(sliding *windows* — a window type, like Double Hung/Casement), Count —
+French (divided-light/grid-pane windows — same concept the quoter calls
+"French/grid pane"), Count — Awning, Count — Skylights, Count — Solar
+Panels, Screen Count, Track Count (Solar Panels/Screens/Tracks are
+accessories, not counted toward the pane totals), Desired Maintenance
+Frequency (One Time/Quarterly/Twice Yearly/Yearly/Custom/Unknown — Phase
+9 gave this pre-existing free-text field a defined option set rather than
+adding a duplicate "Preferred Service Frequency" column), Preferred
+Service Season (Spring/Summer/Fall/Winter/No preference/Unknown), Next
+Recommended Service Date (a planning/reminder estimate — distinct from
+Next Scheduled Visit below, which is a confirmed date once something is
+actually on the calendar; this never auto-creates a Job, it's read-only
+input for reminders), Maintenance Notes, Next Scheduled Visit, Last
+Review Requested Date, Last Review Received Date, Sliding Glass Door Pane
+Count (sliding *doors* — a distinct pricing-catalog service from sliding
 windows, so tracked separately from Count — Sliding), **Ladder
-Requirement** (None/Standard (6-10 ft)/Extension (16-24 ft)/Tall
-Extension (28+ ft) — radio, "Highest Ladder Required" in the UI),
-**Window Condition** (Maintenance/Moderate Buildup/Heavy Buildup/
-Restoration Required — radio), **Hard Water History (Y/N)** ("Hard Water
-Staining Present" in the UI) and **Construction Debris (Y/N)**
-("Construction Debris Present" in the UI) — supplemental checkboxes
-alongside Window Condition, Access Notes (exterior/interior/parking/gate/
-water-source access, consolidated into one field), Pet Notes, General
-Notes, Building/Complex Name (optional — display/logistics grouping only,
-e.g. "all units in this condo building"; not a data relationship the app
-enforces), Unit Identifier (optional — unit number/letter within that
-building), Created At, Updated At, Archived At.
+Requirement** (None/Step Ladder/Extension Ladder/Tall Extension
+Ladder/Specialty Access — radio), **Window Condition** (Maintenance/
+Moderate Buildup/Heavy Buildup/Restoration Required — radio), **Hard
+Water History (Y/N)** ("Hard Water Staining Present" in the UI) and
+**Construction Debris (Y/N)** ("Construction Debris Present" in the UI) —
+supplemental checkboxes alongside Window Condition, Glass Condition flags
+— **Silicone Adhesive Or Sticker Residue (Y/N)**, **Heavy Interior
+Residue (Y/N)**, **Oxidized Frames Or Screens (Y/N)**, **Condition Varies
+By Area (Y/N)**, Condition Notes, Access Notes ("Access and Setup Notes"
+in the UI — parking/gate/exterior/interior access, consolidated into one
+field; distinct from the newer Site Access Notes above, which is
+specifically about getting set up for this visit), Pet Notes, General
+Notes ("Property Notes" in the UI), Building/Complex Name (optional —
+display/logistics grouping only, e.g. "all units in this condo building";
+not a data relationship the app enforces), Unit Identifier (optional —
+unit number/letter within that building), Created At, Updated At,
+Archived At.
+
+Legacy columns **Water Source** (Exterior Spigot/Well Water/No On-Site
+Water) is kept declared (any pre-existing value still round-trips) but is
+superseded by the Water Access Method / Water Supply split above — a real
+semantic split, not a rename, since the old field conflated "how you
+connect" with "where the water comes from." Migration mapping: old
+`Exterior Spigot` → Water Access Method `Exterior Spigot`; old `No
+On-Site Water` → Water Access Method `No Usable Connection`; old `Well
+Water` → Water Supply `Well` (Water Access Method defaults to `Unknown`
+for this case, since the old value told us about supply, not access).
+`Ladder Requirement`'s old abbreviated-range values (`Standard (6-10
+ft)`/`Extension (16-24 ft)`/`Tall Extension (28+ ft)`) map onto their new
+full-word equivalents (`Step Ladder`/`Extension Ladder`/`Tall Extension
+Ladder`); `Specialty Access` has no legacy equivalent. `Exterior Cleaning
+Method`'s old two-option values (`Water-Fed Pole Suitable`/`Traditional
+Cleaning Required`) map onto the new four-option set's closest
+equivalents (`Water-Fed Pole`/`Traditional`), falling back further to the
+even-older `Water-Fed Pole Suitable (Y/N)` checkbox for properties that
+predate the field entirely. As with every other legacy-field migration in
+this app, these are read-time-only compatibility defaults — nothing is
+rewritten in the sheet until the owner actually saves that specific
+property through the form.
 
 The Property is the operational center for a physical location's service
 history — Client, Pipeline, Quotes, and Jobs all reference it by Property
@@ -71,32 +110,47 @@ a map link) — properties are still only ever *created* from a Client's
 own page (no separate "add" form here), but this gives direct access
 without going through Clients first.
 
-**Access & Conditions redesign.** The Property Details page's Access &
-Equipment/Conditions fieldsets were replaced with four bordered cards
-(Access Difficulty, Water & Exterior Method, Ladder Requirement, Window
-Condition) in a responsive grid — two columns once there's room, single
-column on phones — using radio groups instead of checkbox groups
-wherever only one value is ever actually true. Legacy columns **Roof
-Access Difficulty**, **Overall Access Difficulty**, **Water Access**,
-**Equipment Suitability**, and **Water-Fed Pole Suitable (Y/N)** are kept
-declared in the schema (any pre-existing value still round-trips) but are
-no longer written by the current form — they're fully superseded by the
-fields above. A property with a legacy `Water-Fed Pole Suitable (Y/N)`
-value but no `Exterior Cleaning Method` yet gets that value pre-selected
-as the new radio's default the first time the page loads, but nothing is
-written back until the form is actually saved. There is and never was a
+**Property Detail page redesign (six cards).** The page is a summary strip
+(Type/Window Units/Glass Panes/Stories/Next Service) plus a two-column
+layout: a left column of collapsible survey-data cards inside one
+`<form>`, and a right sidebar of non-collapsible reference/history cards
+(Walkthroughs, Quotes, Jobs, Historical Performance, Activity Timeline).
+The left column's six cards, in order: **Property Information** (address
+fields, always expanded, never collapsible) → **Access & Equipment**
+(Interior/Exterior Access, Typical Exterior Method, and Ladder Requirement
+segmented controls, plus the Access Considerations checkbox group) →
+**Water & Site Access** (Water Access/Water Supply segmented controls,
+Site Access Considerations checkboxes, Site Access Notes) → **Glass
+Condition** (Window Condition segmented control plus the condition-flag
+checkboxes and Condition Notes — moved out of Windows & Doors so survey
+data about *how dirty/worn the glass is* is separate from the inventory
+count itself) → **Windows & Doors** (inventory-only: Window Units, Total
+Glass Panes with its inline "✓/⚠" validation line, the common Pane
+Breakdown counts, a nested "Show All Inventory" `<details>` disclosure for
+the less-common French/Awning/Sliding-Glass-Door counts, Accessories, and
+the Inventory Verified At line with its "Mark Inventory Verified" action)
+→ **Maintenance & Notes** (unchanged fields, Access Notes/General Notes
+relabeled "Access and Setup Notes"/"Property Notes" in the UI — no column
+change). Every card uses the pure-CSS segmented-pill control (`.segmented`)
+in place of native radio-button lists, and every collapsible card is a
+zero-JS `<details open>` disclosure — fields inside a closed one still
+submit normally with the enclosing form.
+
+Legacy columns **Roof Access Difficulty**, **Overall Access Difficulty**,
+**Water Access** (superseded by Water Access Method — a different column,
+see the migration note above; kept under its original name to avoid a
+collision), **Equipment Suitability**, and **Water-Fed Pole Suitable
+(Y/N)** are kept declared in the schema (any pre-existing value still
+round-trips) but are no longer written by the current form — they're
+fully superseded by the fields above them. There is and never was a
 per-Property "Interior Only" concept — that's a per-service-line property
 of a Quote's line items, computed live for calibration reporting, never
-stored as a Property flag.
-
-**Windows & Doors redesign.** Reorganized into three cards: Summary
-(Window Units + Total Glass Panes, with a compact inline validation line
-directly beneath Total Glass Panes — "✓ Pane breakdown matches total
-panes" or "⚠ Pane breakdown totals X of Y panes" — replacing the old
-boxed warning banner), Pane Breakdown (the eight per-type counts, in a
-fixed two-column grid), and Accessories (Screens/Tracks/Solar Panels,
-explicitly not counted toward pane totals). No field names changed here —
-only the layout and copy.
+stored as a Property flag. None of the fields on this page (access
+difficulty, water, cleaning method, ladder, window condition, notes) are
+read by `calculateQuote`, `walkthroughToQuote.ts`, or `calibration.ts` —
+pricing and calibration are driven entirely by a parallel set of
+Walkthrough-level fields with similar-but-distinct names, so changes here
+carry zero pricing blast radius.
 
 ## Pipeline (sales opportunities only — not job operations)
 Opportunity ID, Client ID, Property ID, Primary Quote ID, Stage, Status,
@@ -129,7 +183,13 @@ Override Reason, Quote Status, Created At, Updated At, Sent At,
 Accepted At, Declined At, Expired At, Archived At, Created By, Notes,
 QB Estimate Link (URL — set once created/sent in QuickBooks; the app only
 stores the link, never talks to the QuickBooks API), Difficult Access Item
-Count, Specialty Access Item Count.
+Count, Specialty Access Item Count, Service Scope, Inventory Coverage,
+Labor Estimate Solo Hours, Labor Estimate Crew Size, Labor Estimate
+Confidence, Labor Estimate Notes, Job High Interior Glass (Y/N), Job Steep
+Or Uneven Terrain (Y/N), Job Exterior Access Obstructed (Y/N), Job
+Furniture Movement Required (Y/N), Job Water Access Difficult (Y/N), Job
+Silicone Or Sticker Residue (Y/N), Job Heavy Interior Residue (Y/N), Job
+Other Condition Notes.
 
 The saved Quote + QuoteItems rows are always the authoritative record of
 what was charged. Reproducibility means the stored snapshots + config
@@ -145,6 +205,51 @@ Blank — never a fabricated `0` — for quotes created directly via the
 plain in-field quoter, which has no per-item data at all. Reporting-only:
 feeds `deriveJobSegmentation`'s calibration dimensions, never the pricing
 engine.
+
+**Quoter redesign fields** — all reporting-only; none are read by
+`calculateQuote`. **Service Scope** (Exterior Only/Interior & Exterior/
+Interior Only/Custom Selection) and **Inventory Coverage** (Entire
+Property/Selected Windows Only) just record which UI path produced the
+submitted Quote Inventory counts — the counts themselves (already in
+Input Snapshot) are what actually price the job. **Labor Estimate Solo
+Hours/Crew Size/Confidence/Notes** are a second, independently
+human-entered labor figure — never read by `calculateQuote`'s own
+itemized `estimatedLaborHours`, per the owner's explicit "reporting only"
+decision. The **Job \* (Y/N)** flags mirror the corresponding Property
+Access Considerations/Glass Condition columns 1:1 (see the Properties
+section above) but describe *this specific visit*, which can diverge from
+the property's general saved condition — the Quoter pre-fills them from
+the property's saved flags and shows an inline "this quote differs from
+the saved property details" notice when the rep changes them, without
+ever auto-updating the Property record. The engine's single
+`difficultAccess` boolean (unchanged) is derived from whichever of the
+access-related Job flags are checked, so there's still exactly one
+pricing input driving the access surcharge even though the form now
+captures the specific reasons why.
+
+**Adjustment Reason.** The existing **Override Reason** column is now
+required whenever Manual Adjustment or Discount is non-zero — enforced by
+a hand-written check in `createQuote()` (`lib/pricing/quotes.ts`), the
+same pattern as Pipeline's Lost Reason requirement in
+`api/pipeline/[id].ts` (no zod enum/refinement precedent in this
+codebase for "field X required when field Y is non-zero"). The Quoter's
+UI offers a defined option set (Competitive Pricing, Referral or
+Relationship, First-Service Uncertainty, Bundled Property Discount,
+Minimum Charge, Access Complexity, Pricing Experiment, Owner Discretion,
+Other — free text when "Other" is picked), but the column itself stays
+plain text, unchanged.
+
+**Quote Inventory default source.** The Quoter's Quote Inventory card
+defaults from the property's **latest completed Walkthrough**
+(`Status` = Completed or Converted to Quote, most recent by Walkthrough
+Date) via the existing `itemsToQuoteCounts()` — not from the Property's
+own Windows & Doors counts, which use a categorically different taxonomy
+(no interior/exterior split, no Standard-vs-Oversized distinction) that
+can't be mapped into `QuoteCounts` without guessing. Falls back to blank/
+manual entry when no qualifying walkthrough exists yet. Switching
+Inventory Coverage to "Selected Windows Only" (or Service Scope to
+"Custom Selection") makes the counts directly editable for that one
+quote only — never rewrites the walkthrough or property record.
 
 ## Services (catalog)
 Service Code, Service Name, Service Category, Default Unit,

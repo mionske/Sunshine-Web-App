@@ -27,6 +27,27 @@ export interface CreateQuoteParams {
 	 * Access Difficulty data to summarize. Omitted (not zero) when unknown. */
 	difficultAccessItemCount?: number;
 	specialtyAccessItemCount?: number;
+	/** Quoter redesign — reporting-only fields (see SERVICE_SCOPE_OPTIONS/
+	 * INVENTORY_COVERAGE_OPTIONS in models/quote.ts). Never read by
+	 * calculateQuote. */
+	serviceScope?: string;
+	inventoryCoverage?: string;
+	laborEstimate?: {
+		soloHours?: string;
+		crewSize?: string;
+		confidence?: string;
+		notes?: string;
+	};
+	jobConditions?: {
+		highInteriorGlass?: boolean;
+		steepOrUnevenTerrain?: boolean;
+		exteriorAccessObstructed?: boolean;
+		furnitureMovementRequired?: boolean;
+		waterAccessDifficult?: boolean;
+		siliconeOrStickerResidue?: boolean;
+		heavyInteriorResidue?: boolean;
+		otherConditionNotes?: string;
+	};
 }
 
 export interface CreateQuoteResult {
@@ -42,6 +63,19 @@ export interface CreateQuoteResult {
  * later — see the plan's reproducibility rule.
  */
 export async function createQuote(env: SheetsEnv, params: CreateQuoteParams): Promise<CreateQuoteResult> {
+	// Adjustment Reason required whenever a Manual Adjustment or Discount is
+	// applied — mirrors the hand-written Lost Reason check in
+	// api/pipeline/[id].ts (no zod enum/refinement precedent in this
+	// codebase for "field X required when field Y is non-zero"). Checked
+	// here, not in a specific page handler, since this is the one choke
+	// point every quote-creation path (plain quoter, walkthrough-to-quote)
+	// goes through.
+	const manualAdjustment = params.input.manualAdjustment ?? 0;
+	const discount = params.input.discount ?? 0;
+	if ((manualAdjustment !== 0 || discount !== 0) && !params.input.overrideReason) {
+		throw new Error('Adjustment Reason is required when a Manual Adjustment or Discount is applied.');
+	}
+
 	let config = params.pricingConfigId ? await findById(env, pricingConfigConfig, params.pricingConfigId) : null;
 	if (!config) {
 		const property = await findById(env, propertyConfig, params.propertyId);
@@ -85,6 +119,20 @@ export async function createQuote(env: SheetsEnv, params: CreateQuoteParams): Pr
 					'Created By': params.createdBy ?? '',
 					'Difficult Access Item Count': params.difficultAccessItemCount !== undefined ? String(params.difficultAccessItemCount) : '',
 					'Specialty Access Item Count': params.specialtyAccessItemCount !== undefined ? String(params.specialtyAccessItemCount) : '',
+					'Service Scope': params.serviceScope ?? '',
+					'Inventory Coverage': params.inventoryCoverage ?? '',
+					'Labor Estimate Solo Hours': params.laborEstimate?.soloHours ?? '',
+					'Labor Estimate Crew Size': params.laborEstimate?.crewSize ?? '',
+					'Labor Estimate Confidence': params.laborEstimate?.confidence ?? '',
+					'Labor Estimate Notes': params.laborEstimate?.notes ?? '',
+					'Job High Interior Glass (Y/N)': params.jobConditions ? (params.jobConditions.highInteriorGlass ? 'Y' : 'N') : '',
+					'Job Steep Or Uneven Terrain (Y/N)': params.jobConditions ? (params.jobConditions.steepOrUnevenTerrain ? 'Y' : 'N') : '',
+					'Job Exterior Access Obstructed (Y/N)': params.jobConditions ? (params.jobConditions.exteriorAccessObstructed ? 'Y' : 'N') : '',
+					'Job Furniture Movement Required (Y/N)': params.jobConditions ? (params.jobConditions.furnitureMovementRequired ? 'Y' : 'N') : '',
+					'Job Water Access Difficult (Y/N)': params.jobConditions ? (params.jobConditions.waterAccessDifficult ? 'Y' : 'N') : '',
+					'Job Silicone Or Sticker Residue (Y/N)': params.jobConditions ? (params.jobConditions.siliconeOrStickerResidue ? 'Y' : 'N') : '',
+					'Job Heavy Interior Residue (Y/N)': params.jobConditions ? (params.jobConditions.heavyInteriorResidue ? 'Y' : 'N') : '',
+					'Job Other Condition Notes': params.jobConditions?.otherConditionNotes ?? '',
 				},
 			],
 		},

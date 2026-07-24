@@ -21,10 +21,24 @@ export const PROPERTY_TYPES = ['Residential', 'Commercial', 'New Build-Construct
 // property either needs roof access or doesn't; there's no third tier.
 export const ACCESS_LEVEL_OPTIONS = ['Easy', 'Standard', 'Difficult'] as const;
 
+// Legacy — superseded by the Water Access / Water Supply split below (a
+// real semantic split, not a rename: this one field conflated "how you
+// get to water" with "where the water comes from").
 export const WATER_SOURCE_OPTIONS = ['Exterior Spigot', 'Well Water', 'No On-Site Water'] as const;
-export const EXTERIOR_CLEANING_METHOD_OPTIONS = ['Water-Fed Pole Suitable', 'Traditional Cleaning Required'] as const;
 
-export const LADDER_REQUIREMENT_OPTIONS = ['None', 'Standard (6-10 ft)', 'Extension (16-24 ft)', 'Tall Extension (28+ ft)'] as const;
+// Water Access & Water Supply redesign — replaces the single Water Source
+// field above with two independent questions.
+export const WATER_ACCESS_OPTIONS = ['Exterior Spigot', 'Interior Connection Only', 'No Usable Connection', 'Unknown'] as const;
+export const WATER_SUPPLY_OPTIONS = ['Municipal', 'Well', 'Unknown'] as const;
+
+// Property + In-Field Quote redesign: expanded from a binary choice to
+// four options — UI label is "Typical Exterior Method" (column name
+// unchanged, so no Sheets migration beyond the option set itself).
+export const EXTERIOR_CLEANING_METHOD_OPTIONS = ['Water-Fed Pole', 'Traditional', 'Mixed', 'Undetermined'] as const;
+
+// Property + In-Field Quote redesign: full words instead of abbreviated
+// ranges, plus a new "Specialty Access" tier with no legacy equivalent.
+export const LADDER_REQUIREMENT_OPTIONS = ['None', 'Step Ladder', 'Extension Ladder', 'Tall Extension Ladder', 'Specialty Access'] as const;
 export const WINDOW_CONDITION_OPTIONS = ['Maintenance', 'Moderate Buildup', 'Heavy Buildup', 'Restoration Required'] as const;
 
 // Phase 9 (recurring-maintenance prep): reminders/planning only — nothing
@@ -56,6 +70,30 @@ export const propertySchema = z.object({
 	'Roof Access Required (Y/N)': blank(),
 	'Water Source': blank(),
 	'Exterior Cleaning Method': blank(),
+	// Access Considerations — supplements Interior/Exterior Access
+	// Difficulty with specific known conditions, rather than trying to
+	// squeeze every nuance into the three-level scale. Roof Access Required
+	// above already covers roof access; not duplicated here.
+	'High Interior Glass (Y/N)': blank(),
+	'Steep Or Uneven Terrain (Y/N)': blank(),
+	'Exterior Access Obstructed (Y/N)': blank(),
+	'Furniture Or Belongings Movement Required (Y/N)': blank(),
+	'Restricted Work Or Setup Area (Y/N)': blank(),
+	// Water & Site Access redesign — Water Access Method answers "how do
+	// you connect" (spigot/interior/none), Water Supply answers "where does
+	// it come from" (municipal/well) — see WATER_ACCESS_OPTIONS/
+	// WATER_SUPPLY_OPTIONS above for why this used to be one field. Named
+	// "...Method" (not just "Water Access") to avoid colliding with the
+	// legacy 'Water Access' column below, superseded by 'Water Source' from
+	// an earlier redesign — that column keeps its original name untouched.
+	'Water Access Method': blank(),
+	'Water Supply': blank(),
+	'Easy Parking And Setup (Y/N)': blank(),
+	'Limited Parking Or Setup Space (Y/N)': blank(),
+	'Gate Or Entry Restriction (Y/N)': blank(),
+	'Long Hose Run (Y/N)': blank(),
+	'Water Source Far From Work Area (Y/N)': blank(),
+	'Site Access Notes': blank(),
 	// Legacy — superseded by the fields above. 'Ladder Requirement' and
 	// 'Window Condition' are reused as-is below (only their form widget
 	// changed from a checkbox group to a single-select radio group).
@@ -70,8 +108,21 @@ export const propertySchema = z.object({
 	'Hard Water History (Y/N)': blank(),
 	'Construction Debris (Y/N)': blank(),
 	'Window Condition': blank(),
+	// Glass Condition redesign — supplements the Window Condition scale
+	// with specific known flags. Hard Water History / Construction Debris
+	// above already cover two of the mockup's six flags; not duplicated.
+	'Silicone Adhesive Or Sticker Residue (Y/N)': blank(),
+	'Heavy Interior Residue (Y/N)': blank(),
+	'Oxidized Frames Or Screens (Y/N)': blank(),
+	'Condition Varies By Area (Y/N)': blank(),
+	'Condition Notes': blank(),
 	'Total Window Units': blank(),
 	'Total Glass Panes': blank(),
+	// Windows & Doors redesign — set only via the "Mark Inventory Verified"
+	// action (never auto-set on a plain field save), so it reflects an
+	// explicit "I checked this is still accurate" moment, not just "someone
+	// once edited a count."
+	'Inventory Verified At': blank(),
 	'Count - Double Hung': blank(),
 	'Count - Casement': blank(),
 	'Count - Picture': blank(),
@@ -127,3 +178,66 @@ export const propertyConfig: TabConfig<Property> = {
 	schema: propertySchema,
 	entityType: 'Property',
 };
+
+const LADDER_REQUIREMENT_LEGACY_MAP: Record<string, string> = {
+	'Standard (6-10 ft)': 'Step Ladder',
+	'Extension (16-24 ft)': 'Extension Ladder',
+	'Tall Extension (28+ ft)': 'Tall Extension Ladder',
+};
+
+export interface PropertyCompatDefaults {
+	exteriorCleaningMethodValue: string;
+	ladderRequirementValue: string;
+	waterAccessValue: string;
+	waterSupplyValue: string;
+}
+
+/**
+ * One-time compatibility defaults for the enum fields renamed/split during
+ * the Property + In-Field Quote redesign — shared by the Property Detail
+ * page and the Quoter (which needs the same read-only summary values).
+ * None of these ever write to Sheets; they only decide what shows
+ * pre-selected/displayed. The raw legacy value stays exactly as stored
+ * until the owner actually saves that specific property through the form.
+ */
+export function derivePropertyCompatDefaults(property: Property): PropertyCompatDefaults {
+	// 'Exterior Cleaning Method' expanded from 2 options to 4 ('Typical
+	// Exterior Method' in the UI). A pre-expansion value ('Water-Fed Pole
+	// Suitable'/'Traditional Cleaning Required') maps onto its closest new
+	// equivalent; falls back further to the even-older
+	// 'Water-Fed Pole Suitable (Y/N)' checkbox for properties that predate
+	// the field entirely.
+	const exteriorCleaningMethodValue =
+		(property['Exterior Cleaning Method'] === 'Water-Fed Pole Suitable'
+			? 'Water-Fed Pole'
+			: property['Exterior Cleaning Method'] === 'Traditional Cleaning Required'
+				? 'Traditional'
+				: property['Exterior Cleaning Method']) ||
+		(property['Water-Fed Pole Suitable (Y/N)'] === 'Y'
+			? 'Water-Fed Pole'
+			: property['Water-Fed Pole Suitable (Y/N)'] === 'N'
+				? 'Traditional'
+				: '');
+
+	// 'Ladder Requirement' renamed from abbreviated ranges to full words,
+	// plus a new 'Specialty Access' tier with no legacy equivalent.
+	const ladderRequirementValue = LADDER_REQUIREMENT_LEGACY_MAP[property['Ladder Requirement']] ?? property['Ladder Requirement'];
+
+	// 'Water Source' split into 'Water Access Method' (how you connect) and
+	// 'Water Supply' (where it comes from) — a real semantic split, not a
+	// rename. The legacy 'Well Water' value actually described supply, not
+	// access, so it maps to Water Supply and leaves Water Access Unknown
+	// rather than guessing.
+	const waterAccessValue =
+		property['Water Access Method'] ||
+		(property['Water Source'] === 'Exterior Spigot'
+			? 'Exterior Spigot'
+			: property['Water Source'] === 'No On-Site Water'
+				? 'No Usable Connection'
+				: property['Water Source'] === 'Well Water'
+					? 'Unknown'
+					: '');
+	const waterSupplyValue = property['Water Supply'] || (property['Water Source'] === 'Well Water' ? 'Well' : '');
+
+	return { exteriorCleaningMethodValue, ladderRequirementValue, waterAccessValue, waterSupplyValue };
+}

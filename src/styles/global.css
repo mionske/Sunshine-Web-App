@@ -21,7 +21,7 @@
 	--radius-field: 0.375rem;
 	--radius-pill: 300px;
 
-	--content-max-width: 72rem;
+	--content-max-width: 100rem;
 }
 
 *,
@@ -196,7 +196,7 @@ input.field-numeric {
 	 * columns instead of just laying out the labels inside each one. Only
 	 * forms with no such wrapper (Client, PricingConfig, etc.) get the grid
 	 * applied directly. */
-	form:not(:has(> fieldset)):not(:has(> .card)):not(:has(> details)),
+	form:not(:has(> fieldset)):not(:has(> .card)):not(:has(> details)):not(.quoter-layout),
 	fieldset {
 		display: grid;
 		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -959,4 +959,62 @@ details.card[open] > summary {
  * survey/reference cards around it. */
 .timeline-card {
 	background: var(--color-cream);
+}
+
+/* Quoter redesign: main survey column + a sticky total/action panel that
+ * stays visible while scrolling a long form — the "always show the final
+ * quote amount" requirement from the handoff. */
+.quoter-layout {
+	display: grid;
+	grid-template-columns: 1.5fr 1fr;
+	gap: 1.5rem;
+	align-items: start;
+}
+
+.quoter-main {
+	display: flex;
+	flex-direction: column;
+	gap: 1.5rem;
+	min-width: 0;
+}
+
+.quoter-sticky-panel {
+	position: sticky;
+	top: 1rem;
+	background: #fff;
+	border: 2px solid var(--color-tan);
+	border-radius: var(--radius-card);
+	padding: 1.25rem;
+}
+
+.quoter-sticky-panel button {
+	width: 100%;
+}
+
+@media (max-width: 900px) {
+	.quoter-layout {
+		grid-template-columns: 1fr;
+	}
+
+	.quoter-sticky-panel {
+		position: sticky;
+		top: auto;
+		bottom: 0;
+		z-index: 10;
+	}
+}
+
+/* Inline "differs from saved property" notice — reuses the app's existing
+ * warning color (#92400e, see .field-status.mismatch/.followup-today)
+ * rather than the handoff's own placeholder notice palette. Informational
+ * only; nothing here is ever auto-applied to the property record. */
+.diff-notice {
+	background: var(--color-cream);
+	border: 1px solid var(--color-tan);
+	border-left: 4px solid #92400e;
+	border-radius: var(--radius-field);
+	padding: 0.75rem 1rem;
+	color: #92400e;
+	font-size: 0.85rem;
+	margin-bottom: 1rem;
 }

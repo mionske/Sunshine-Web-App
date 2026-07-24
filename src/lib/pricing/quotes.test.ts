@@ -163,4 +163,126 @@ describe('createQuote', () => {
 		expect(quote['Difficult Access Item Count']).toBe('3');
 		expect(quote['Specialty Access Item Count']).toBe('1');
 	});
+
+	it('requires an Adjustment Reason (Override Reason) when a Manual Adjustment is applied', async () => {
+		await expect(
+			createQuote(harness.env, {
+				clientId: 'client-1',
+				propertyId: 'property-1',
+				input: {
+					stories: 1,
+					condition: 'light',
+					counts: { ...ZERO_COUNTS, windowExtStandard: 10 },
+					hardWater: false,
+					constructionDebris: false,
+					difficultAccess: false,
+					manualAdjustment: 50,
+				},
+			})
+		).rejects.toThrow(/Adjustment Reason is required/);
+	});
+
+	it('requires an Adjustment Reason when a Discount is applied', async () => {
+		await expect(
+			createQuote(harness.env, {
+				clientId: 'client-1',
+				propertyId: 'property-1',
+				input: {
+					stories: 1,
+					condition: 'light',
+					counts: { ...ZERO_COUNTS, windowExtStandard: 10 },
+					hardWater: false,
+					constructionDebris: false,
+					difficultAccess: false,
+					discount: 20,
+				},
+			})
+		).rejects.toThrow(/Adjustment Reason is required/);
+	});
+
+	it('does not require an Adjustment Reason when neither Manual Adjustment nor Discount is applied', async () => {
+		const { quote } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 10 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+		expect(quote['Override Reason']).toBe('');
+	});
+
+	it('succeeds once a reason is given for a Manual Adjustment or Discount', async () => {
+		const { quote } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 10 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+				manualAdjustment: 50,
+				discount: 20,
+				overrideReason: 'Owner Discretion',
+			},
+		});
+		expect(quote['Override Reason']).toBe('Owner Discretion');
+		expect(Number(quote['Manual Adjustment'])).toBe(50);
+		expect(Number(quote.Discount)).toBe(20);
+	});
+
+	it('persists Service Scope, Inventory Coverage, Labor Estimate, and job-condition fields when provided', async () => {
+		const { quote } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			serviceScope: 'Exterior Only',
+			inventoryCoverage: 'Entire Property',
+			laborEstimate: { soloHours: '3.5', crewSize: '2', confidence: 'Medium', notes: 'Steep roofline' },
+			jobConditions: { highInteriorGlass: true, steepOrUnevenTerrain: false, otherConditionNotes: 'Dog on site' },
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 10 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: true,
+			},
+		});
+
+		expect(quote['Service Scope']).toBe('Exterior Only');
+		expect(quote['Inventory Coverage']).toBe('Entire Property');
+		expect(quote['Labor Estimate Solo Hours']).toBe('3.5');
+		expect(quote['Labor Estimate Crew Size']).toBe('2');
+		expect(quote['Labor Estimate Confidence']).toBe('Medium');
+		expect(quote['Labor Estimate Notes']).toBe('Steep roofline');
+		expect(quote['Job High Interior Glass (Y/N)']).toBe('Y');
+		expect(quote['Job Steep Or Uneven Terrain (Y/N)']).toBe('N');
+		expect(quote['Job Other Condition Notes']).toBe('Dog on site');
+	});
+
+	it('leaves Service Scope/Inventory Coverage/Labor Estimate/job-condition fields blank when not provided', async () => {
+		const { quote } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 10 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+
+		expect(quote['Service Scope']).toBe('');
+		expect(quote['Inventory Coverage']).toBe('');
+		expect(quote['Labor Estimate Solo Hours']).toBe('');
+		expect(quote['Job High Interior Glass (Y/N)']).toBe('');
+	});
 });

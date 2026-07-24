@@ -3,10 +3,15 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { listActiveRows } from '../lib/sheets';
 import { clientConfig } from '../lib/models/client';
-import { propertyConfig } from '../lib/models/property';
+import { propertyConfig, derivePropertyCompatDefaults } from '../lib/models/property';
+import { walkthroughConfig } from '../lib/models/walkthrough';
+import { walkthroughItemConfig } from '../lib/models/walkthroughItem';
 import { seedInitialServices } from '../lib/pricing/services';
+import { serviceConfig } from '../lib/models/service';
 import { createQuote } from '../lib/pricing/quotes';
+import { itemsToQuoteCounts, conditionForEngine } from '../lib/pricing/walkthroughToQuote';
 import { listPricingConfigs } from '../lib/pricing/config';
+import QuoterForm from '../components/QuoterForm';
 import type { QuoteCounts } from '../lib/pricing/types';
 
 let error: string | null = null;
@@ -14,6 +19,10 @@ let error: string | null = null;
 function num(form: FormData, key: string): number {
 	const value = Number(form.get(key));
 	return Number.isFinite(value) ? value : 0;
+}
+
+function on(form: FormData, key: string): boolean {
+	return form.get(key) === 'on' || form.get(key) === 'true';
 }
 
 if (Astro.request.method === 'POST') {
@@ -35,17 +44,49 @@ if (Astro.request.method === 'POST') {
 			skylightInt: num(form, 'skylightInt'),
 		};
 
+		// The engine's single difficultAccess boolean is derived from
+		// whichever job-specific access flags are checked (see the comment
+		// on Quote schema's job-condition fields) — one thing still actually
+		// drives the access surcharge, even though the form now captures the
+		// granular reasons why for reporting.
+		const jobConditions = {
+			highInteriorGlass: on(form, 'jobHighInteriorGlass'),
+			steepOrUnevenTerrain: on(form, 'jobSteepOrUnevenTerrain'),
+			exteriorAccessObstructed: on(form, 'jobExteriorAccessObstructed'),
+			furnitureMovementRequired: on(form, 'jobFurnitureMovementRequired'),
+			waterAccessDifficult: on(form, 'jobWaterAccessDifficult'),
+			siliconeOrStickerResidue: on(form, 'jobSiliconeOrStickerResidue'),
+			heavyInteriorResidue: on(form, 'jobHeavyInteriorResidue'),
+			otherConditionNotes: String(form.get('jobOtherConditionNotes') ?? ''),
+		};
+		const difficultAccess =
+			jobConditions.highInteriorGlass ||
+			jobConditions.steepOrUnevenTerrain ||
+			jobConditions.exteriorAccessObstructed ||
+			jobConditions.furnitureMovementRequired ||
+			jobConditions.waterAccessDifficult;
+
 		const { quote } = await createQuote(env, {
 			clientId: String(form.get('clientId') ?? ''),
 			propertyId: String(form.get('propertyId') ?? ''),
 			pricingConfigId: String(form.get('pricingConfigId') ?? '') || undefined,
+			walkthroughId: String(form.get('walkthroughId') ?? '') || undefined,
+			serviceScope: String(form.get('serviceScope') ?? ''),
+			inventoryCoverage: String(form.get('inventoryCoverage') ?? ''),
+			laborEstimate: {
+				soloHours: String(form.get('laborEstimateSoloHours') ?? ''),
+				crewSize: String(form.get('laborEstimateCrewSize') ?? ''),
+				confidence: String(form.get('laborEstimateConfidence') ?? ''),
+				notes: String(form.get('laborEstimateNotes') ?? ''),
+			},
+			jobConditions,
 			input: {
 				stories: (Number(form.get('stories')) || 1) as 1 | 2 | 3,
 				condition: String(form.get('condition') ?? 'light') as 'light' | 'moderate' | 'heavy' | 'firstTime',
 				counts,
-				hardWater: form.get('hardWater') === 'on',
-				constructionDebris: form.get('constructionDebris') === 'on',
-				difficultAccess: form.get('difficultAccess') === 'on',
+				hardWater: on(form, 'hardWater'),
+				constructionDebris: on(form, 'constructionDebris'),
+				difficultAccess,
 				manualAdjustment: num(form, 'manualAdjustment'),
 				discount: num(form, 'discount'),
 				overrideReason: String(form.get('overrideReason') ?? ''),
@@ -58,20 +99,76 @@ if (Astro.request.method === 'POST') {
 }
 
 await seedInitialServices(env);
-const [clients, properties, pricingConfigs] = await Promise.all([
+const [clients, properties, pricingConfigs, services, allWalkthroughs, allWalkthroughItems] = await Promise.all([
 	listActiveRows(env, clientConfig),
 	listActiveRows(env, propertyConfig),
 	listPricingConfigs(env),
+	listActiveRows(env, serviceConfig),
+	listActiveRows(env, walkthroughConfig),
+	listActiveRows(env, walkthroughItemConfig),
 ]);
 const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
 const activeConfigs = pricingConfigs.filter((c) => c.Status === 'Active');
 const preselectedPropertyId = Astro.url.searchParams.get('propertyId') ?? '';
 const preselectedClientId = Astro.url.searchParams.get('clientId') ?? '';
 
-// propertyId -> Property Type, and configId -> Property Type, handed to the
-// page as JSON so a small inline script can pre-select the matching Active
-// config when the property changes — a default only, always overridable.
-const propertyTypeById = Object.fromEntries(properties.map((p) => [p['Property ID'], p['Property Type']]));
+// Quoter redesign: the Quote Inventory card defaults from the property's
+// latest completed Walkthrough (via the already-reusable itemsToQuoteCounts)
+// rather than the Property's own Windows & Doors counts — that record uses
+// a categorically different taxonomy (no interior/exterior split, no
+// Standard-vs-Oversized distinction), so it can't be mapped into QuoteCounts
+// without guessing. Falls back to blank/manual entry when no qualifying
+// walkthrough exists yet.
+const INVENTORY_SOURCE_STATUSES = new Set(['Completed', 'Converted to Quote']);
+const latestWalkthroughByProperty: Record<string, { walkthroughId: string; walkthroughDate: string; counts: QuoteCounts } | null> = {};
+for (const property of properties) {
+	const candidates = allWalkthroughs
+		.filter((w) => w['Property ID'] === property['Property ID'] && INVENTORY_SOURCE_STATUSES.has(w.Status))
+		.sort((a, b) => (b['Walkthrough Date'] || b['Created At']).localeCompare(a['Walkthrough Date'] || a['Created At']));
+	const latest = candidates[0];
+	if (!latest) {
+		latestWalkthroughByProperty[property['Property ID']] = null;
+		continue;
+	}
+	const items = allWalkthroughItems.filter((i) => i['Walkthrough ID'] === latest['Walkthrough ID']);
+	latestWalkthroughByProperty[property['Property ID']] = {
+		walkthroughId: latest['Walkthrough ID'],
+		walkthroughDate: latest['Walkthrough Date'],
+		counts: itemsToQuoteCounts(items),
+	};
+}
+
+// Read-only property summary strip (Quote Header) — reuses the same
+// compat-default derivation as the Property Detail page so a
+// pre-redesign legacy value still shows correctly translated here too.
+// Also carries the raw Access Considerations / Glass Condition flags,
+// which the Current Job Conditions card pre-fills from and diffs against
+// (see the handoff's "This quote differs from the saved property details"
+// notice) — these mirror the exact Property columns 1:1.
+const propertySummaryById = Object.fromEntries(
+	properties.map((p) => {
+		const compat = derivePropertyCompatDefaults(p);
+		return [
+			p['Property ID'],
+			{
+				stories: p.Stories,
+				totalWindowUnits: p['Total Window Units'],
+				totalGlassPanes: p['Total Glass Panes'],
+				windowCondition: p['Window Condition'],
+				exteriorCleaningMethod: compat.exteriorCleaningMethodValue,
+				ladderRequirement: compat.ladderRequirementValue,
+				conditionDefault: conditionForEngine(p['Window Condition']),
+				highInteriorGlass: p['High Interior Glass (Y/N)'],
+				steepOrUnevenTerrain: p['Steep Or Uneven Terrain (Y/N)'],
+				exteriorAccessObstructed: p['Exterior Access Obstructed (Y/N)'],
+				furnitureMovementRequired: p['Furniture Or Belongings Movement Required (Y/N)'],
+				waterSourceFarFromWorkArea: p['Water Source Far From Work Area (Y/N)'],
+				siliconeResidue: p['Silicone Adhesive Or Sticker Residue (Y/N)'],
+				heavyInteriorResidue: p['Heavy Interior Residue (Y/N)'],
+			},
+		];
+	})
+);
 ---
 
 <BaseLayout title="In-field quoter">
@@ -79,103 +176,22 @@ const propertyTypeById = Object.fromEntries(properties.map((p) => [p['Property I
 		<h1>In-field quoter</h1>
 		{error && <p role="alert">{error}</p>}
 
-		<form method="POST">
-			<label>
-				Client
-				<select name="clientId" required>
-					{clients.map((c) => (
-						<option value={c['Client ID']} selected={c['Client ID'] === preselectedClientId}>
-							{c['First Name']} {c['Last Name']}
-						</option>
-					))}
-				</select>
-			</label>
-			<label>
-				Property
-				<select name="propertyId" id="propertyId" required>
-					{properties.map((p) => (
-						<option value={p['Property ID']} selected={p['Property ID'] === preselectedPropertyId}>
-							{p['Street Address']} ({clientById[p['Client ID']]?.['Last Name'] ?? '?'})
-						</option>
-					))}
-				</select>
-			</label>
-			<label>
-				Pricing config (pre-selected from the property's type — change anytime)
-				<select name="pricingConfigId" id="pricingConfigId">
-					<option value="">— use property's type default —</option>
-					{activeConfigs.map((c) => (
-						<option value={c['Pricing Config ID']} data-property-type={c['Property Type']}>
-							{c['Config Name']} ({c['Property Type']})
-						</option>
-					))}
-				</select>
-			</label>
-
-			<fieldset>
-				<legend>Property conditions</legend>
-				<label>
-					Stories
-					<select name="stories">
-						<option value="1">1</option>
-						<option value="2">2</option>
-						<option value="3">3</option>
-					</select>
-				</label>
-				<label>
-					Condition
-					<select name="condition">
-						<option value="light">Light / maintenance</option>
-						<option value="moderate">Moderate</option>
-						<option value="heavy">Heavy</option>
-						<option value="firstTime">First-time / deep clean</option>
-					</select>
-				</label>
-				<label><input type="checkbox" name="hardWater" /> Hard water treatment needed</label>
-				<label><input type="checkbox" name="constructionDebris" /> Construction debris cleanup</label>
-				<label><input type="checkbox" name="difficultAccess" /> Difficult access</label>
-			</fieldset>
-
-			<fieldset>
-				<legend>Window &amp; door counts</legend>
-				<label>Standard windows — exterior <input type="number" name="windowExtStandard" min="0" value="0" /></label>
-				<label>Standard windows — interior <input type="number" name="windowIntStandard" min="0" value="0" /></label>
-				<label>Oversized windows — exterior <input type="number" name="windowExtOversized" min="0" value="0" /></label>
-				<label>Oversized windows — interior <input type="number" name="windowIntOversized" min="0" value="0" /></label>
-				<label>French/grid pane windows — exterior <input type="number" name="windowExtFrenchPane" min="0" value="0" /></label>
-				<label>French/grid pane windows — interior <input type="number" name="windowIntFrenchPane" min="0" value="0" /></label>
-				<label>Sliding doors — exterior <input type="number" name="slidingDoorExt" min="0" value="0" /></label>
-				<label>Sliding doors — interior <input type="number" name="slidingDoorInt" min="0" value="0" /></label>
-				<label>Screens <input type="number" name="screenClean" min="0" value="0" /></label>
-				<label>Tracks — basic <input type="number" name="trackBasic" min="0" value="0" /></label>
-				<label>Tracks — deep <input type="number" name="trackDeep" min="0" value="0" /></label>
-				<label>Skylights — exterior <input type="number" name="skylightExt" min="0" value="0" /></label>
-				<label>Skylights — interior <input type="number" name="skylightInt" min="0" value="0" /></label>
-			</fieldset>
-
-			<fieldset>
-				<legend>Adjustments</legend>
-				<label>Manual adjustment ($) <input type="number" name="manualAdjustment" value="0" /></label>
-				<label>Discount ($) <input type="number" name="discount" value="0" /></label>
-				<label>Override reason <input type="text" name="overrideReason" /></label>
-			</fieldset>
-
-			<button type="submit">Calculate quote</button>
-		</form>
+		<QuoterForm
+			client:load
+			clients={clients.map((c) => ({ id: c['Client ID'], firstName: c['First Name'], lastName: c['Last Name'] }))}
+			properties={properties.map((p) => ({
+				id: p['Property ID'],
+				clientId: p['Client ID'],
+				address: p['Street Address'],
+				propertyType: p['Property Type'],
+			}))}
+			clientLastNameById={Object.fromEntries(clients.map((c) => [c['Client ID'], c['Last Name']]))}
+			propertySummaryById={propertySummaryById}
+			latestWalkthroughByProperty={latestWalkthroughByProperty}
+			pricingConfigs={activeConfigs}
+			services={services}
+			preselectedClientId={preselectedClientId}
+			preselectedPropertyId={preselectedPropertyId}
+		/>
 	</main>
-
-	<script define:vars={{ propertyTypeById }}>
-		const propertySelect = document.getElementById('propertyId');
-		const configSelect = document.getElementById('pricingConfigId');
-
-		function preselectConfigForProperty() {
-			const propertyType = propertyTypeById[propertySelect.value];
-			if (!propertyType) return;
-			const match = Array.from(configSelect.options).find((o) => o.dataset.propertyType === propertyType);
-			if (match) configSelect.value = match.value;
-		}
-
-		propertySelect.addEventListener('change', preselectConfigForProperty);
-		preselectConfigForProperty();
-	</script>
 </BaseLayout>
