@@ -71,107 +71,214 @@ const prefillState = Astro.url.searchParams.get('prefillState') ?? '';
 const prefillZip = Astro.url.searchParams.get('prefillZip') ?? '';
 
 const qbLinked = client['QB Customer ID'] ? await suggestQBLinksForClient(env, id!) : null;
+
+// Financial summary: "billed"/"outstanding" come from actual QB Invoices
+// only — an Estimate is not a bill. A client with no invoices yet
+// (Stevie's case today: one Estimate, nothing invoiced) correctly shows
+// $0 here rather than borrowing the estimate amount, which would blur a
+// real distinction the owner cares about.
+const totalBilled = (qbLinked?.invoices ?? []).reduce((sum, inv) => sum + (Number(inv.Total) || 0), 0);
+const outstanding = (qbLinked?.invoices ?? []).reduce((sum, inv) => sum + (Number(inv.Balance) || 0), 0);
+
+// Read-display vs. edit mode for Contact Info — a query param (like the
+// rest of this app's plain-Astro pages, no client-side framework needed
+// for a simple mode toggle).
+const editing = Astro.url.searchParams.get('edit') === '1';
 ---
 
 <BaseLayout title={`${client['First Name']} ${client['Last Name']}`}>
 	<main>
 		<p><a href="/clients">← Clients</a></p>
-		<h1>{client['First Name']} {client['Last Name']}</h1>
+
+		<div class="card-header-row" style="margin-bottom: 1.5rem;">
+			<h1 style="margin: 0; white-space: nowrap;">{client['First Name']} {client['Last Name']}</h1>
+			{!editing && (
+				<a class="btn" href={`/clients/${id}?edit=1`}>Edit</a>
+			)}
+		</div>
+
 		{error && <p role="alert">{error}</p>}
 
-		<form method="POST" id="update-client-form">
-			<input type="hidden" name="_action" value="update-client" />
-			<label>First name <input type="text" name="firstName" value={client['First Name']} required /></label>
-			<label>Last name <input type="text" name="lastName" value={client['Last Name']} required /></label>
-			<label>Phone <input type="tel" name="phone" inputmode="numeric" value={client.Phone} placeholder="303-931-3903" /></label>
-			<label>Email <input type="email" name="email" value={client.Email} /></label>
-			<label>Referral source <input type="text" name="referralSource" value={client['Referral Source']} /></label>
-			<label>Preferred contact method <input type="text" name="preferredContactMethod" value={client['Preferred Contact Method']} /></label>
-			<label>Notes <textarea name="notes">{client.Notes}</textarea></label>
-			<button type="submit">Save</button>
-		</form>
+		<div class="stats-grid">
+			<div class="card">
+				<span class="stat-label">Total billed</span>
+				<div class="stat">${totalBilled.toLocaleString()}</div>
+			</div>
+			<div class="card">
+				<span class="stat-label">Outstanding</span>
+				<div class="stat" style={{ color: outstanding > 0 ? 'var(--color-red)' : undefined }}>${outstanding.toLocaleString()}</div>
+			</div>
+			<div class="card">
+				<span class="stat-label">Estimates</span>
+				<div class="stat">{qbLinked?.estimates.length ?? 0}</div>
+			</div>
+			<div class="card">
+				<span class="stat-label">Properties</span>
+				<div class="stat">{properties.length}</div>
+			</div>
+		</div>
 
-		<h2>Properties</h2>
-		<ul>
+		<section class="card">
+			<h2>Contact Info</h2>
+			{editing ? (
+				<form method="POST" id="update-client-form">
+					<input type="hidden" name="_action" value="update-client" />
+					<label>First name <input type="text" name="firstName" value={client['First Name']} required /></label>
+					<label>Last name <input type="text" name="lastName" value={client['Last Name']} required /></label>
+					<label>Phone <input type="tel" name="phone" inputmode="numeric" value={client.Phone} placeholder="303-931-3903" /></label>
+					<label>Email <input type="email" name="email" value={client.Email} /></label>
+					<label>Referral source <input type="text" name="referralSource" value={client['Referral Source']} /></label>
+					<label>Preferred contact method <input type="text" name="preferredContactMethod" value={client['Preferred Contact Method']} /></label>
+					<label>Notes <textarea name="notes">{client.Notes}</textarea></label>
+					<button type="submit">Save</button>
+					<a class="btn btn-secondary" href={`/clients/${id}`}>Cancel</a>
+				</form>
+			) : (
+				<>
+					<div class="field-display-grid">
+						<div>
+							<span class="field-display-label">Phone</span>
+							<span class={`field-display-value${client.Phone ? '' : ' muted'}`}>{client.Phone || '— not set'}</span>
+						</div>
+						<div>
+							<span class="field-display-label">Email</span>
+							<span class={`field-display-value${client.Email ? '' : ' muted'}`}>{client.Email || '— not set'}</span>
+						</div>
+						<div>
+							<span class="field-display-label">Referral source</span>
+							<span class={`field-display-value${client['Referral Source'] ? '' : ' muted'}`}>{client['Referral Source'] || '— not set'}</span>
+						</div>
+						<div>
+							<span class="field-display-label">Preferred contact</span>
+							<span class={`field-display-value${client['Preferred Contact Method'] ? '' : ' muted'}`}>{client['Preferred Contact Method'] || '— not set'}</span>
+						</div>
+					</div>
+					<span class="field-display-label">Notes</span>
+					{client.Notes ? (
+						<div class="notes-display">{client.Notes}</div>
+					) : (
+						<div class="notes-display field-display-value muted">— not set</div>
+					)}
+				</>
+			)}
+		</section>
+
+		<section class="card">
+			<div class="card-header-row">
+				<h2>Properties ({properties.length})</h2>
+				<button type="button" id="add-property-btn">+ Add Property</button>
+			</div>
 			{properties.map((p) => (
-				<li>
-					<a href={`/properties/${p['Property ID']}`}>{p['Street Address']}, {p.City}</a>
-					{' '}
-					<a href={googleMapsUrl(fullAddress(p))} target="_blank" rel="noopener noreferrer">(map)</a>
-				</li>
+				<div class="property-row">
+					<div>
+						<a class="property-row-address" href={`/properties/${p['Property ID']}`}>{p['Street Address']}, {p.City}</a>
+						<div class="property-row-meta">{p['Property Type']}{p.Stories && <> · {p.Stories} {p.Stories === '1' ? 'story' : 'stories'}</>}</div>
+					</div>
+					<a href={googleMapsUrl(fullAddress(p))} target="_blank" rel="noopener noreferrer">View map →</a>
+				</div>
 			))}
-			{properties.length === 0 && <li>No properties yet.</li>}
-		</ul>
-
-		<h3>Add property</h3>
-		<form method="POST">
-			<input type="hidden" name="_action" value="add-property" />
-			<input type="hidden" name="id" value={newPropertyId} />
-			<label>
-				Property type
-				<select name="propertyType" required>
-					<option value="" />
-					{PROPERTY_TYPES.map((t) => <option value={t}>{t}</option>)}
-				</select>
-			</label>
-			<label>Street address <input type="text" name="streetAddress" value={prefillStreet} required /></label>
-			<label>City <input type="text" name="city" value={prefillCity} /></label>
-			<label>State <input type="text" name="state" maxlength="2" value={prefillState} placeholder="CO" /></label>
-			<label>Zip <input type="text" name="zip" value={prefillZip} /></label>
-			<label>Stories <input type="number" class="field-numeric" name="stories" /></label>
-			<label>Total window units (subjective — what counts as one "window" varies) <input type="number" class="field-numeric" name="totalWindowUnits" /></label>
-			<label>Total panes (all glass — objective count) <input type="number" class="field-numeric" name="totalGlassPanes" /></label>
-			<label>
-			Desired maintenance frequency
-			<select name="desiredMaintenanceFrequency">
-				<option value="" selected />
-				{MAINTENANCE_FREQUENCY_OPTIONS.map((v) => <option value={v}>{v}</option>)}
-			</select>
-		</label>
-			<label>Building/complex name (optional — groups units in the same building) <input type="text" name="buildingComplexName" /></label>
-			<label>Unit identifier (optional) <input type="text" name="unitIdentifier" /></label>
-			<button type="submit">Add property</button>
-		</form>
+			{properties.length === 0 && <p>No properties yet.</p>}
+		</section>
 
 		<section class="card">
 			<h2>QuickBooks</h2>
 			{client['QB Customer ID'] ? (
 				<>
-					<p>Linked to QB Customer <code>{client['QB Customer ID']}</code></p>
+					<p class="field-hint">Linked to QB Customer {client['QB Customer ID']}</p>
 					<h3>Estimates ({qbLinked?.estimates.length ?? 0})</h3>
-					<ul>
-						{qbLinked?.estimates.map((e) => (
-							<li><a href={qboEstimateWebUrl(e['QB Estimate ID'])} target="_blank" rel="noopener noreferrer">{e['Doc Number'] || e['QB Estimate ID']}</a> — {e.Status} — ${e.Total} ({e['Txn Date']})</li>
-						))}
-						{(qbLinked?.estimates.length ?? 0) === 0 && <li>None synced.</li>}
-					</ul>
+					{qbLinked?.estimates.map((e) => (
+						<div class="qb-row">
+							<a href={qboEstimateWebUrl(e['QB Estimate ID'])} target="_blank" rel="noopener noreferrer">{e['Doc Number'] || e['QB Estimate ID']}</a>
+							<span>{e.Status} · ${e.Total} · {e['Txn Date']}</span>
+						</div>
+					))}
+					{(qbLinked?.estimates.length ?? 0) === 0 && <p>None synced.</p>}
+
 					<h3>Invoices ({qbLinked?.invoices.length ?? 0})</h3>
-					<ul>
-						{qbLinked?.invoices.map((i) => (
-							<li><a href={qboInvoiceWebUrl(i['QB Invoice ID'])} target="_blank" rel="noopener noreferrer">{i['Doc Number'] || i['QB Invoice ID']}</a> — {i.Status} — ${i.Total} (balance ${i.Balance}, due {i['Due Date']})</li>
-						))}
-						{(qbLinked?.invoices.length ?? 0) === 0 && <li>None synced.</li>}
-					</ul>
+					{qbLinked?.invoices.map((i) => (
+						<div class="qb-row">
+							<a href={qboInvoiceWebUrl(i['QB Invoice ID'])} target="_blank" rel="noopener noreferrer">{i['Doc Number'] || i['QB Invoice ID']}</a>
+							<span>{i.Status} · ${i.Total} · balance ${i.Balance} · due {i['Due Date']}</span>
+						</div>
+					))}
+					{(qbLinked?.invoices.length ?? 0) === 0 && <p>None synced.</p>}
+
 					<h3>Payments ({qbLinked?.payments.length ?? 0})</h3>
-					<ul>
-						{qbLinked?.payments.map((p) => (
-							<li>${p.Total} — {p['Payment Date']} — {p.Method} {p['Linked Invoice IDs'] && <>(applied to invoice(s) {p['Linked Invoice IDs']})</>}</li>
-						))}
-						{(qbLinked?.payments.length ?? 0) === 0 && <li>None synced.</li>}
-					</ul>
+					{qbLinked?.payments.map((p) => (
+						<div class="qb-row">
+							<span>${p.Total}</span>
+							<span>{p['Payment Date']} · {p.Method}{p['Linked Invoice IDs'] && <> · applied to invoice(s) {p['Linked Invoice IDs']}</>}</span>
+						</div>
+					))}
+					{(qbLinked?.payments.length ?? 0) === 0 && <p>None synced.</p>}
 				</>
 			) : (
 				<p>Not linked to QuickBooks yet — see the <a href="/qb-match-review">match review queue</a>.</p>
 			)}
 		</section>
+
+		<div class="drawer-scrim" id="add-property-drawer" hidden>
+			<form class="drawer" method="POST">
+				<input type="hidden" name="_action" value="add-property" />
+				<input type="hidden" name="id" value={newPropertyId} />
+				<div class="drawer-header">
+					<h2 style="margin: 0;">Add Property</h2>
+					<button type="button" class="drawer-close" id="add-property-close" aria-label="Close">×</button>
+				</div>
+				<label>
+					Property type
+					<select name="propertyType" required>
+						<option value="" />
+						{PROPERTY_TYPES.map((t) => <option value={t}>{t}</option>)}
+					</select>
+				</label>
+				<label>Street address <input type="text" name="streetAddress" value={prefillStreet} required /></label>
+				<label>City <input type="text" name="city" value={prefillCity} /></label>
+				<label>State <input type="text" name="state" maxlength="2" value={prefillState} placeholder="CO" /></label>
+				<label>Zip <input type="text" name="zip" value={prefillZip} /></label>
+				<label>Stories <input type="number" class="field-numeric" name="stories" /></label>
+				<label>Total window units (subjective — what counts as one "window" varies) <input type="number" class="field-numeric" name="totalWindowUnits" /></label>
+				<label>Total panes (all glass — objective count) <input type="number" class="field-numeric" name="totalGlassPanes" /></label>
+				<label>
+					Desired maintenance frequency
+					<select name="desiredMaintenanceFrequency">
+						<option value="" selected />
+						{MAINTENANCE_FREQUENCY_OPTIONS.map((v) => <option value={v}>{v}</option>)}
+					</select>
+				</label>
+				<label>Building/complex name (optional — groups units in the same building) <input type="text" name="buildingComplexName" /></label>
+				<label>Unit identifier (optional) <input type="text" name="unitIdentifier" /></label>
+				<div class="drawer-footer">
+					<button type="button" class="btn-secondary" id="add-property-cancel">Cancel</button>
+					<button type="submit">Add Property</button>
+				</div>
+			</form>
+		</div>
 	</main>
 
 	<script>
 		import { formatPhoneDigits } from '../../lib/phoneFormat';
-		const form = document.getElementById('update-client-form') as HTMLFormElement;
-		const phone = form.querySelector('input[name="phone"]') as HTMLInputElement;
-		phone.addEventListener('input', () => {
+		const form = document.getElementById('update-client-form') as HTMLFormElement | null;
+		const phone = form?.querySelector('input[name="phone"]') as HTMLInputElement | null;
+		phone?.addEventListener('input', () => {
 			phone.value = formatPhoneDigits(phone.value);
+		});
+
+		const drawer = document.getElementById('add-property-drawer') as HTMLElement | null;
+		const openBtn = document.getElementById('add-property-btn');
+		const closeBtn = document.getElementById('add-property-close');
+		const cancelBtn = document.getElementById('add-property-cancel');
+		openBtn?.addEventListener('click', () => {
+			if (drawer) drawer.hidden = false;
+		});
+		closeBtn?.addEventListener('click', () => {
+			if (drawer) drawer.hidden = true;
+		});
+		cancelBtn?.addEventListener('click', () => {
+			if (drawer) drawer.hidden = true;
+		});
+		drawer?.addEventListener('click', (e) => {
+			if (e.target === drawer) drawer.hidden = true;
 		});
 	</script>
 </BaseLayout>

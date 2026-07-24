@@ -290,7 +290,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 				</div>
 			</div>
 
-			<div className="pipeline-metrics">
+			<div className="stats-grid">
 				<div className="card">
 					<span className="stat-label">Active opportunities</span>
 					<div className="stat">{activeCards.length}</div>
