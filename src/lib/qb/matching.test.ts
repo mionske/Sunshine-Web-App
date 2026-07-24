@@ -109,7 +109,9 @@ describe('scoreMatch', () => {
 	function propertyStub() {
 		return {
 			'Property ID': 'p-1', 'Client ID': 'c-1', 'Property Type': 'Residential', 'Street Address': '', City: '', State: '', Zip: '',
-			'Year Built': '', 'Square Footage': '', Stories: '', 'Roof Access Difficulty': '', 'Overall Access Difficulty': '', 'Water Access': '',
+			'Year Built': '', 'Square Footage': '', Stories: '',
+			'Interior Access Difficulty': '', 'Exterior Access Difficulty': '', 'Roof Access Required (Y/N)': '', 'Water Source': '', 'Exterior Cleaning Method': '',
+			'Roof Access Difficulty': '', 'Overall Access Difficulty': '', 'Water Access': '',
 			'Equipment Suitability': '', 'Hard Water History (Y/N)': '', 'Construction Debris (Y/N)': '', 'Window Condition': '', 'Total Window Units': '',
 			'Total Glass Panes': '', 'Count - Double Hung': '', 'Count - Casement': '', 'Count - Picture': '', 'Count - Sliding': '', 'Count - French': '',
 			'Count - Awning': '', 'Count - Skylights': '', 'Count - Solar Panels': '', 'Screen Count': '', 'Track Count': '', 'Desired Maintenance Frequency': '',

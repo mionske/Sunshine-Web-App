@@ -115,8 +115,10 @@ const jobDayState = job['Job Day State'] || 'Not Started';
 			<ul>
 				{quote && <li>Quote scope: <a href={`/quotes/${quote['Quote ID']}`}>${Number(quote['Final Quoted Price']).toFixed(2)} — view quote</a></li>}
 				{property?.['Access Notes'] && <li>Access notes: {property['Access Notes']}</li>}
-				{property?.['Water Access'] && <li>Water source: {property['Water Access']}</li>}
+				{property?.['Water Source'] && <li>Water source: {property['Water Source']}</li>}
+				{property?.['Exterior Cleaning Method'] && <li>Exterior cleaning: {property['Exterior Cleaning Method']}</li>}
 				{property?.['Ladder Requirement'] && <li>Ladder requirement: {property['Ladder Requirement']}</li>}
+				{property?.['Roof Access Required (Y/N)'] === 'Y' && <li>Roof access required</li>}
 				{property?.['Pet Notes'] && <li>Pet notes: {property['Pet Notes']}</li>}
 				{property?.['General Notes'] && <li>Property notes: {property['General Notes']}</li>}
 			</ul>

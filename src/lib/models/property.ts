@@ -9,33 +9,22 @@ const blank = () => z.coerce.string().default('');
 // so there's no legacy-data risk in enforcing it from day one.
 export const PROPERTY_TYPES = ['Residential', 'Commercial', 'New Build-Construction'] as const;
 
-// Checkbox-group option sets for the Property Characteristics form. Stored
-// as a single comma-joined string (the Sheets column stays a plain
-// string — no schema change) rather than an array, so a cell stays
-// directly human-readable in the live spreadsheet too. Multiple values
-// can apply at once (e.g. a property might need both a tall extension
-// ladder for one elevation and no ladder for another).
-export const ACCESS_DIFFICULTY_OPTIONS = ['Easy', 'Standard', 'Difficult', 'Specialty Access'] as const;
-export const WATER_ACCESS_OPTIONS = [
-	'Exterior spigot',
-	'Interior only',
-	'No on-site water',
-	'Well water',
-	'Water-fed pole compatible',
-] as const;
-export const EQUIPMENT_SUITABILITY_OPTIONS = [
-	'Standard pole',
-	'Water-fed pole',
-	'Ladder',
-	'Lift/scaffold',
-	'Boat/dock access',
-] as const;
-export const LADDER_REQUIREMENT_OPTIONS = [
-	'None needed',
-	'Standard (6-10 ft)',
-	'Extension (16-24 ft)',
-	'Tall extension (28+ ft)',
-] as const;
+// Single-select option sets for the Property Characteristics form —
+// rendered as radio groups (only one value is ever actually true: a
+// property has one interior access difficulty, one water source, etc.).
+// Access Difficulty is split into Interior/Exterior (each using this same
+// three-level scale) rather than one combined "Overall" difficulty plus a
+// separate Roof scale — a roof visit either requires special access or it
+// doesn't, captured by the plain ROOF_ACCESS_REQUIRED boolean below rather
+// than a whole extra difficulty scale of its own. "Specialty Access" and
+// "Boat/Dock Access" were dropped as options — never actually used, and a
+// property either needs roof access or doesn't; there's no third tier.
+export const ACCESS_LEVEL_OPTIONS = ['Easy', 'Standard', 'Difficult'] as const;
+
+export const WATER_SOURCE_OPTIONS = ['Exterior Spigot', 'Well Water', 'No On-Site Water'] as const;
+export const EXTERIOR_CLEANING_METHOD_OPTIONS = ['Water-Fed Pole Suitable', 'Traditional Cleaning Required'] as const;
+
+export const LADDER_REQUIREMENT_OPTIONS = ['None', 'Standard (6-10 ft)', 'Extension (16-24 ft)', 'Tall Extension (28+ ft)'] as const;
 export const WINDOW_CONDITION_OPTIONS = ['Maintenance', 'Moderate Buildup', 'Heavy Buildup', 'Restoration Required'] as const;
 
 // Phase 9 (recurring-maintenance prep): reminders/planning only — nothing
@@ -45,21 +34,6 @@ export const WINDOW_CONDITION_OPTIONS = ['Maintenance', 'Moderate Buildup', 'Hea
 // defined option set the spec calls for.
 export const MAINTENANCE_FREQUENCY_OPTIONS = ['One Time', 'Quarterly', 'Twice Yearly', 'Yearly', 'Custom', 'Unknown'] as const;
 export const PREFERRED_SERVICE_SEASON_OPTIONS = ['Spring', 'Summer', 'Fall', 'Winter', 'No preference', 'Unknown'] as const;
-
-/** Joins checked checkbox values into the single comma-separated string
- * the Sheets column stores. */
-export function joinCheckboxValues(values: string[]): string {
-	return values.join(', ');
-}
-
-/** True when `value` (one option in a checkbox group) is present in the
- * comma-separated string currently stored for that field. */
-export function checkboxValueSelected(stored: string, value: string): boolean {
-	return stored
-		.split(',')
-		.map((v) => v.trim())
-		.includes(value);
-}
 
 export const propertySchema = z.object({
 	'Property ID': z.string().min(1),
@@ -72,10 +46,27 @@ export const propertySchema = z.object({
 	'Year Built': blank(),
 	'Square Footage': blank(),
 	Stories: blank(),
+	// Access & Conditions redesign — Interior/Exterior Access Difficulty,
+	// Water Source, Exterior Cleaning Method, and Roof Access Required
+	// replace the five legacy fields below (kept declared, never written by
+	// the current form, so any pre-existing values still round-trip safely
+	// instead of being silently dropped).
+	'Interior Access Difficulty': blank(),
+	'Exterior Access Difficulty': blank(),
+	'Roof Access Required (Y/N)': blank(),
+	'Water Source': blank(),
+	'Exterior Cleaning Method': blank(),
+	// Legacy — superseded by the fields above. 'Ladder Requirement' and
+	// 'Window Condition' are reused as-is below (only their form widget
+	// changed from a checkbox group to a single-select radio group).
 	'Roof Access Difficulty': blank(),
 	'Overall Access Difficulty': blank(),
 	'Water Access': blank(),
 	'Equipment Suitability': blank(),
+	// Reused as-is under the new Window Condition card, as "Hard Water
+	// Staining Present" / "Construction Debris Present" — the same
+	// property-level flags, just presented as supplemental checkboxes
+	// alongside Window Condition instead of their own separate fieldset.
 	'Hard Water History (Y/N)': blank(),
 	'Construction Debris (Y/N)': blank(),
 	'Window Condition': blank(),
@@ -106,6 +97,11 @@ export const propertySchema = z.object({
 	// service in the pricing catalog (SLIDING_DOOR_EXT/INT), so they get
 	// their own count rather than being folded into the window counts.
 	'Sliding Glass Door Pane Count': blank(),
+	// Legacy — superseded by 'Exterior Cleaning Method' above. Kept
+	// declared so the one existing property with a value here still
+	// round-trips; the new form pre-selects a default from it once
+	// ('Water-Fed Pole Suitable' when 'Y', 'Traditional Cleaning Required'
+	// when 'N') but never writes to it again.
 	'Water-Fed Pole Suitable (Y/N)': blank(),
 	'Ladder Requirement': blank(),
 	'Access Notes': blank(),

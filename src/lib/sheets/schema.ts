@@ -23,9 +23,14 @@ export const TAB_SCHEMAS: Record<string, string[]> = {
 		'Updated At',
 		'Archived At',
 	],
+	// Mirrors propertySchema in lib/models/property.ts exactly (that file is
+	// the actual source of truth for field names/order — this bootstrap
+	// list is only consulted for a brand-new environment's first tab
+	// creation, but keeping the two in sync avoids a stale bootstrap here).
 	Properties: [
 		'Property ID',
 		'Client ID',
+		'Property Type',
 		'Street Address',
 		'City',
 		'State',
@@ -33,6 +38,11 @@ export const TAB_SCHEMAS: Record<string, string[]> = {
 		'Year Built',
 		'Square Footage',
 		'Stories',
+		'Interior Access Difficulty',
+		'Exterior Access Difficulty',
+		'Roof Access Required (Y/N)',
+		'Water Source',
+		'Exterior Cleaning Method',
 		'Roof Access Difficulty',
 		'Overall Access Difficulty',
 		'Water Access',
@@ -53,6 +63,9 @@ export const TAB_SCHEMAS: Record<string, string[]> = {
 		'Screen Count',
 		'Track Count',
 		'Desired Maintenance Frequency',
+		'Preferred Service Season',
+		'Next Recommended Service Date',
+		'Maintenance Notes',
 		'Next Scheduled Visit',
 		'Last Review Requested Date',
 		'Last Review Received Date',
@@ -62,6 +75,8 @@ export const TAB_SCHEMAS: Record<string, string[]> = {
 		'Access Notes',
 		'Pet Notes',
 		'General Notes',
+		'Building/Complex Name',
+		'Unit Identifier',
 		'Created At',
 		'Updated At',
 		'Archived At',

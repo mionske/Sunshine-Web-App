@@ -1,0 +1,47 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { listActiveRows } from '../../lib/sheets';
+import { propertyConfig } from '../../lib/models/property';
+import { clientConfig } from '../../lib/models/client';
+import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
+
+const [properties, clients] = await Promise.all([listActiveRows(env, propertyConfig), listActiveRows(env, clientConfig)]);
+const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
+
+properties.sort((a, b) => (a['Street Address'] || '').localeCompare(b['Street Address'] || ''));
+---
+
+<BaseLayout title="Properties">
+	<main>
+		<h1>Properties</h1>
+		<p>Every property is created from its Client's page — no separate "add" form here. Use <a href="/clients">Clients</a> to start a new one.</p>
+
+		<table>
+			<thead>
+				<tr>
+					<th>Address</th>
+					<th>Client</th>
+					<th>Type</th>
+					<th></th>
+				</tr>
+			</thead>
+			<tbody>
+				{properties.map((p) => {
+					const client = clientById[p['Client ID']];
+					return (
+						<tr>
+							<td>
+								<a href={`/properties/${p['Property ID']}`}>{p['Street Address']}, {p.City}</a>
+							</td>
+							<td>{client ? `${client['First Name']} ${client['Last Name']}` : p['Client ID']}</td>
+							<td><span class="badge">{p['Property Type']}</span></td>
+							<td><a href={googleMapsUrl(fullAddress(p))} target="_blank" rel="noopener noreferrer">map</a></td>
+						</tr>
+					);
+				})}
+				{properties.length === 0 && <tr><td colspan="4">No properties yet.</td></tr>}
+			</tbody>
+		</table>
+	</main>
+</BaseLayout>

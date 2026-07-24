@@ -6,15 +6,13 @@ import { readRows } from '../../lib/sheets/rows';
 import {
 	propertyConfig,
 	PROPERTY_TYPES,
-	ACCESS_DIFFICULTY_OPTIONS,
-	WATER_ACCESS_OPTIONS,
-	EQUIPMENT_SUITABILITY_OPTIONS,
+	ACCESS_LEVEL_OPTIONS,
+	WATER_SOURCE_OPTIONS,
+	EXTERIOR_CLEANING_METHOD_OPTIONS,
 	LADDER_REQUIREMENT_OPTIONS,
 	WINDOW_CONDITION_OPTIONS,
 	MAINTENANCE_FREQUENCY_OPTIONS,
 	PREFERRED_SERVICE_SEASON_OPTIONS,
-	joinCheckboxValues,
-	checkboxValueSelected,
 } from '../../lib/models/property';
 import { clientConfig } from '../../lib/models/client';
 import { walkthroughConfig } from '../../lib/models/walkthrough';
@@ -42,15 +40,15 @@ if (Astro.request.method === 'POST') {
 				'Year Built': String(form.get('yearBuilt') ?? ''),
 				'Square Footage': String(form.get('squareFootage') ?? ''),
 				Stories: String(form.get('stories') ?? ''),
-				'Overall Access Difficulty': joinCheckboxValues(form.getAll('overallAccessDifficulty').map(String)),
-				'Roof Access Difficulty': joinCheckboxValues(form.getAll('roofAccessDifficulty').map(String)),
-				'Water Access': joinCheckboxValues(form.getAll('waterAccess').map(String)),
-				'Equipment Suitability': joinCheckboxValues(form.getAll('equipmentSuitability').map(String)),
-				'Water-Fed Pole Suitable (Y/N)': form.get('waterFedPoleSuitable') === 'on' ? 'Y' : 'N',
-				'Ladder Requirement': joinCheckboxValues(form.getAll('ladderRequirement').map(String)),
-				'Hard Water History (Y/N)': form.get('hardWaterHistory') === 'on' ? 'Y' : 'N',
-				'Construction Debris (Y/N)': form.get('constructionDebris') === 'on' ? 'Y' : 'N',
-				'Window Condition': joinCheckboxValues(form.getAll('windowCondition').map(String)),
+				'Interior Access Difficulty': String(form.get('interiorAccessDifficulty') ?? ''),
+				'Exterior Access Difficulty': String(form.get('exteriorAccessDifficulty') ?? ''),
+				'Roof Access Required (Y/N)': form.get('roofAccessRequired') === 'on' ? 'Y' : 'N',
+				'Water Source': String(form.get('waterSource') ?? ''),
+				'Exterior Cleaning Method': String(form.get('exteriorCleaningMethod') ?? ''),
+				'Ladder Requirement': String(form.get('highestLadderRequired') ?? ''),
+				'Hard Water History (Y/N)': form.get('hardWaterStainingPresent') === 'on' ? 'Y' : 'N',
+				'Construction Debris (Y/N)': form.get('constructionDebrisPresent') === 'on' ? 'Y' : 'N',
+				'Window Condition': String(form.get('windowCondition') ?? ''),
 				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
 				'Total Glass Panes': String(form.get('totalGlassPanes') ?? ''),
 				'Count - Double Hung': String(form.get('countDoubleHung') ?? ''),
@@ -95,6 +93,19 @@ if (!property) {
 }
 
 const client = property['Client ID'] ? await findById(env, clientConfig, property['Client ID']) : null;
+
+// One-time compatibility default: if this property predates 'Exterior
+// Cleaning Method' but has the legacy 'Water-Fed Pole Suitable (Y/N)'
+// checkbox set, pre-select the matching new radio option instead of
+// showing nothing selected — never writes anything until the form is
+// actually saved.
+const exteriorCleaningMethodValue =
+	property['Exterior Cleaning Method'] ||
+	(property['Water-Fed Pole Suitable (Y/N)'] === 'Y'
+		? 'Water-Fed Pole Suitable'
+		: property['Water-Fed Pole Suitable (Y/N)'] === 'N'
+			? 'Traditional Cleaning Required'
+			: '');
 
 const [allQuotes, allJobs, allOpportunities, allWalkthroughs, pricingConfig, activityRows] = await Promise.all([
 	listActiveRows(env, quoteConfig),
@@ -237,117 +248,103 @@ const timeline = activityRows
 					<label>Unit identifier (optional) <input type="text" name="unitIdentifier" value={property['Unit Identifier']} /></label>
 				</fieldset>
 
-				<fieldset>
-					<legend>Access &amp; equipment</legend>
-					<p>Overall access difficulty</p>
-					{ACCESS_DIFFICULTY_OPTIONS.map((o) => (
-						<label style="display: block;">
-							<input
-								type="checkbox"
-								name="overallAccessDifficulty"
-								value={o}
-								checked={checkboxValueSelected(property['Overall Access Difficulty'], o)}
-							/> {o}
-						</label>
-					))}
-					<p>Roof access difficulty</p>
-					{ACCESS_DIFFICULTY_OPTIONS.map((o) => (
-						<label style="display: block;">
-							<input
-								type="checkbox"
-								name="roofAccessDifficulty"
-								value={o}
-								checked={checkboxValueSelected(property['Roof Access Difficulty'], o)}
-							/> {o}
-						</label>
-					))}
-					<p>Water access</p>
-					{WATER_ACCESS_OPTIONS.map((o) => (
-						<label style="display: block;">
-							<input
-								type="checkbox"
-								name="waterAccess"
-								value={o}
-								checked={checkboxValueSelected(property['Water Access'], o)}
-							/> {o}
-						</label>
-					))}
-					<p>Equipment suitability</p>
-					{EQUIPMENT_SUITABILITY_OPTIONS.map((o) => (
-						<label style="display: block;">
-							<input
-								type="checkbox"
-								name="equipmentSuitability"
-								value={o}
-								checked={checkboxValueSelected(property['Equipment Suitability'], o)}
-							/> {o}
-						</label>
-					))}
-					<label>
-						<input type="checkbox" name="waterFedPoleSuitable" checked={property['Water-Fed Pole Suitable (Y/N)'] === 'Y'} /> Water-fed pole suitable
-					</label>
-					<p>Ladder requirement</p>
-					{LADDER_REQUIREMENT_OPTIONS.map((o) => (
-						<label style="display: block;">
-							<input
-								type="checkbox"
-								name="ladderRequirement"
-								value={o}
-								checked={checkboxValueSelected(property['Ladder Requirement'], o)}
-							/> {o}
-						</label>
-					))}
-				</fieldset>
+				<h3>Access &amp; conditions</h3>
+				<div class="card-grid">
+					<div class="card">
+						<h3>Access Difficulty</h3>
+						<div class="radio-group">
+							<p class="field-label">Interior Access</p>
+							{ACCESS_LEVEL_OPTIONS.map((o) => (
+								<label><input type="radio" name="interiorAccessDifficulty" value={o} checked={o === property['Interior Access Difficulty']} /> {o}</label>
+							))}
+						</div>
+						<div class="radio-group">
+							<p class="field-label">Exterior Access</p>
+							{ACCESS_LEVEL_OPTIONS.map((o) => (
+								<label><input type="radio" name="exteriorAccessDifficulty" value={o} checked={o === property['Exterior Access Difficulty']} /> {o}</label>
+							))}
+						</div>
+						<label><input type="checkbox" name="roofAccessRequired" checked={property['Roof Access Required (Y/N)'] === 'Y'} /> Roof Access Required</label>
+					</div>
 
-				<fieldset>
-					<legend>Conditions</legend>
-					<label>
-						<input type="checkbox" name="hardWaterHistory" checked={property['Hard Water History (Y/N)'] === 'Y'} /> Hard water history
-					</label>
-					<label>
-						<input type="checkbox" name="constructionDebris" checked={property['Construction Debris (Y/N)'] === 'Y'} /> Construction debris
-					</label>
-					<p>Window condition</p>
-					{WINDOW_CONDITION_OPTIONS.map((o) => (
-						<label style="display: block;">
-							<input
-								type="checkbox"
-								name="windowCondition"
-								value={o}
-								checked={checkboxValueSelected(property['Window Condition'], o)}
-							/> {o}
-						</label>
-					))}
-				</fieldset>
+					<div class="card">
+						<h3>Water &amp; Exterior Method</h3>
+						<div class="radio-group">
+							<p class="field-label">Water Source</p>
+							{WATER_SOURCE_OPTIONS.map((o) => (
+								<label><input type="radio" name="waterSource" value={o} checked={o === property['Water Source']} /> {o}</label>
+							))}
+						</div>
+						<div class="radio-group">
+							<p class="field-label">Exterior Cleaning Method</p>
+							{EXTERIOR_CLEANING_METHOD_OPTIONS.map((o) => (
+								<label><input type="radio" name="exteriorCleaningMethod" value={o} checked={o === exteriorCleaningMethodValue} /> {o}</label>
+							))}
+						</div>
+					</div>
 
-				<fieldset>
-					<legend>Windows &amp; doors</legend>
+					<div class="card">
+						<h3>Ladder Requirement</h3>
+						<div class="radio-group">
+							<p class="field-label">Highest Ladder Required</p>
+							{LADDER_REQUIREMENT_OPTIONS.map((o) => (
+								<label><input type="radio" name="highestLadderRequired" value={o} checked={o === property['Ladder Requirement']} /> {o}</label>
+							))}
+						</div>
+					</div>
+
+					<div class="card">
+						<h3>Window Condition</h3>
+						<div class="radio-group">
+							{WINDOW_CONDITION_OPTIONS.map((o) => (
+								<label><input type="radio" name="windowCondition" value={o} checked={o === property['Window Condition']} /> {o}</label>
+							))}
+						</div>
+						<label><input type="checkbox" name="hardWaterStainingPresent" checked={property['Hard Water History (Y/N)'] === 'Y'} /> Hard Water Staining Present</label>
+						<label><input type="checkbox" name="constructionDebrisPresent" checked={property['Construction Debris (Y/N)'] === 'Y'} /> Construction Debris Present</label>
+					</div>
+				</div>
+
+				<h3>Windows &amp; doors</h3>
+				<div class="card">
+					<h3>Summary</h3>
 					<label>
-						Total window units (subjective — what counts as one "window" varies)
+						Window Units
+						<span class="field-hint">Approximate number of window assemblies.</span>
 						<input type="number" class="field-numeric" name="totalWindowUnits" value={property['Total Window Units']} />
 					</label>
 					<label>
-						Total panes (all glass — sum of the breakdown below)
+						Total Glass Panes
+						<span class="field-hint">Total number of individual glass panes.</span>
 						<input type="number" class="field-numeric" id="totalPanes" name="totalGlassPanes" value={property['Total Glass Panes']} />
 					</label>
-
-					<p>Pane breakdown by type</p>
-					<span class="field-hint">These should add up to Total panes above.</span>
-					<label>Double hung <input type="number" class="field-numeric pane-breakdown-field" name="countDoubleHung" value={property['Count - Double Hung']} /></label>
-					<label>Casement <input type="number" class="field-numeric pane-breakdown-field" name="countCasement" value={property['Count - Casement']} /></label>
-					<label>Picture <input type="number" class="field-numeric pane-breakdown-field" name="countPicture" value={property['Count - Picture']} /></label>
-					<label>Sliding windows <input type="number" class="field-numeric pane-breakdown-field" name="countSliding" value={property['Count - Sliding']} /></label>
-					<label>French / divided-light <input type="number" class="field-numeric pane-breakdown-field" name="countFrench" value={property['Count - French']} /></label>
-					<label>Awning <input type="number" class="field-numeric pane-breakdown-field" name="countAwning" value={property['Count - Awning']} /></label>
-					<label>Skylights <input type="number" class="field-numeric pane-breakdown-field" name="countSkylights" value={property['Count - Skylights']} /></label>
-					<label>Sliding glass door panes <input type="number" class="field-numeric pane-breakdown-field" name="slidingGlassDoorPaneCount" value={property['Sliding Glass Door Pane Count']} /></label>
 					<p id="paneBreakdownStatus" class="field-status"></p>
+				</div>
 
-					<p>Accessories</p>
-					<label>Solar panels <input type="number" class="field-numeric" name="countSolarPanels" value={property['Count - Solar Panels']} /></label>
-					<label>Screens <input type="number" class="field-numeric" name="screenCount" value={property['Screen Count']} /></label>
-					<label>Tracks <input type="number" class="field-numeric" name="trackCount" value={property['Track Count']} /></label>
-				</fieldset>
+				<div class="card-grid">
+					<div class="card">
+						<h3>Pane Breakdown</h3>
+						<span class="field-hint">These should add up to Total Glass Panes above.</span>
+						<div class="pane-grid">
+							<label>Double Hung <input type="number" class="field-numeric pane-breakdown-field" name="countDoubleHung" value={property['Count - Double Hung']} /></label>
+							<label>Casement <input type="number" class="field-numeric pane-breakdown-field" name="countCasement" value={property['Count - Casement']} /></label>
+							<label>Picture <input type="number" class="field-numeric pane-breakdown-field" name="countPicture" value={property['Count - Picture']} /></label>
+							<label>Sliding Window <input type="number" class="field-numeric pane-breakdown-field" name="countSliding" value={property['Count - Sliding']} /></label>
+							<label>French / Divided-Light <input type="number" class="field-numeric pane-breakdown-field" name="countFrench" value={property['Count - French']} /></label>
+							<label>Awning <input type="number" class="field-numeric pane-breakdown-field" name="countAwning" value={property['Count - Awning']} /></label>
+							<label>Skylight <input type="number" class="field-numeric pane-breakdown-field" name="countSkylights" value={property['Count - Skylights']} /></label>
+							<label>Sliding Glass Door <input type="number" class="field-numeric pane-breakdown-field" name="slidingGlassDoorPaneCount" value={property['Sliding Glass Door Pane Count']} /></label>
+						</div>
+					</div>
+
+					<div class="card">
+						<h3>Accessories</h3>
+						<span class="field-hint">Not included in pane totals.</span>
+						<label>Screens <input type="number" class="field-numeric" name="screenCount" value={property['Screen Count']} /></label>
+						<label>Tracks <input type="number" class="field-numeric" name="trackCount" value={property['Track Count']} /></label>
+						<label>Solar Panels <input type="number" class="field-numeric" name="countSolarPanels" value={property['Count - Solar Panels']} /></label>
+					</div>
+				</div>
 
 				<fieldset>
 					<legend>Maintenance</legend>
@@ -508,10 +505,10 @@ const timeline = activityRows
 				return;
 			}
 			if (breakdownTotal === totalPanes) {
-				status.textContent = `✓ Breakdown total (${breakdownTotal}) matches Total panes`;
-				status.className = 'field-status';
+				status.textContent = `✓ Pane breakdown matches total panes`;
+				status.className = 'field-status field-status-ok';
 			} else {
-				status.textContent = `Breakdown total (${breakdownTotal}) doesn't match Total panes (${totalPanes}) — double-check your count`;
+				status.textContent = `⚠ Pane breakdown totals ${breakdownTotal} of ${totalPanes} panes`;
 				status.className = 'field-status mismatch';
 			}
 		}
