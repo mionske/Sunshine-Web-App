@@ -13,9 +13,11 @@ import {
 	confirmQBLink,
 	findMatchCandidates,
 	nameSimilarity,
+	parseFlatAddress,
 	qboEstimateWebUrl,
 	QBRelinkConfirmationRequiredError,
 	scoreMatch,
+	splitDisplayName,
 	suggestQBLinksForClient,
 } from './matching';
 
@@ -197,5 +199,39 @@ describe('findMatchCandidates / confirmQBLink / suggestQBLinksForClient (Sheets-
 describe('QBO web URL helpers', () => {
 	it('build deep links to the QBO web UI', () => {
 		expect(qboEstimateWebUrl('123')).toBe('https://qbo.intuit.com/app/estimate?txnId=123');
+	});
+});
+
+describe('splitDisplayName', () => {
+	it('splits a simple "First Last" name', () => {
+		expect(splitDisplayName('Perry Towle')).toEqual({ firstName: 'Perry', lastName: 'Towle' });
+	});
+
+	it('splits on the last whitespace run for a multi-part name', () => {
+		expect(splitDisplayName('Mary Jane Smith')).toEqual({ firstName: 'Mary Jane', lastName: 'Smith' });
+	});
+
+	it('puts the whole name as first name when there is no whitespace, rather than guessing', () => {
+		expect(splitDisplayName('Cher')).toEqual({ firstName: 'Cher', lastName: '' });
+	});
+});
+
+describe('parseFlatAddress', () => {
+	it('splits a fully-formed flattened address into its 4 parts', () => {
+		expect(parseFlatAddress('601 Canyon Blvd, Boulder, Colorado, 80302')).toEqual({
+			street: '601 Canyon Blvd',
+			city: 'Boulder',
+			state: 'Colorado',
+			zip: '80302',
+		});
+	});
+
+	it('keeps the whole string as street when it does not have exactly 4 parts, rather than mis-assigning', () => {
+		expect(parseFlatAddress('601 Canyon Blvd, Boulder')).toEqual({
+			street: '601 Canyon Blvd, Boulder',
+			city: '',
+			state: '',
+			zip: '',
+		});
 	});
 });

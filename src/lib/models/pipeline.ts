@@ -31,6 +31,12 @@ export const pipelineSchema = z.object({
 	'Archived At': blank(),
 	'Lost Reason': blank(),
 	Notes: blank(),
+	// Set only for opportunities this app itself created/maintains from a
+	// QuickBooks Estimate (see lib/qb/pipelineSync.ts) — never set by any
+	// manually-created opportunity. Lets the sync find "its own" card again
+	// on a later run (to update Stage) without touching opportunities the
+	// owner created and manages by hand.
+	'QB Estimate ID': blank(),
 });
 
 export type Opportunity = z.infer<typeof pipelineSchema>;

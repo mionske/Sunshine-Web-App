@@ -12,6 +12,7 @@ import { queryAllPages, queryById } from './client';
 import { mapCustomer, mapEstimate, mapInvoice, mapPayment, type RawQBCustomer, type RawQBEstimate, type RawQBInvoice, type RawQBPayment } from './mapping';
 import type { QBOAuthEnv } from './oauth';
 import type { QBTokenStore } from './tokens';
+import { syncPipelineFromEstimates, type PipelineSyncResult } from './pipelineSync';
 
 export type QBSyncEnv = SheetsEnv & QBOAuthEnv;
 
@@ -69,6 +70,7 @@ export interface SyncResult {
 	estimates: { created: number; updated: number };
 	invoices: { created: number; updated: number };
 	payments: { created: number; updated: number };
+	pipeline: PipelineSyncResult;
 }
 
 /** Full paginated sync of all four entities, incremental since the last
@@ -95,6 +97,7 @@ export async function runFullSync(env: QBSyncEnv, meta: { user?: string; request
 			estimates: await upsertMirrorRows(env, qbEstimateConfig, rawEstimates.map(mapEstimate)),
 			invoices: await upsertMirrorRows(env, qbInvoiceConfig, rawInvoices.map((r) => mapInvoice(r, today))),
 			payments: await upsertMirrorRows(env, qbPaymentConfig, rawPayments.map(mapPayment)),
+			pipeline: await syncPipelineFromEstimates(env, meta),
 		};
 
 		await setWatermark(env.QB_TOKENS, syncStartedAt);
@@ -106,7 +109,7 @@ export async function runFullSync(env: QBSyncEnv, meta: { user?: string; request
 			action: 'QuickBooks sync succeeded',
 			user: meta.user,
 			requestId: meta.requestId,
-			notes: `Customers +${result.customers.created}/${result.customers.updated} · Estimates +${result.estimates.created}/${result.estimates.updated} · Invoices +${result.invoices.created}/${result.invoices.updated} · Payments +${result.payments.created}/${result.payments.updated}`,
+			notes: `Customers +${result.customers.created}/${result.customers.updated} · Estimates +${result.estimates.created}/${result.estimates.updated} · Invoices +${result.invoices.created}/${result.invoices.updated} · Payments +${result.payments.created}/${result.payments.updated} · Pipeline +${result.pipeline.created}/${result.pipeline.updated} (${result.pipeline.skippedUnlinked} skipped — unlinked QB Customer)`,
 		});
 
 		return result;
@@ -144,7 +147,14 @@ export async function syncSingleEntity(env: QBSyncEnv, entityType: QBEntityType,
 		if (raw) await upsertMirrorRows(env, qbCustomerConfig, [mapCustomer(raw)]);
 	} else if (entityType === 'Estimate') {
 		const raw = await queryById<RawQBEstimate>(env, 'Estimate', qbId);
-		if (raw) await upsertMirrorRows(env, qbEstimateConfig, [mapEstimate(raw)]);
+		if (raw) {
+			await upsertMirrorRows(env, qbEstimateConfig, [mapEstimate(raw)]);
+			// Keeps the linked Pipeline card (if any) in step with this
+			// Estimate's new status right away, rather than waiting for the
+			// next full sync — cheap here since it's the same small
+			// reconciliation the full sync runs, just triggered a beat sooner.
+			await syncPipelineFromEstimates(env);
+		}
 	} else if (entityType === 'Invoice') {
 		const raw = await queryById<RawQBInvoice>(env, 'Invoice', qbId);
 		if (raw) await upsertMirrorRows(env, qbInvoiceConfig, [mapInvoice(raw, today)]);

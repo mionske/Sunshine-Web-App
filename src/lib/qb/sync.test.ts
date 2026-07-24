@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { installFakeFetch, type FakeFetchHandle } from '../sheets/testHarness';
 import { _clearHeaderCacheForTests } from '../sheets/rows';
+import { clientSchema } from '../models/client';
+import { pipelineSchema } from '../models/pipeline';
 import { qbCustomerSchema } from '../models/qbCustomer';
 import { qbEstimateSchema } from '../models/qbEstimate';
 import { qbInvoiceSchema } from '../models/qbInvoice';
@@ -41,6 +43,8 @@ describe('QB sync', () => {
 		harness.spreadsheet.setTab('QBEstimates', [Object.keys(qbEstimateSchema.shape)]);
 		harness.spreadsheet.setTab('QBInvoices', [Object.keys(qbInvoiceSchema.shape)]);
 		harness.spreadsheet.setTab('QBPayments', [Object.keys(qbPaymentSchema.shape)]);
+		harness.spreadsheet.setTab('Clients', [Object.keys(clientSchema.shape)]);
+		harness.spreadsheet.setTab('Pipeline', [Object.keys(pipelineSchema.shape)]);
 		harness.spreadsheet.setTab('ActivityLog', [ACTIVITY_LOG_HEADERS]);
 
 		// Layer a QB-API fake on top of the Sheets fake: QB-host URLs go to

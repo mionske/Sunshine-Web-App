@@ -24,7 +24,7 @@ if (Astro.request.method === 'POST') {
 			return Astro.redirect('/qb-settings?disconnected=1');
 		} else if (action === 'sync-now') {
 			const result = await runFullSync(env);
-			syncResult = `Customers +${result.customers.created}/${result.customers.updated} · Estimates +${result.estimates.created}/${result.estimates.updated} · Invoices +${result.invoices.created}/${result.invoices.updated} · Payments +${result.payments.created}/${result.payments.updated}`;
+			syncResult = `Customers +${result.customers.created}/${result.customers.updated} · Estimates +${result.estimates.created}/${result.estimates.updated} · Invoices +${result.invoices.created}/${result.invoices.updated} · Payments +${result.payments.created}/${result.payments.updated} · Pipeline +${result.pipeline.created}/${result.pipeline.updated}${result.pipeline.skippedUnlinked > 0 ? ` (${result.pipeline.skippedUnlinked} skipped — link the QB Customer first)` : ''}`;
 		}
 	} catch (e) {
 		error = (e as Error).message;

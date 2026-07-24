@@ -50,6 +50,35 @@ function extractZip(address: string): string {
 	return address.match(/(\d{5})(?:-\d{4})?\s*$/)?.[1] ?? '';
 }
 
+/** Best-effort split of a QB "Display Name" into First/Last for creating a
+ * new Client from a QB Customer — QBO's Display Name is usually "First
+ * Last", so this splits on the LAST whitespace run (handles "Mary Jane
+ * Smith" -> First "Mary Jane", Last "Smith"). No whitespace at all -> the
+ * whole name becomes the first name, last stays blank, rather than
+ * guessing. Just a starting point; the owner can edit the result
+ * afterward like any other Client field. */
+export function splitDisplayName(displayName: string): { firstName: string; lastName: string } {
+	const trimmed = displayName.trim();
+	const lastSpace = trimmed.lastIndexOf(' ');
+	if (lastSpace === -1) return { firstName: trimmed, lastName: '' };
+	return { firstName: trimmed.slice(0, lastSpace).trim(), lastName: trimmed.slice(lastSpace + 1).trim() };
+}
+
+/** Best-effort inverse of mapping.ts's flattenAddress() — only splits when
+ * the flattened string has exactly the 4 expected comma-separated parts
+ * (street, city, state, zip); otherwise the whole string is kept as-is in
+ * `street` and the rest left blank rather than risk mis-assigning parts.
+ * Used only to prefill the "Add property" form after creating a Client
+ * from a QB Customer — never auto-saved, so a wrong guess is just an edit
+ * away. */
+export function parseFlatAddress(address: string): { street: string; city: string; state: string; zip: string } {
+	const parts = address.split(',').map((p) => p.trim()).filter(Boolean);
+	if (parts.length === 4) {
+		return { street: parts[0], city: parts[1], state: parts[2], zip: parts[3] };
+	}
+	return { street: address, city: '', state: '', zip: '' };
+}
+
 export interface MatchScoreBreakdown {
 	emailMatch: boolean;
 	phoneMatch: boolean;

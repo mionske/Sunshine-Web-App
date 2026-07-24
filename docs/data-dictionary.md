@@ -101,7 +101,10 @@ only the layout and copy.
 ## Pipeline (sales opportunities only — not job operations)
 Opportunity ID, Client ID, Property ID, Primary Quote ID, Stage, Status,
 Estimated Value, Referral Source, Next Follow-up Date, Last Contact Date,
-Created At, Updated At, Closed At, Archived At, Lost Reason, Notes.
+Created At, Updated At, Closed At, Archived At, Lost Reason, Notes,
+QB Estimate ID (set only for opportunities this app's own QuickBooks sync
+created/maintains — see the QuickBooks section's "Pipeline auto-sync from
+Estimates"; blank on every manually-created opportunity).
 
 Stages: New Lead → Contacted → Walkthrough Scheduled → Quote Draft →
 Quote Sent → Follow-up → Accepted → Lost. Paid is never a pipeline stage —
@@ -589,6 +592,38 @@ weak-looking candidate the owner can still recognize by eye.
 `confirmQBLink` requires explicit `confirmRelink` confirmation before
 overwriting a Client's
 existing link to a *different* QB Customer.
+
+**Import a QB Customer as a new Client** (`/qb-match-review`'s "Create
+Client from this QB Customer" button): for a QB Customer with no good
+existing Client match, creates a new Client directly from QB's Display
+Name (split into First/Last on the last whitespace run — see
+`splitDisplayName`), Email, and Phone, and links it immediately (no
+separate confirm step, since there's nothing to conflict with). QB's
+billing address is parsed back into street/city/state/zip (`parseFlatAddress`
+— only when the flattened string has exactly the expected 4 comma-separated
+parts, otherwise left as one blob rather than risk mis-assigning it) and
+carried over as a prefill on that new Client's "Add property" form —
+never auto-saved, just a starting point to review before submitting.
+
+**Pipeline auto-sync from Estimates** (`lib/qb/pipelineSync.ts`): for every
+Estimate belonging to an already-*linked* Client, automatically creates (or
+updates the Stage of) exactly one Pipeline opportunity, tracked by a new
+`Pipeline.QB Estimate ID` column so this sync can find "its own" card again
+without ever touching an opportunity the owner created by hand (one with
+no `QB Estimate ID` set). Runs at the end of every full sync and
+immediately after a webhook-triggered Estimate update — QuickBooks is the
+source of truth for these particular cards' Stage. Status mapping
+(`estimateStageMapping`): QBO's Estimate status is one of
+Pending/Accepted/Closed/Rejected — Pending → `Quote Sent` (an Estimate
+existing at all is the strongest signal this app can read automatically
+that a quote went out — QB doesn't separately expose "drafted but not
+sent"), Accepted and Closed both → `Accepted` (Closed most commonly means
+completed/converted in QBO's model, not abandoned), Rejected → `Lost` with
+Lost Reason "QuickBooks Estimate rejected", anything else/blank → `Quote
+Sent`. An Estimate for a QB Customer with no linked Client yet is skipped
+(not queued, not retried specially) — once the owner links it via
+`/qb-match-review`, the next sync picks it up and creates the card, same
+as any other Estimate.
 
 **Setup** (this app's code is ready; connecting a real QuickBooks account
 is a setup step the owner does, not something this app can do on its

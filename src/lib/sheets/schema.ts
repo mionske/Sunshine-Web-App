@@ -98,6 +98,7 @@ export const TAB_SCHEMAS: Record<string, string[]> = {
 		'Archived At',
 		'Lost Reason',
 		'Notes',
+		'QB Estimate ID',
 	],
 	Quotes: [
 		'Quote ID',

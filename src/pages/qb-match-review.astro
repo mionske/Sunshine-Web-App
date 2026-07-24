@@ -1,10 +1,10 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
-import { listActiveRows } from '../lib/sheets';
+import { findById, createRow, listActiveRows } from '../lib/sheets';
 import { qbCustomerConfig } from '../lib/models/qbCustomer';
 import { clientConfig } from '../lib/models/client';
-import { confirmQBLink, findMatchCandidates, QBRelinkConfirmationRequiredError } from '../lib/qb/matching';
+import { confirmQBLink, findMatchCandidates, parseFlatAddress, splitDisplayName, QBRelinkConfirmationRequiredError } from '../lib/qb/matching';
 
 let error: string | null = null;
 
@@ -17,6 +17,26 @@ if (Astro.request.method === 'POST') {
 			const qbCustomerId = String(form.get('qbCustomerId') ?? '');
 			const confirmRelink = form.get('confirmRelink') === 'on';
 			await confirmQBLink(env, clientId, qbCustomerId, { confirmRelink });
+		} else if (action === 'create-client') {
+			const qbCustomerId = String(form.get('qbCustomerId') ?? '');
+			const customer = await findById(env, qbCustomerConfig, qbCustomerId);
+			if (!customer) throw new Error(`QB Customer "${qbCustomerId}" not found`);
+
+			const { firstName, lastName } = splitDisplayName(customer['Display Name']);
+			const newClient = await createRow(env, clientConfig, {
+				'First Name': firstName,
+				'Last Name': lastName,
+				Phone: customer.Phone,
+				Email: customer.Email,
+				'QB Customer ID': qbCustomerId,
+			});
+
+			// Prefills the new Client's "Add property" form with QB's own
+			// billing address — never auto-saved, just a starting point the
+			// owner reviews/corrects before actually creating the Property.
+			const { street, city, state, zip } = parseFlatAddress(customer.Address);
+			const prefill = new URLSearchParams({ prefillStreet: street, prefillCity: city, prefillState: state, prefillZip: zip });
+			return Astro.redirect(`/clients/${newClient['Client ID']}?${prefill.toString()}`);
 		}
 		return Astro.redirect('/qb-match-review');
 	} catch (e) {
@@ -62,6 +82,13 @@ const rows = await Promise.all(
 						{customer.Phone && <>{customer.Phone} · </>}
 						{customer.Address}
 					</p>
+
+					<form method="POST" style="margin-bottom: 1rem;">
+						<input type="hidden" name="_action" value="create-client" />
+						<input type="hidden" name="qbCustomerId" value={customer['QB Customer ID']} />
+						<button type="submit">Create Client from this QB Customer</button>
+						<p class="field-hint">Pulls name/email/phone straight from QuickBooks into a new Client, linked immediately — no retyping. Its billing address prefills the new Client's "Add property" form for you to review before saving.</p>
+					</form>
 
 					{candidates.length === 0 ? (
 						<p>No Clients exist yet to link this QB Customer to.</p>
