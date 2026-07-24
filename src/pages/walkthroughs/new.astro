@@ -2,7 +2,7 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { findById } from '../../lib/sheets';
-import { propertyConfig } from '../../lib/models/property';
+import { propertyConfig, derivePropertyCompatDefaults } from '../../lib/models/property';
 import { clientConfig } from '../../lib/models/client';
 import WalkthroughWizard from '../../components/WalkthroughWizard';
 
@@ -14,6 +14,20 @@ if (!property) {
 	return new Response('Property not found — start a walkthrough from a Property page.', { status: 404 });
 }
 const client = property['Client ID'] ? await findById(env, clientConfig, property['Client ID']) : null;
+
+// Read-only reference so the permanent property record doesn't have to be
+// re-entered at every visit — see the data-ownership separation addendum.
+const compat = derivePropertyCompatDefaults(property);
+const propertyReference = {
+	totalWindowUnits: property['Total Window Units'],
+	totalGlassPanes: property['Total Glass Panes'],
+	stories: property.Stories,
+	exteriorCleaningMethod: compat.exteriorCleaningMethodValue,
+	ladderRequirement: compat.ladderRequirementValue,
+	waterAccess: compat.waterAccessValue,
+	roofAccessRequired: property['Roof Access Required (Y/N)'] === 'Y',
+	petNotes: property['Pet Notes'],
+};
 ---
 
 <BaseLayout title="Walkthrough">
@@ -21,6 +35,12 @@ const client = property['Client ID'] ? await findById(env, clientConfig, propert
 		<p><a href={`/properties/${propertyId}`}>← Property</a></p>
 		<h1>Walkthrough — {property['Street Address']}, {property.City}</h1>
 		{client && <p>{client['First Name']} {client['Last Name']}</p>}
-		<WalkthroughWizard client:load clientId={property['Client ID']} propertyId={propertyId} opportunityId={opportunityId} />
+		<WalkthroughWizard
+			client:load
+			clientId={property['Client ID']}
+			propertyId={propertyId}
+			opportunityId={opportunityId}
+			propertyReference={propertyReference}
+		/>
 	</main>
 </BaseLayout>

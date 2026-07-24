@@ -94,6 +94,11 @@ export async function syncPipelineFromEstimates(env: SheetsEnv, meta: { user?: s
 				requestId: meta.requestId,
 			});
 		} else if (existing.Stage !== stage) {
+			// updateRow already logs this internally via opts.action — no
+			// second explicit logActivity call here (that used to double-log
+			// every stage sync, part of the "repeated QuickBooks events
+			// seconds apart" duplication the Activity Timeline cleanup fixed
+			// at the source).
 			await updateRow(
 				env,
 				pipelineConfig,
@@ -102,15 +107,6 @@ export async function syncPipelineFromEstimates(env: SheetsEnv, meta: { user?: s
 				{ action: 'Pipeline stage synced from QuickBooks Estimate', user: meta.user, requestId: meta.requestId }
 			);
 			updated++;
-			await logActivity(env, {
-				entityType: 'Opportunity',
-				entityId: existing['Opportunity ID'],
-				action: 'Pipeline stage synced from QuickBooks Estimate',
-				previousValue: existing.Stage,
-				newValue: stage,
-				user: meta.user,
-				requestId: meta.requestId,
-			});
 		}
 	}
 

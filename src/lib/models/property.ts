@@ -46,8 +46,19 @@ export const WINDOW_CONDITION_OPTIONS = ['Maintenance', 'Moderate Buildup', 'Hea
 // already existed as a free-text field (reused rather than duplicated with
 // a new "Preferred Service Frequency" column); this just gives it the
 // defined option set the spec calls for.
+// Data-ownership separation: these are customer preferences, not physical
+// property facts — MOVED to Client (see lib/models/client.ts, which
+// imports these same two option sets rather than duplicating them). Kept
+// exported here since the legacy Property columns below still reuse them
+// for compat display.
 export const MAINTENANCE_FREQUENCY_OPTIONS = ['One Time', 'Quarterly', 'Twice Yearly', 'Yearly', 'Custom', 'Unknown'] as const;
 export const PREFERRED_SERVICE_SEASON_OPTIONS = ['Spring', 'Summer', 'Fall', 'Winter', 'No preference', 'Unknown'] as const;
+
+// Data-ownership separation redesign: replaces the two standalone "Easy
+// Parking And Setup (Y/N)" / "Limited Parking Or Setup Space (Y/N)"
+// checkboxes below with one segmented field, matching how every other
+// difficulty-style property field already works.
+export const PARKING_AND_SETUP_OPTIONS = ['Easy', 'Limited', 'Difficult', 'Unknown'] as const;
 
 export const propertySchema = z.object({
 	'Property ID': z.string().min(1),
@@ -76,6 +87,13 @@ export const propertySchema = z.object({
 	// above already covers roof access; not duplicated here.
 	'High Interior Glass (Y/N)': blank(),
 	'Steep Or Uneven Terrain (Y/N)': blank(),
+	// Data-ownership separation: these two describe what a *particular
+	// visit* found, not a permanent fact about the property (the furniture
+	// gets moved back, the obstruction gets cleared) — MOVED to Walkthrough
+	// ('Exterior Access Obstructed (Y/N)' / 'Furniture Or Belongings
+	// Movement Required (Y/N)', same names, see lib/models/walkthrough.ts).
+	// Kept declared so pre-existing values still round-trip; the new
+	// Property form never writes either again.
 	'Exterior Access Obstructed (Y/N)': blank(),
 	'Furniture Or Belongings Movement Required (Y/N)': blank(),
 	'Restricted Work Or Setup Area (Y/N)': blank(),
@@ -88,11 +106,21 @@ export const propertySchema = z.object({
 	// an earlier redesign — that column keeps its original name untouched.
 	'Water Access Method': blank(),
 	'Water Supply': blank(),
+	// Data-ownership separation: replaced by the single 'Parking And Setup
+	// Difficulty' segmented field below (PARKING_AND_SETUP_OPTIONS). Kept
+	// declared for compat; the new form derives a one-time default from
+	// these two (Limited wins if both are somehow set) and never writes
+	// either checkbox again.
 	'Easy Parking And Setup (Y/N)': blank(),
 	'Limited Parking Or Setup Space (Y/N)': blank(),
+	'Parking And Setup Difficulty': blank(),
 	'Gate Or Entry Restriction (Y/N)': blank(),
 	'Long Hose Run (Y/N)': blank(),
 	'Water Source Far From Work Area (Y/N)': blank(),
+	// Data-ownership separation: merged into the surviving 'Access Notes'
+	// field below (combined once, on first load after this shipped, if
+	// both held content — see derivePropertyCompatDefaults). Kept declared
+	// for compat; never written again.
 	'Site Access Notes': blank(),
 	// Legacy — superseded by the fields above. 'Ladder Requirement' and
 	// 'Window Condition' are reused as-is below (only their form widget
@@ -101,16 +129,21 @@ export const propertySchema = z.object({
 	'Overall Access Difficulty': blank(),
 	'Water Access': blank(),
 	'Equipment Suitability': blank(),
-	// Reused as-is under the new Window Condition card, as "Hard Water
-	// Staining Present" / "Construction Debris Present" — the same
-	// property-level flags, just presented as supplemental checkboxes
-	// alongside Window Condition instead of their own separate fieldset.
+	// Data-ownership separation: all Glass Condition fields describe what a
+	// *particular visit* observed (buildup, residue, staining), not a
+	// permanent property fact — a maintenance visit can change every one of
+	// these. MOVED to Walkthrough: 'Hard Water History (Y/N)' and
+	// 'Construction Debris (Y/N)' are reused as Walkthrough's pre-existing
+	// 'Hard Water Present (Y/N)' / 'Construction Debris Present (Y/N)'
+	// (already collected there, not duplicated); 'Window Condition' is
+	// reused as Walkthrough's pre-existing 'Exterior Condition' (the one
+	// that already feeds calculateQuote); the remaining four flags plus
+	// Condition Notes are new Walkthrough columns (no prior Walkthrough
+	// equivalent). All kept declared here for compat; the new Property
+	// form never writes any of them again.
 	'Hard Water History (Y/N)': blank(),
 	'Construction Debris (Y/N)': blank(),
 	'Window Condition': blank(),
-	// Glass Condition redesign — supplements the Window Condition scale
-	// with specific known flags. Hard Water History / Construction Debris
-	// above already cover two of the mockup's six flags; not duplicated.
 	'Silicone Adhesive Or Sticker Residue (Y/N)': blank(),
 	'Heavy Interior Residue (Y/N)': blank(),
 	'Oxidized Frames Or Screens (Y/N)': blank(),
@@ -118,6 +151,13 @@ export const propertySchema = z.object({
 	'Condition Notes': blank(),
 	'Total Window Units': blank(),
 	'Total Glass Panes': blank(),
+	// Data-ownership separation (Windows & Doors simplification): the new
+	// primary "Standard Windows" aggregate — a quick top-level count
+	// distinct from the detailed Double Hung/Casement/Picture/Sliding
+	// Window breakdown below, exactly the same relationship Total Glass
+	// Panes already has to its own detailed breakdown. Optional — never
+	// required just because the detailed fields are used, and vice versa.
+	'Count - Standard': blank(),
 	// Windows & Doors redesign — set only via the "Mark Inventory Verified"
 	// action (never auto-set on a plain field save), so it reflects an
 	// explicit "I checked this is still accurate" moment, not just "someone
@@ -133,11 +173,27 @@ export const propertySchema = z.object({
 	'Count - Solar Panels': blank(),
 	'Screen Count': blank(),
 	'Track Count': blank(),
+	// Data-ownership separation: both are customer preferences (a client
+	// may move, sell, or own multiple properties without the preference
+	// changing) — MOVED to Client (same names, see lib/models/client.ts).
+	// Copied onto the linked Client the first time this loads if the
+	// Client's own field is still blank, never overwriting an existing
+	// Client value. Kept declared for compat; the new Property form never
+	// writes either again.
 	'Desired Maintenance Frequency': blank(),
-	// Distinct from "Next Scheduled Visit" below: that one is a confirmed
-	// date once something is actually on the calendar; this is a planning/
-	// reminder estimate — informational only, never auto-creates a Job.
 	'Preferred Service Season': blank(),
+	// Data-ownership separation: all four below were manually-typed CRM/
+	// scheduling fields with no connection to the real Job/review data
+	// that already tracks this. Next Recommended Service Date and Next
+	// Scheduled Visit are superseded by values derived live from Jobs (see
+	// properties/[id].astro's summary strip); Last Review Requested/
+	// Received Date are superseded by Job's real, already-working 'Review
+	// Requested At'/'Review Left' fields (used by the Dashboard's review
+	// reminders) — these two were always a disconnected parallel system.
+	// Maintenance Notes has no single auto-obvious destination and is
+	// simply dropped from the editable form; its historical content stays
+	// in the legacy column. Kept declared for compat; the new Property
+	// form never writes any of these four again.
 	'Next Recommended Service Date': blank(),
 	'Maintenance Notes': blank(),
 	'Next Scheduled Visit': blank(),
@@ -190,6 +246,10 @@ export interface PropertyCompatDefaults {
 	ladderRequirementValue: string;
 	waterAccessValue: string;
 	waterSupplyValue: string;
+	parkingAndSetupValue: string;
+	/** Merge of the legacy 'Site Access Notes' + 'Access Notes' columns —
+	 * see derivePropertyCompatDefaults for the exact combination rule. */
+	accessNotesValue: string;
 }
 
 /**
@@ -239,5 +299,28 @@ export function derivePropertyCompatDefaults(property: Property): PropertyCompat
 					: '');
 	const waterSupplyValue = property['Water Supply'] || (property['Water Source'] === 'Well Water' ? 'Well' : '');
 
-	return { exteriorCleaningMethodValue, ladderRequirementValue, waterAccessValue, waterSupplyValue };
+	// Data-ownership separation: 'Easy Parking And Setup (Y/N)' / 'Limited
+	// Parking Or Setup Space (Y/N)' collapse into one segmented field.
+	// Limited wins if a property somehow has both checked, since that's the
+	// more operationally important case to surface.
+	const parkingAndSetupValue =
+		property['Parking And Setup Difficulty'] ||
+		(property['Limited Parking Or Setup Space (Y/N)'] === 'Y'
+			? 'Limited'
+			: property['Easy Parking And Setup (Y/N)'] === 'Y'
+				? 'Easy'
+				: '');
+
+	// Data-ownership separation: 'Site Access Notes' merges into the
+	// surviving 'Access Notes' field. If only one has content, it passes
+	// through unchanged; if both do, they're combined (labeled, so neither
+	// is silently discarded) the same way every time this renders, until
+	// the owner actually saves the property and the combined text becomes
+	// the new 'Access Notes' value.
+	const accessNotesValue =
+		property['Site Access Notes'] && property['Access Notes']
+			? `Site access:\n${property['Site Access Notes']}\n\nAdditional setup:\n${property['Access Notes']}`
+			: property['Access Notes'] || property['Site Access Notes'];
+
+	return { exteriorCleaningMethodValue, ladderRequirementValue, waterAccessValue, waterSupplyValue, parkingAndSetupValue, accessNotesValue };
 }

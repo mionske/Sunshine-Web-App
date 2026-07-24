@@ -195,6 +195,19 @@ export interface SaveWalkthroughPayload {
 	roofAccessRequired: string;
 	ownerOverridePrice: string;
 	notes: string;
+	// Data-ownership separation: temporary condition/access observations
+	// that used to live on Property — see walkthrough.ts for why these
+	// belong here instead. Reporting only, none of these feed
+	// calculateQuote (matching exteriorCondition/hardWaterPresent/
+	// constructionDebrisPresent/accessDifficulty above, which already do).
+	siliconeResidue?: boolean;
+	heavyInteriorResidue?: boolean;
+	oxidizedFramesOrScreens?: boolean;
+	conditionVariesByArea?: boolean;
+	conditionNotes?: string;
+	exteriorAccessObstructed?: boolean;
+	furnitureMovementRequired?: boolean;
+	temporaryAccessNotes?: string;
 	items: WalkthroughItemInput[];
 }
 
@@ -267,6 +280,14 @@ export async function saveWalkthrough(
 						'Owner Override Price': payload.ownerOverridePrice,
 						'Pricing Config ID': pricing.pricingConfigId,
 						Notes: payload.notes,
+						'Silicone Adhesive Or Sticker Residue (Y/N)': payload.siliconeResidue ? 'Y' : 'N',
+						'Heavy Interior Residue (Y/N)': payload.heavyInteriorResidue ? 'Y' : 'N',
+						'Oxidized Frames Or Screens (Y/N)': payload.oxidizedFramesOrScreens ? 'Y' : 'N',
+						'Condition Varies By Area (Y/N)': payload.conditionVariesByArea ? 'Y' : 'N',
+						'Condition Notes': payload.conditionNotes ?? '',
+						'Exterior Access Obstructed (Y/N)': payload.exteriorAccessObstructed ? 'Y' : 'N',
+						'Furniture Or Belongings Movement Required (Y/N)': payload.furnitureMovementRequired ? 'Y' : 'N',
+						'Temporary Access Notes': payload.temporaryAccessNotes ?? '',
 					},
 				],
 			},

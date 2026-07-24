@@ -76,14 +76,18 @@ const reviewReminders = jobs.filter(
 	(j) => COMPLETED_JOB_STATUSES.has(j['Job Status']) && (!j['Review Requested At'] || (!j['Review Left'] || j['Review Left'] === 'Unknown'))
 );
 
-// Seasonal service reminder: Jobs' own maintenance follow-up date/status
-// (set at job completion) plus Properties' Next Recommended Service Date
-// (Phase 9) for properties a follow-up date was never generated for.
+// Seasonal service reminder: Jobs' own maintenance follow-up date/status,
+// set at job completion from the linked Client's Desired Maintenance
+// Frequency (see jobLifecycle.ts's computeNextMaintenanceFollowUpDate).
+// Data-ownership separation: this used to also fall back to Properties'
+// manually-typed 'Next Recommended Service Date' for properties with no
+// completed-job history yet — that field is deprecated (see property.ts),
+// and there's no other data to derive a reminder from for a property with
+// zero completed jobs, so that fallback is simply gone rather than faked.
 const CLOSED_MAINTENANCE_STATUSES = new Set(['Scheduled', 'Declined']);
 const maintenanceFollowUps = jobs
 	.filter((j) => j['Next Maintenance Follow-up Date'] && j['Next Maintenance Follow-up Date'] <= today && !CLOSED_MAINTENANCE_STATUSES.has(j['Maintenance Follow-up Status']))
 	.sort((a, b) => a['Next Maintenance Follow-up Date'].localeCompare(b['Next Maintenance Follow-up Date']));
-const propertySeasonalReminders = properties.filter((p) => p['Next Recommended Service Date'] && p['Next Recommended Service Date'] <= today);
 
 // --- Pipeline ----------------------------------------------------------------
 
@@ -274,8 +278,8 @@ const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted
 		</section>
 
 		<section class="card">
-			<h2>Maintenance follow-ups due ({maintenanceFollowUps.length + propertySeasonalReminders.length})</h2>
-			{maintenanceFollowUps.length === 0 && propertySeasonalReminders.length === 0 ? (
+			<h2>Maintenance follow-ups due ({maintenanceFollowUps.length})</h2>
+			{maintenanceFollowUps.length === 0 ? (
 				<p>Nothing due.</p>
 			) : (
 				<ul>
@@ -285,13 +289,6 @@ const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted
 							{j['Property Address'] && <a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>}
 							{' '}— <span class="badge">{j['Maintenance Follow-up Status'] || 'Not yet due'}</span>
 							{' · '}<a href={`/quotes/${j['Quote ID']}`}>view job</a>
-						</li>
-					))}
-					{propertySeasonalReminders.map((p) => (
-						<li>
-							<strong>{p['Next Recommended Service Date']}</strong> —{' '}
-							<a href={googleMapsUrl(fullAddress(p))} target="_blank" rel="noopener noreferrer">{fullAddress(p)}</a>
-							{' '}(planning estimate) · <a href={`/properties/${p['Property ID']}`}>view property</a>
 						</li>
 					))}
 				</ul>

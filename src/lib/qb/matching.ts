@@ -2,7 +2,7 @@
 // queue. Stateless — recomputed live whenever the review screen opens,
 // never cached, never auto-applied. No auto-linking, ever; a human always
 // confirms via confirmQBLink below.
-import { findById, listActiveRows, logActivity, updateRow, type SheetsEnv } from '../sheets';
+import { findById, listActiveRows, updateRow, type SheetsEnv } from '../sheets';
 import { clientConfig, type Client } from '../models/client';
 import { propertyConfig, type Property } from '../models/property';
 import { qbEstimateConfig, type QBEstimate } from '../models/qbEstimate';
@@ -188,17 +188,11 @@ export async function confirmQBLink(
 		throw new QBRelinkConfirmationRequiredError(previousQBCustomerId);
 	}
 
+	// updateRow already logs this activity internally via opts.action — no
+	// second explicit logActivity call here (that used to double-log every
+	// QB link event, the exact "repeated QuickBooks events seconds apart"
+	// duplication the Activity Timeline cleanup fixed at the source).
 	const updated = await updateRow(env, clientConfig, clientId, { 'QB Customer ID': qbCustomerId }, { ...opts, action: 'QB Customer linked' });
-
-	await logActivity(env, {
-		entityType: 'Client',
-		entityId: clientId,
-		action: 'QB Customer linked',
-		previousValue: previousQBCustomerId,
-		newValue: qbCustomerId,
-		user: opts.user,
-		requestId: opts.requestId,
-	});
 
 	return updated;
 }

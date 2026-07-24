@@ -61,6 +61,17 @@ interface WizardState {
 	ladderRequired: string;
 	roofAccessRequired: string;
 	notes: string;
+	// Data-ownership separation: temporary condition/access observations
+	// that used to live on Property — captured per visit here instead,
+	// since a maintenance visit can change every one of them.
+	siliconeResidue: boolean;
+	heavyInteriorResidue: boolean;
+	oxidizedFramesOrScreens: boolean;
+	conditionVariesByArea: boolean;
+	conditionNotes: string;
+	exteriorAccessObstructed: boolean;
+	furnitureMovementRequired: boolean;
+	temporaryAccessNotes: string;
 	items: ItemState[];
 }
 
@@ -79,6 +90,14 @@ function emptyState(): WizardState {
 		ladderRequired: '',
 		roofAccessRequired: '',
 		notes: '',
+		siliconeResidue: false,
+		heavyInteriorResidue: false,
+		oxidizedFramesOrScreens: false,
+		conditionVariesByArea: false,
+		conditionNotes: '',
+		exteriorAccessObstructed: false,
+		furnitureMovementRequired: false,
+		temporaryAccessNotes: '',
 		items: [],
 	};
 }
@@ -95,14 +114,27 @@ interface PricingPreview {
 	pricingConfigId: string;
 }
 
+interface PropertyReference {
+	totalWindowUnits: string;
+	totalGlassPanes: string;
+	stories: string;
+	exteriorCleaningMethod: string;
+	ladderRequirement: string;
+	waterAccess: string;
+	roofAccessRequired: boolean;
+	petNotes: string;
+}
+
 export default function WalkthroughWizard({
 	clientId,
 	propertyId,
 	opportunityId,
+	propertyReference,
 }: {
 	clientId: string;
 	propertyId: string;
 	opportunityId?: string;
+	propertyReference?: PropertyReference;
 }) {
 	const [state, setState] = useState<WizardState>(() => {
 		const saved = typeof window !== 'undefined' ? window.localStorage.getItem(draftKey(propertyId)) : null;
@@ -226,6 +258,14 @@ export default function WalkthroughWizard({
 					roofAccessRequired: state.roofAccessRequired,
 					ownerOverridePrice,
 					notes: state.notes,
+					siliconeResidue: state.siliconeResidue,
+					heavyInteriorResidue: state.heavyInteriorResidue,
+					oxidizedFramesOrScreens: state.oxidizedFramesOrScreens,
+					conditionVariesByArea: state.conditionVariesByArea,
+					conditionNotes: state.conditionNotes,
+					exteriorAccessObstructed: state.exteriorAccessObstructed,
+					furnitureMovementRequired: state.furnitureMovementRequired,
+					temporaryAccessNotes: state.temporaryAccessNotes,
 					items: state.items,
 				}),
 			});
@@ -293,6 +333,29 @@ export default function WalkthroughWizard({
 			{state.step === 0 && (
 				<section className="card">
 					<h2>Start walkthrough</h2>
+
+					{propertyReference && (
+						<div className="card" style={{ background: 'var(--color-cream)' }}>
+							<p className="field-label">Property reference</p>
+							<ul style={{ margin: 0 }}>
+								<li>{propertyReference.totalWindowUnits || '0'} window units</li>
+								<li>{propertyReference.totalGlassPanes || '0'} panes</li>
+								<li>
+									{propertyReference.stories || '— not set'} {propertyReference.stories === '1' ? 'story' : 'stories'}
+								</li>
+								{propertyReference.exteriorCleaningMethod && <li>{propertyReference.exteriorCleaningMethod} typical</li>}
+								{propertyReference.ladderRequirement && <li>{propertyReference.ladderRequirement} required</li>}
+								{propertyReference.waterAccess && <li>Water access: {propertyReference.waterAccess}</li>}
+								{propertyReference.roofAccessRequired && <li>Roof access required</li>}
+								{propertyReference.petNotes && <li>Pet notes: {propertyReference.petNotes}</li>}
+							</ul>
+							<span className="field-hint">
+								From the property record — for reference only. This walkthrough saves its own values below and never
+								changes the property.
+							</span>
+						</div>
+					)}
+
 					<label>
 						Walkthrough date
 						<input type="date" value={state.walkthroughDate} onChange={(e) => update({ walkthroughDate: e.target.value })} />
@@ -318,6 +381,14 @@ export default function WalkthroughWizard({
 						</select>
 					</label>
 					<label>
+						Current condition
+						<select value={state.exteriorCondition} onChange={(e) => update({ exteriorCondition: e.target.value })}>
+							{CONDITION_LEVELS.filter((c) => c !== 'Unknown').map((c) => (
+								<option key={c}>{c}</option>
+							))}
+						</select>
+					</label>
+					<label>
 						<input
 							type="checkbox"
 							checked={state.hardWaterPresent}
@@ -336,6 +407,42 @@ export default function WalkthroughWizard({
 					<label>
 						<input
 							type="checkbox"
+							checked={state.siliconeResidue}
+							onChange={(e) => update({ siliconeResidue: e.target.checked })}
+						/>{' '}
+						Silicone, adhesive, or sticker residue
+					</label>
+					<label>
+						<input
+							type="checkbox"
+							checked={state.heavyInteriorResidue}
+							onChange={(e) => update({ heavyInteriorResidue: e.target.checked })}
+						/>{' '}
+						Heavy interior residue
+					</label>
+					<label>
+						<input
+							type="checkbox"
+							checked={state.oxidizedFramesOrScreens}
+							onChange={(e) => update({ oxidizedFramesOrScreens: e.target.checked })}
+						/>{' '}
+						Oxidized frames or screens
+					</label>
+					<label>
+						<input
+							type="checkbox"
+							checked={state.conditionVariesByArea}
+							onChange={(e) => update({ conditionVariesByArea: e.target.checked })}
+						/>{' '}
+						Condition varies by area
+					</label>
+					<label>
+						Condition notes
+						<textarea value={state.conditionNotes} onChange={(e) => update({ conditionNotes: e.target.value })} />
+					</label>
+					<label>
+						<input
+							type="checkbox"
 							checked={state.waterFedPoleSuitable}
 							onChange={(e) => update({ waterFedPoleSuitable: e.target.checked })}
 						/>{' '}
@@ -344,6 +451,27 @@ export default function WalkthroughWizard({
 					<label>
 						Ladder requirement
 						<input type="text" value={state.ladderRequired} onChange={(e) => update({ ladderRequired: e.target.value })} />
+					</label>
+					<label>
+						<input
+							type="checkbox"
+							checked={state.exteriorAccessObstructed}
+							onChange={(e) => update({ exteriorAccessObstructed: e.target.checked })}
+						/>{' '}
+						Exterior access currently obstructed
+					</label>
+					<label>
+						<input
+							type="checkbox"
+							checked={state.furnitureMovementRequired}
+							onChange={(e) => update({ furnitureMovementRequired: e.target.checked })}
+						/>{' '}
+						Furniture or belongings currently need to be moved
+					</label>
+					<label>
+						Temporary access notes
+						<span className="field-hint">Anything else about getting set up for this specific visit.</span>
+						<textarea value={state.temporaryAccessNotes} onChange={(e) => update({ temporaryAccessNotes: e.target.value })} />
 					</label>
 					<button type="button" onClick={() => goTo(1)}>
 						Next: Front

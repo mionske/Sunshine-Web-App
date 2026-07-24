@@ -6,6 +6,7 @@ import { buildAuthorizeUrl, disconnectQuickBooks } from '../lib/qb/oauth';
 import { getCompanyName, getRawEntityCount } from '../lib/qb/client';
 import { getStoredTokens } from '../lib/qb/tokens';
 import { getLastSyncAt, runFullSync } from '../lib/qb/sync';
+import { formatTimestamp } from '../lib/format';
 
 // Reuses the app's session cookie convention (see lib/auth.ts's
 // sessionCookieOptions) for the short-lived OAuth state cookie — same
@@ -188,7 +189,7 @@ try {
 					<tbody>
 						{syncHistory.map((entry) => (
 							<tr>
-								<td>{entry.Timestamp}</td>
+								<td>{formatTimestamp(String(entry.Timestamp ?? ''))}</td>
 								<td><span class="badge">{entry.Action}</span></td>
 								<td>{entry.Notes}</td>
 							</tr>

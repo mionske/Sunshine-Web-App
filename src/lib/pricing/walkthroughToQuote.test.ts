@@ -326,6 +326,80 @@ describe('saveWalkthrough / createQuoteFromWalkthrough (Sheets-backed)', () => {
 		expect(itemRows).toHaveLength(2); // header + 1
 	});
 
+	// Data-ownership separation: these condition/access fields moved from
+	// Property to Walkthrough (reporting-only, never read by calculateQuote).
+	it('saves the temporary condition and access fields moved from Property', async () => {
+		const { client, property } = await seedClientAndProperty();
+		await seedActiveConfigAndServices();
+
+		const walkthroughId = crypto.randomUUID();
+		const result = await saveWalkthrough(harness.env, config(), SERVICES, {
+			id: walkthroughId,
+			clientId: client['Client ID'],
+			propertyId: property['Property ID'],
+			walkthroughDate: '2026-07-24',
+			exteriorCondition: 'Heavy Buildup',
+			interiorCondition: 'Maintenance',
+			storyCountObserved: '1',
+			accessDifficulty: 'Standard',
+			hardWaterPresent: false,
+			constructionDebrisPresent: false,
+			waterFedPoleSuitable: true,
+			ladderRequired: '',
+			roofAccessRequired: '',
+			ownerOverridePrice: '',
+			notes: '',
+			siliconeResidue: true,
+			heavyInteriorResidue: true,
+			oxidizedFramesOrScreens: false,
+			conditionVariesByArea: true,
+			conditionNotes: 'Worse on the north side.',
+			exteriorAccessObstructed: true,
+			furnitureMovementRequired: false,
+			temporaryAccessNotes: 'Dog in the backyard today.',
+			items: [],
+		});
+
+		expect(result.walkthrough['Exterior Condition']).toBe('Heavy Buildup');
+		expect(result.walkthrough['Silicone Adhesive Or Sticker Residue (Y/N)']).toBe('Y');
+		expect(result.walkthrough['Heavy Interior Residue (Y/N)']).toBe('Y');
+		expect(result.walkthrough['Oxidized Frames Or Screens (Y/N)']).toBe('N');
+		expect(result.walkthrough['Condition Varies By Area (Y/N)']).toBe('Y');
+		expect(result.walkthrough['Condition Notes']).toBe('Worse on the north side.');
+		expect(result.walkthrough['Exterior Access Obstructed (Y/N)']).toBe('Y');
+		expect(result.walkthrough['Furniture Or Belongings Movement Required (Y/N)']).toBe('N');
+		expect(result.walkthrough['Temporary Access Notes']).toBe('Dog in the backyard today.');
+	});
+
+	it('leaves the new temporary condition/access fields blank (never fabricated) when not provided', async () => {
+		const { client, property } = await seedClientAndProperty();
+		await seedActiveConfigAndServices();
+
+		const walkthroughId = crypto.randomUUID();
+		const result = await saveWalkthrough(harness.env, config(), SERVICES, {
+			id: walkthroughId,
+			clientId: client['Client ID'],
+			propertyId: property['Property ID'],
+			walkthroughDate: '2026-07-24',
+			exteriorCondition: 'Maintenance',
+			interiorCondition: 'Maintenance',
+			storyCountObserved: '1',
+			accessDifficulty: 'Standard',
+			hardWaterPresent: false,
+			constructionDebrisPresent: false,
+			waterFedPoleSuitable: false,
+			ladderRequired: '',
+			roofAccessRequired: '',
+			ownerOverridePrice: '',
+			notes: '',
+			items: [],
+		});
+
+		expect(result.walkthrough['Silicone Adhesive Or Sticker Residue (Y/N)']).toBe('N');
+		expect(result.walkthrough['Condition Notes']).toBe('');
+		expect(result.walkthrough['Temporary Access Notes']).toBe('');
+	});
+
 	it('creates a Quote from a completed walkthrough using its stored PricingConfig', async () => {
 		const { client, property } = await seedClientAndProperty();
 		await seedActiveConfigAndServices();

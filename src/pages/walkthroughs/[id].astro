@@ -62,7 +62,15 @@ const items = allItems.filter((i) => i['Walkthrough ID'] === id);
 				<li>Construction debris present: {walkthrough['Construction Debris Present (Y/N)']}</li>
 				<li>Water-fed pole suitable: {walkthrough['Water-Fed Pole Suitable (Y/N)']}</li>
 				{walkthrough['Ladder Required'] && <li>Ladder requirement: {walkthrough['Ladder Required']}</li>}
+				<li>Silicone/adhesive/sticker residue: {walkthrough['Silicone Adhesive Or Sticker Residue (Y/N)']}</li>
+				<li>Heavy interior residue: {walkthrough['Heavy Interior Residue (Y/N)']}</li>
+				<li>Oxidized frames or screens: {walkthrough['Oxidized Frames Or Screens (Y/N)']}</li>
+				<li>Condition varies by area: {walkthrough['Condition Varies By Area (Y/N)']}</li>
+				<li>Exterior access obstructed: {walkthrough['Exterior Access Obstructed (Y/N)']}</li>
+				<li>Furniture/belongings movement required: {walkthrough['Furniture Or Belongings Movement Required (Y/N)']}</li>
 			</ul>
+			{walkthrough['Condition Notes'] && <p>Condition notes: {walkthrough['Condition Notes']}</p>}
+			{walkthrough['Temporary Access Notes'] && <p>Temporary access notes: {walkthrough['Temporary Access Notes']}</p>}
 			{walkthrough.Notes && <p>{walkthrough.Notes}</p>}
 		</section>
 

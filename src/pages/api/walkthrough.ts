@@ -108,6 +108,14 @@ export const POST: APIRoute = async ({ request }) => {
 				roofAccessRequired: String(body.roofAccessRequired ?? ''),
 				ownerOverridePrice: String(body.ownerOverridePrice ?? ''),
 				notes: String(body.notes ?? ''),
+				siliconeResidue: Boolean(body.siliconeResidue),
+				heavyInteriorResidue: Boolean(body.heavyInteriorResidue),
+				oxidizedFramesOrScreens: Boolean(body.oxidizedFramesOrScreens),
+				conditionVariesByArea: Boolean(body.conditionVariesByArea),
+				conditionNotes: body.conditionNotes ? String(body.conditionNotes) : undefined,
+				exteriorAccessObstructed: Boolean(body.exteriorAccessObstructed),
+				furnitureMovementRequired: Boolean(body.furnitureMovementRequired),
+				temporaryAccessNotes: body.temporaryAccessNotes ? String(body.temporaryAccessNotes) : undefined,
 				items: (body.items as Record<string, unknown>[]).map(toWalkthroughItemInput),
 			};
 			const result = await saveWalkthrough(env, config, services, payload);

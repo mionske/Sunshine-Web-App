@@ -37,6 +37,27 @@ export const walkthroughSchema = z.object({
 	'Access Difficulty': blank(),
 	'Hard Water Present (Y/N)': blank(),
 	'Construction Debris Present (Y/N)': blank(),
+	// Data-ownership separation (Property Detail simplification): these
+	// describe what THIS visit found, which is exactly why they live here
+	// rather than on Property — a maintenance visit can change every one of
+	// them. Reuses 'Exterior Condition' above (already existing) as the
+	// "Current Condition" concept that used to live on Property as 'Window
+	// Condition'; the four flags below plus 'Condition Notes' had no prior
+	// Walkthrough equivalent (they used to be Property-only).
+	'Silicone Adhesive Or Sticker Residue (Y/N)': blank(),
+	'Heavy Interior Residue (Y/N)': blank(),
+	'Oxidized Frames Or Screens (Y/N)': blank(),
+	'Condition Varies By Area (Y/N)': blank(),
+	'Condition Notes': blank(),
+	// Data-ownership separation: temporary access obstructions observed at
+	// this visit — moved from Property (same field names there,
+	// 'Exterior Access Obstructed (Y/N)' / 'Furniture Or Belongings
+	// Movement Required (Y/N)', now deprecated on that model) since these
+	// can differ from one visit to the next. 'Temporary Access Notes' also
+	// covers any other one-off setup obstruction not worth its own flag.
+	'Exterior Access Obstructed (Y/N)': blank(),
+	'Furniture Or Belongings Movement Required (Y/N)': blank(),
+	'Temporary Access Notes': blank(),
 	'Water-Fed Pole Suitable (Y/N)': blank(),
 	'Ladder Required': blank(),
 	'Roof Access Required': blank(),

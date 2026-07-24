@@ -3,7 +3,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { createRow, findById, listActiveRows, updateRow } from '../../lib/sheets';
 import { clientConfig } from '../../lib/models/client';
-import { propertyConfig, PROPERTY_TYPES, MAINTENANCE_FREQUENCY_OPTIONS } from '../../lib/models/property';
+import { propertyConfig, PROPERTY_TYPES, MAINTENANCE_FREQUENCY_OPTIONS, PREFERRED_SERVICE_SEASON_OPTIONS } from '../../lib/models/property';
 import { formatPhoneDigits } from '../../lib/phoneFormat';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
 import { qboEstimateWebUrl, qboInvoiceWebUrl, suggestQBLinksForClient } from '../../lib/qb/matching';
@@ -25,6 +25,14 @@ if (Astro.request.method === 'POST') {
 				'Preferred Contact Method': String(form.get('preferredContactMethod') ?? ''),
 				Notes: String(form.get('notes') ?? ''),
 			});
+		} else if (action === 'update-service-preferences') {
+			// Its own action (not folded into update-client) so this form only
+			// ever writes these two fields — never risks blanking Contact Info
+			// if the two cards are ever submitted independently.
+			await updateRow(env, clientConfig, id!, {
+				'Desired Maintenance Frequency': String(form.get('desiredMaintenanceFrequency') ?? ''),
+				'Preferred Service Season': String(form.get('preferredServiceSeason') ?? ''),
+			});
 		} else if (action === 'add-property') {
 			const newProperty = await createRow(env, propertyConfig, {
 				id: String(form.get('id') ?? ''),
@@ -37,7 +45,6 @@ if (Astro.request.method === 'POST') {
 				Stories: String(form.get('stories') ?? ''),
 				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
 				'Total Glass Panes': String(form.get('totalGlassPanes') ?? ''),
-				'Desired Maintenance Frequency': String(form.get('desiredMaintenanceFrequency') ?? ''),
 				'Building/Complex Name': String(form.get('buildingComplexName') ?? ''),
 				'Unit Identifier': String(form.get('unitIdentifier') ?? ''),
 			});
@@ -164,6 +171,46 @@ const editing = Astro.url.searchParams.get('edit') === '1';
 		</section>
 
 		<section class="card">
+			<h2>Service Preferences</h2>
+			{editing ? (
+				<form method="POST">
+					<input type="hidden" name="_action" value="update-service-preferences" />
+					<label>
+						Desired maintenance frequency
+						<select name="desiredMaintenanceFrequency">
+							<option value="" selected={!client['Desired Maintenance Frequency']} />
+							{MAINTENANCE_FREQUENCY_OPTIONS.map((v) => <option value={v} selected={v === client['Desired Maintenance Frequency']}>{v}</option>)}
+						</select>
+					</label>
+					<label>
+						Preferred service season
+						<select name="preferredServiceSeason">
+							<option value="" selected={!client['Preferred Service Season']} />
+							{PREFERRED_SERVICE_SEASON_OPTIONS.map((v) => <option value={v} selected={v === client['Preferred Service Season']}>{v}</option>)}
+						</select>
+					</label>
+					<button type="submit">Save</button>
+					<a class="btn btn-secondary" href={`/clients/${id}`}>Cancel</a>
+				</form>
+			) : (
+				<div class="field-display-grid">
+					<div>
+						<span class="field-display-label">Desired maintenance frequency</span>
+						<span class={`field-display-value${client['Desired Maintenance Frequency'] ? '' : ' muted'}`}>
+							{client['Desired Maintenance Frequency'] || '— not set'}
+						</span>
+					</div>
+					<div>
+						<span class="field-display-label">Preferred service season</span>
+						<span class={`field-display-value${client['Preferred Service Season'] ? '' : ' muted'}`}>
+							{client['Preferred Service Season'] || '— not set'}
+						</span>
+					</div>
+				</div>
+			)}
+		</section>
+
+		<section class="card">
 			<div class="card-header-row">
 				<h2>Properties ({properties.length})</h2>
 				<button type="button" id="add-property-btn">+ Add Property</button>
@@ -239,13 +286,6 @@ const editing = Astro.url.searchParams.get('edit') === '1';
 				<label>Stories <input type="number" class="field-numeric" name="stories" /></label>
 				<label>Total window units (subjective — what counts as one "window" varies) <input type="number" class="field-numeric" name="totalWindowUnits" /></label>
 				<label>Total panes (all glass — objective count) <input type="number" class="field-numeric" name="totalGlassPanes" /></label>
-				<label>
-					Desired maintenance frequency
-					<select name="desiredMaintenanceFrequency">
-						<option value="" selected />
-						{MAINTENANCE_FREQUENCY_OPTIONS.map((v) => <option value={v}>{v}</option>)}
-					</select>
-				</label>
 				<label>Building/complex name (optional — groups units in the same building) <input type="text" name="buildingComplexName" /></label>
 				<label>Unit identifier (optional) <input type="text" name="unitIdentifier" /></label>
 				<div class="drawer-footer">

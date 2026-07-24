@@ -61,7 +61,9 @@ describe('scoreMatch', () => {
 	function client(overrides: Partial<Client> = {}): Client {
 		return {
 			'Client ID': 'c-1', 'First Name': 'Jane', 'Last Name': 'Doe', Phone: '', Email: '', Address: '', 'Referral Source': '',
-			'First Contact Date': '', 'Customer Since': '', 'Preferred Contact Method': '', Notes: '', 'QB Customer ID': '',
+			'First Contact Date': '', 'Customer Since': '', 'Preferred Contact Method': '',
+			'Desired Maintenance Frequency': '', 'Preferred Service Season': '',
+			Notes: '', 'QB Customer ID': '',
 			'Created At': '', 'Updated At': '', 'Archived At': '', ...overrides,
 		};
 	}
@@ -116,13 +118,13 @@ describe('scoreMatch', () => {
 			'Interior Access Difficulty': '', 'Exterior Access Difficulty': '', 'Roof Access Required (Y/N)': '', 'Water Source': '', 'Exterior Cleaning Method': '',
 			'High Interior Glass (Y/N)': '', 'Steep Or Uneven Terrain (Y/N)': '', 'Exterior Access Obstructed (Y/N)': '',
 			'Furniture Or Belongings Movement Required (Y/N)': '', 'Restricted Work Or Setup Area (Y/N)': '',
-			'Water Access Method': '', 'Water Supply': '', 'Easy Parking And Setup (Y/N)': '', 'Limited Parking Or Setup Space (Y/N)': '',
+			'Water Access Method': '', 'Water Supply': '', 'Parking And Setup Difficulty': '', 'Easy Parking And Setup (Y/N)': '', 'Limited Parking Or Setup Space (Y/N)': '',
 			'Gate Or Entry Restriction (Y/N)': '', 'Long Hose Run (Y/N)': '', 'Water Source Far From Work Area (Y/N)': '', 'Site Access Notes': '',
 			'Roof Access Difficulty': '', 'Overall Access Difficulty': '', 'Water Access': '',
 			'Equipment Suitability': '', 'Hard Water History (Y/N)': '', 'Construction Debris (Y/N)': '', 'Window Condition': '',
 			'Silicone Adhesive Or Sticker Residue (Y/N)': '', 'Heavy Interior Residue (Y/N)': '', 'Oxidized Frames Or Screens (Y/N)': '',
 			'Condition Varies By Area (Y/N)': '', 'Condition Notes': '',
-			'Total Window Units': '', 'Total Glass Panes': '', 'Inventory Verified At': '',
+			'Total Window Units': '', 'Total Glass Panes': '', 'Count - Standard': '', 'Inventory Verified At': '',
 			'Count - Double Hung': '', 'Count - Casement': '', 'Count - Picture': '', 'Count - Sliding': '', 'Count - French': '',
 			'Count - Awning': '', 'Count - Skylights': '', 'Count - Solar Panels': '', 'Screen Count': '', 'Track Count': '', 'Desired Maintenance Frequency': '',
 			'Preferred Service Season': '', 'Next Recommended Service Date': '', 'Maintenance Notes': '', 'Next Scheduled Visit': '', 'Last Review Requested Date': '',

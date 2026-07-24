@@ -11,6 +11,7 @@ import { createRow, findById, listActiveRows, logActivity, updateRow, type Sheet
 import { jobConfig, JOB_STATUSES, MAINTENANCE_FREQUENCY_INTERVAL_MONTHS, type Job } from '../models/job';
 import { quoteConfig, type Quote } from '../models/quote';
 import { propertyConfig } from '../models/property';
+import { clientConfig } from '../models/client';
 import { pipelineConfig } from '../models/pipeline';
 import { recalculateCalibration } from './calibration';
 
@@ -120,11 +121,15 @@ export { JOB_STATUSES };
  * legacy columns on the row are preserved untouched (see job.ts).
  *
  * On a transition into Completed/Invoiced/Paid, pre-fills Next Maintenance
- * Follow-up Date from the property's Desired Maintenance Frequency —
- * unless the caller already supplied one, or the frequency doesn't map to
- * a defined interval. Always just a starting value: never re-computed or
- * locked on a later update, since the right follow-up date varies by
- * client/property/job and the owner may always override it.
+ * Follow-up Date from the linked Client's Desired Maintenance Frequency
+ * (data-ownership separation: this moved from Property to Client — see
+ * property.ts/client.ts — since it's a customer preference, not a
+ * property fact), falling back to the property's own legacy field for
+ * clients that haven't been migrated yet — unless the caller already
+ * supplied one, or the frequency doesn't map to a defined interval.
+ * Always just a starting value: never re-computed or locked on a later
+ * update, since the right follow-up date varies by client/property/job
+ * and the owner may always override it.
  *
  * Recalculates the calibration snapshot right after a transition into
  * Completed/Invoiced/Paid — one of the plan's documented recalculation
@@ -142,10 +147,10 @@ export async function updateJobStatus(
 		const currentJob = await findById(env, jobConfig, jobId);
 		if (currentJob?.['Property ID']) {
 			const property = await findById(env, propertyConfig, currentJob['Property ID']);
+			const client = property?.['Client ID'] ? await findById(env, clientConfig, property['Client ID']) : null;
+			const maintenanceFrequency = client?.['Desired Maintenance Frequency'] || property?.['Desired Maintenance Frequency'] || '';
 			const completionDate = patch['Date Completed'] || currentJob['Date Completed'] || new Date().toISOString().slice(0, 10);
-			const followUpDate = property
-				? computeNextMaintenanceFollowUpDate(completionDate, property['Desired Maintenance Frequency'])
-				: '';
+			const followUpDate = computeNextMaintenanceFollowUpDate(completionDate, maintenanceFrequency);
 			if (followUpDate) {
 				finalPatch['Next Maintenance Follow-up Date'] = followUpDate;
 				finalPatch['Maintenance Follow-up Status'] = finalPatch['Maintenance Follow-up Status'] || 'Not yet due';
