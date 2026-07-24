@@ -89,15 +89,16 @@ export function scoreMatch(customer: QBCustomer, client: Client, property?: Prop
 	return { emailMatch, phoneMatch, nameSimilarity: similarity, addressMatch, score: Math.min(score, 1) };
 }
 
-export type MatchConfidence = 'likely' | 'possible' | 'low-confidence';
+export type MatchConfidence = 'likely' | 'possible' | 'low-confidence' | 'no signal';
 
-/** UI grouping only — never stored. Below 0.3, a candidate isn't shown at
- * all (returns null). */
-export function confidenceTier(score: number): MatchConfidence | null {
+/** UI grouping only — never stored, never used to gate anything (linking
+ * is always an explicit human confirmation regardless of tier — see
+ * confirmQBLink). Every score gets a label; none are hidden. */
+export function confidenceTier(score: number): MatchConfidence {
 	if (score >= 0.85) return 'likely';
 	if (score >= 0.5) return 'possible';
 	if (score >= 0.3) return 'low-confidence';
-	return null;
+	return 'no signal';
 }
 
 export interface MatchCandidate {
@@ -107,22 +108,24 @@ export interface MatchCandidate {
 	confidence: MatchConfidence;
 }
 
-/** Every Client scored against one QB Customer, sorted best-first,
- * filtered to score >= 0.3. Already-linked clients are still included (a
- * client can be a candidate for re-linking to a different QB Customer —
- * see confirmQBLink's re-link guard) rather than silently excluded. */
+/** Every Client scored against one QB Customer, sorted best-first — every
+ * Client is included regardless of score (no hidden threshold): linking is
+ * always an explicit human confirmation (see confirmQBLink), never
+ * automatic, so there's no safety reason to hide a weak-looking candidate
+ * the owner can still recognize by eye. Already-linked clients are still
+ * included too (a client can be a candidate for re-linking to a different
+ * QB Customer — see confirmQBLink's re-link guard) rather than silently
+ * excluded. Callers that want to cap the list length (e.g. the review
+ * page's top-N display) do that themselves. */
 export async function findMatchCandidates(env: SheetsEnv, qbCustomer: QBCustomer): Promise<MatchCandidate[]> {
 	const [clients, properties] = await Promise.all([listActiveRows(env, clientConfig), listActiveRows(env, propertyConfig)]);
 	const propertyByClientId = new Map(properties.map((p) => [p['Client ID'], p]));
 
-	const candidates: MatchCandidate[] = [];
-	for (const client of clients) {
+	const candidates: MatchCandidate[] = clients.map((client) => {
 		const property = propertyByClientId.get(client['Client ID']);
 		const breakdown = scoreMatch(qbCustomer, client, property);
-		const confidence = confidenceTier(breakdown.score);
-		if (!confidence) continue;
-		candidates.push({ client, property, breakdown, confidence });
-	}
+		return { client, property, breakdown, confidence: confidenceTier(breakdown.score) };
+	});
 	return candidates.sort((a, b) => b.breakdown.score - a.breakdown.score);
 }
 

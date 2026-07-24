@@ -44,9 +44,10 @@ const rows = await Promise.all(
 	<main>
 		<h1>QuickBooks Match Review</h1>
 		<p>
-			Unlinked QB Customers with scored candidate Clients. Nothing here is ever auto-linked — every link
-			is an explicit confirmation, and re-linking a Client already linked to a different QB Customer
-			requires checking "Confirm re-link" first.
+			Unlinked QB Customers with every Client ranked by match score — nothing is hidden, even a weak or
+			no-signal score, since you're always picking manually here (there's no threshold gating what you can
+			see). Nothing here is ever auto-linked — every link is an explicit confirmation, and re-linking a
+			Client already linked to a different QB Customer requires checking "Confirm re-link" first.
 		</p>
 		{error && <p role="alert">{error}</p>}
 
@@ -63,7 +64,7 @@ const rows = await Promise.all(
 					</p>
 
 					{candidates.length === 0 ? (
-						<p>No candidate Clients scored above the low-confidence threshold.</p>
+						<p>No Clients exist yet to link this QB Customer to.</p>
 					) : (
 						<table>
 							<thead>

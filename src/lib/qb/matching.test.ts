@@ -43,14 +43,15 @@ describe('nameSimilarity', () => {
 });
 
 describe('confidenceTier', () => {
-	it('groups scores into likely/possible/low-confidence/filtered-out', () => {
+	it('groups scores into likely/possible/low-confidence/no signal — every score gets a label, none are hidden', () => {
 		expect(confidenceTier(0.9)).toBe('likely');
 		expect(confidenceTier(0.85)).toBe('likely');
 		expect(confidenceTier(0.6)).toBe('possible');
 		expect(confidenceTier(0.5)).toBe('possible');
 		expect(confidenceTier(0.35)).toBe('low-confidence');
 		expect(confidenceTier(0.3)).toBe('low-confidence');
-		expect(confidenceTier(0.29)).toBeNull();
+		expect(confidenceTier(0.29)).toBe('no signal');
+		expect(confidenceTier(0)).toBe('no signal');
 	});
 });
 
@@ -138,15 +139,17 @@ describe('findMatchCandidates / confirmQBLink / suggestQBLinksForClient (Sheets-
 
 	afterEach(() => harness.restore());
 
-	it('finds and ranks candidate clients for a QB customer, filtering below 0.3', async () => {
+	it('ranks all clients best-first, without hiding weak-scoring ones — linking is always a manual confirmation, never automatic', async () => {
 		await createRow(harness.env, clientConfig, { 'First Name': 'Jane', 'Last Name': 'Doe', Email: 'jane@example.com' });
 		await createRow(harness.env, clientConfig, { 'First Name': 'Bob', 'Last Name': 'Smith', Email: 'bob@example.com' });
 
 		const candidates = await findMatchCandidates(harness.env, customer({ Email: 'jane@example.com', 'Display Name': 'Jane Doe' }));
 
-		expect(candidates).toHaveLength(1);
+		expect(candidates).toHaveLength(2);
 		expect(candidates[0].client['First Name']).toBe('Jane');
 		expect(candidates[0].confidence).toBe('likely');
+		expect(candidates[1].client['First Name']).toBe('Bob');
+		expect(candidates[1].confidence).toBe('no signal');
 	});
 
 	it('confirmQBLink sets Clients.QB Customer ID and logs activity', async () => {

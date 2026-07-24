@@ -581,9 +581,13 @@ match (0.6), phone match on the last 10 digits (0.3), name similarity by
 normalized edit distance — only counted if similarity ≥ 0.6 — (up to
 0.3), address match on zip + leading street number against the
 candidate's linked Property (0.2). Confidence tiers (UI grouping only,
-never stored): ≥0.85 likely, ≥0.5 possible, ≥0.3 low-confidence (still
-shown), below that filtered out entirely. `confirmQBLink` requires
-explicit `confirmRelink` confirmation before overwriting a Client's
+never stored): ≥0.85 likely, ≥0.5 possible, ≥0.3 low-confidence, below
+that "no signal" — every Client is shown, ranked best-first, regardless of
+tier. There's no hidden threshold: linking is always an explicit human
+confirmation (never automatic), so there's no safety reason to hide a
+weak-looking candidate the owner can still recognize by eye.
+`confirmQBLink` requires explicit `confirmRelink` confirmation before
+overwriting a Client's
 existing link to a *different* QB Customer.
 
 **Setup** (this app's code is ready; connecting a real QuickBooks account
