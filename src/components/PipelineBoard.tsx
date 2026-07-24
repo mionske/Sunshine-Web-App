@@ -370,7 +370,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 														))}
 													</select>
 												) : (
-													<button type="button" onClick={() => setAttachingId(c.id)}>
+													<button type="button" className="pipeline-card-add-property" onClick={() => setAttachingId(c.id)}>
 														No property yet — add one
 													</button>
 												)}

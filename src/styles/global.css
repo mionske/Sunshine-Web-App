@@ -555,6 +555,30 @@ tr:last-child td {
 	color: #1a7a4c;
 }
 
+/* A quiet inline affordance, not a loud CTA — attaching a property to a
+ * lead is a small secondary action on an already-dense card, not the
+ * primary thing the card wants you to do. */
+.pipeline-card-add-property {
+	display: inline;
+	background: none;
+	border: none;
+	color: var(--color-ink-muted);
+	font-family: var(--font-body);
+	text-transform: none;
+	letter-spacing: normal;
+	font-weight: 400;
+	font-size: 0.85rem;
+	padding: 0;
+	text-decoration: underline;
+	text-underline-offset: 2px;
+	cursor: pointer;
+}
+
+.pipeline-card-add-property:hover {
+	background: none;
+	color: var(--color-red);
+}
+
 .pipeline-empty-column {
 	font-size: 0.85rem;
 	color: var(--color-ink-muted);
