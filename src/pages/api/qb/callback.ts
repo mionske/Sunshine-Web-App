@@ -3,9 +3,10 @@ import { env } from 'cloudflare:workers';
 import { exchangeCodeForTokens } from '../../../lib/qb/oauth';
 
 // Reached by the user's own browser after they authorize this app in
-// QuickBooks — stays behind this app's normal session auth (the browser
-// still carries the session cookie from before it navigated to Intuit),
-// unlike the webhook route which has no session at all.
+// QuickBooks, via a cross-site top-level redirect from appcenter.intuit.com
+// — the app's SameSite=Strict session cookie doesn't survive that hop, so
+// this route is on the middleware's public allowlist and relies entirely on
+// its own state-cookie CSRF check below instead of session auth.
 const STATE_COOKIE_NAME = 'qb_oauth_state';
 
 export const GET: APIRoute = async ({ url, cookies, redirect }) => {

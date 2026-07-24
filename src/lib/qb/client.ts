@@ -75,3 +75,48 @@ export async function queryById<T>(env: QBOAuthEnv, entityKey: string, id: strin
 	const results = await runQuery<T>(env, entityKey, `SELECT * FROM ${entityKey} WHERE Id = '${id}'`);
 	return results[0] ?? null;
 }
+
+interface QBCountResponse {
+	QueryResponse: { totalCount?: number };
+}
+
+/** Diagnostic-only: QBO's own record count for an entity, completely
+ * independent of this app's pagination/mapping/upsert path — lets a
+ * "0 records synced" result be checked against "does QBO itself see any
+ * records at all for this company" without trusting anything else in the
+ * sync pipeline. */
+export async function getRawEntityCount(env: QBOAuthEnv, entityKey: string): Promise<number> {
+	const { accessToken, realmId } = await getValidAccessToken(env);
+	const query = `SELECT COUNT(*) FROM ${entityKey}`;
+	const url = `${API_HOST}/v3/company/${realmId}/query?query=${encodeURIComponent(query)}`;
+	const response = await fetchWithRetry(url, {
+		headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+	});
+	if (!response.ok) {
+		throw new Error(`QuickBooks count query failed: ${response.status} ${await response.text()}`);
+	}
+	const body = (await response.json()) as QBCountResponse;
+	return body.QueryResponse.totalCount ?? 0;
+}
+
+interface CompanyInfoResponse {
+	CompanyInfo: { CompanyName: string; LegalName?: string };
+}
+
+/** Diagnostic-only: which real QuickBooks company the stored realmId
+ * actually points at. Surfaced on /qb-settings so a wrong-company
+ * connection (e.g. authorizing a different QBO company than expected) is
+ * obvious at a glance instead of showing up only as a silent 0-record
+ * sync. */
+export async function getCompanyName(env: QBOAuthEnv): Promise<string> {
+	const { accessToken, realmId } = await getValidAccessToken(env);
+	const url = `${API_HOST}/v3/company/${realmId}/companyinfo/${realmId}`;
+	const response = await fetchWithRetry(url, {
+		headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
+	});
+	if (!response.ok) {
+		throw new Error(`QuickBooks company info lookup failed: ${response.status} ${await response.text()}`);
+	}
+	const body = (await response.json()) as CompanyInfoResponse;
+	return body.CompanyInfo.CompanyName;
+}

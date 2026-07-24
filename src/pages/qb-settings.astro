@@ -3,6 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { readRows } from '../lib/sheets/rows';
 import { buildAuthorizeUrl, disconnectQuickBooks } from '../lib/qb/oauth';
+import { getCompanyName, getRawEntityCount } from '../lib/qb/client';
 import { getStoredTokens } from '../lib/qb/tokens';
 import { getLastSyncAt, runFullSync } from '../lib/qb/sync';
 
@@ -36,32 +37,84 @@ const justConnected = Astro.url.searchParams.get('connected') === '1';
 const justDisconnected = Astro.url.searchParams.get('disconnected') === '1';
 
 const credentialsConfigured = Boolean(env.QB_CLIENT_ID && env.QB_CLIENT_SECRET && env.QB_WEBHOOK_VERIFIER_TOKEN && env.QB_REDIRECT_URI);
-const tokens = await getStoredTokens(env);
-const connected = Boolean(tokens);
-const lastSyncAt = await getLastSyncAt(env.QB_TOKENS);
 
+// Everything below reads from Sheets/KV and can hit a transient failure
+// (e.g. Google Sheets' per-minute read quota) that has nothing to do with
+// QuickBooks itself — wrapped so a blip there shows a normal page with an
+// error banner instead of a raw framework 500.
+let connected = false;
+let lastSyncAt: string | null = null;
 let authorizeUrl: string | null = null;
-if (credentialsConfigured && !connected) {
-	const state = crypto.randomUUID();
-	Astro.cookies.set(STATE_COOKIE_NAME, state, {
-		path: '/',
-		httpOnly: true,
-		secure: import.meta.env.PROD,
-		sameSite: 'strict',
-		maxAge: 600,
-	});
-	authorizeUrl = buildAuthorizeUrl(env, state);
-}
+let syncHistory: Record<string, string>[] = [];
+let companyName: string | null = null;
+let companyNameError: string | null = null;
+const rawCounts: Record<string, number | string> = {};
 
-// Sync health: last N QuickBooks sync attempts, newest first — lives in
-// ActivityLog (Entity Type "QBSync") rather than a dedicated tab, per the
-// spec's own "can live in ActivityLog if that's simpler" note.
-const activityRows = await readRows(env, 'ActivityLog', { idColumn: 'Activity ID' });
-const syncHistory = activityRows
-	.map((r) => r.data)
-	.filter((r) => r['Entity Type'] === 'QBSync')
-	.sort((a, b) => String(b.Timestamp).localeCompare(String(a.Timestamp)))
-	.slice(0, 20);
+try {
+	const tokens = await getStoredTokens(env);
+	connected = Boolean(tokens);
+	lastSyncAt = await getLastSyncAt(env.QB_TOKENS);
+
+	if (connected) {
+		// Separate try/catch, deliberately non-fatal: a bad company lookup
+		// (or a transient QBO API blip) shouldn't take down the whole page —
+		// it's a diagnostic aid (confirms which real company this realmId
+		// points at, since a wrong-company connection otherwise only shows up
+		// as a silent 0-record sync), not something the page's core function
+		// depends on.
+		try {
+			companyName = await getCompanyName(env);
+		} catch (e) {
+			companyNameError = (e as Error).message;
+		}
+
+		// Raw QBO record counts, entirely independent of this app's own
+		// pagination/mapping/upsert path — only run on demand (?diag=1) since
+		// it's four extra QBO API calls, not part of normal page load. Exists
+		// to answer one question directly: does QuickBooks itself see any
+		// records at all for this company, regardless of what our own sync
+		// reports.
+		if (Astro.url.searchParams.get('diag') === '1') {
+			for (const entity of ['Customer', 'Estimate', 'Invoice', 'Payment'] as const) {
+				try {
+					rawCounts[entity] = await getRawEntityCount(env, entity);
+				} catch (e) {
+					rawCounts[entity] = `error: ${(e as Error).message}`;
+				}
+			}
+		}
+	}
+
+	if (credentialsConfigured && !connected) {
+		const state = crypto.randomUUID();
+		// Lax, not Strict: this cookie has to survive the round trip through
+		// Intuit's own domain — the browser lands back on /api/qb/callback via
+		// a cross-site top-level redirect *from* appcenter.intuit.com, and a
+		// Strict cookie is dropped on exactly that kind of request. Lax still
+		// blocks it from being sent on cross-site POSTs/subresource requests,
+		// so this doesn't weaken the CSRF protection the state value provides.
+		Astro.cookies.set(STATE_COOKIE_NAME, state, {
+			path: '/',
+			httpOnly: true,
+			secure: import.meta.env.PROD,
+			sameSite: 'lax',
+			maxAge: 600,
+		});
+		authorizeUrl = buildAuthorizeUrl(env, state);
+	}
+
+	// Sync health: last N QuickBooks sync attempts, newest first — lives in
+	// ActivityLog (Entity Type "QBSync") rather than a dedicated tab, per the
+	// spec's own "can live in ActivityLog if that's simpler" note.
+	const activityRows = await readRows(env, 'ActivityLog', { idColumn: 'Activity ID' });
+	syncHistory = activityRows
+		.map((r) => r.data)
+		.filter((r) => r['Entity Type'] === 'QBSync')
+		.sort((a, b) => String(b.Timestamp).localeCompare(String(a.Timestamp)))
+		.slice(0, 20);
+} catch (e) {
+	error = error ?? `Could not load current connection status (${(e as Error).message}) — this is usually transient, try refreshing.`;
+}
 ---
 
 <BaseLayout title="QuickBooks Settings">
@@ -78,6 +131,11 @@ const syncHistory = activityRows
 				<li>Environment: <span class="badge badge-accent">Production</span></li>
 				<li>Credentials configured: {credentialsConfigured ? 'Yes' : 'No — set QB_CLIENT_ID, QB_CLIENT_SECRET, QB_WEBHOOK_VERIFIER_TOKEN, QB_REDIRECT_URI as Cloudflare secrets'}</li>
 				<li>Status: <span class="badge">{connected ? 'Connected' : 'Not connected'}</span></li>
+				{connected && (
+					<li>
+						Connected company: {companyName ?? (companyNameError ? `Could not look up (${companyNameError})` : 'Looking up…')}
+					</li>
+				)}
 				<li>Last sync: {lastSyncAt || 'never'}</li>
 			</ul>
 
@@ -98,6 +156,21 @@ const syncHistory = activityRows
 						<button type="submit">Disconnect</button>
 					</form>
 				</>
+			)}
+
+			{connected && Object.keys(rawCounts).length > 0 && (
+				<>
+					<h3>Raw QuickBooks record counts</h3>
+					<p class="field-hint">Straight from QuickBooks (COUNT query), independent of this app's own sync — for confirming whether QuickBooks itself sees existing records.</p>
+					<ul>
+						{Object.entries(rawCounts).map(([entity, count]) => (
+							<li>{entity}: {count}</li>
+						))}
+					</ul>
+				</>
+			)}
+			{connected && Object.keys(rawCounts).length === 0 && (
+				<p><a href="/qb-settings?diag=1">Show raw QuickBooks record counts →</a></p>
 			)}
 		</section>
 

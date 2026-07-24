@@ -10,11 +10,16 @@ import { SESSION_COOKIE_NAME, verifySessionToken } from './lib/auth';
 // /api/qb/webhook is here because Intuit calls it directly, server-to-
 // server, with no session cookie at all — its security comes from the
 // intuit-signature HMAC check inside the route itself, not from this
-// middleware. /api/qb/callback deliberately stays OFF this list: it's
-// reached by the owner's own browser (which still carries its session
-// cookie after the round trip to Intuit and back), so it should get the
-// same auth as every other internal route.
-const PUBLIC_PATH_PREFIXES = ['/estimate', '/api/estimate', '/login', '/api/qb/webhook'];
+// middleware. /api/qb/callback is here for a different reason: it's
+// reached via a cross-site top-level redirect *from* appcenter.intuit.com,
+// and a SameSite=Strict cookie (this app's session cookie) is dropped on
+// exactly that kind of request — so by the time the browser lands back on
+// this route, the session cookie the owner had a moment earlier is simply
+// not present, and this middleware would otherwise 401 a legitimate
+// connect attempt. The route's own CSRF protection (a one-time state value
+// checked against a SameSite=Lax cookie set right before the redirect to
+// Intuit) is what actually secures it, not session auth.
+const PUBLIC_PATH_PREFIXES = ['/estimate', '/api/estimate', '/login', '/api/qb/webhook', '/api/qb/callback'];
 
 function isPublicPath(pathname: string): boolean {
 	return PUBLIC_PATH_PREFIXES.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
