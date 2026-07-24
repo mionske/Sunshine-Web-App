@@ -125,12 +125,23 @@ Discount, Final Quoted Price, Expected Revenue Per Labor Hour,
 Override Reason, Quote Status, Created At, Updated At, Sent At,
 Accepted At, Declined At, Expired At, Archived At, Created By, Notes,
 QB Estimate Link (URL — set once created/sent in QuickBooks; the app only
-stores the link, never talks to the QuickBooks API).
+stores the link, never talks to the QuickBooks API), Difficult Access Item
+Count, Specialty Access Item Count.
 
 The saved Quote + QuoteItems rows are always the authoritative record of
 what was charged. Reproducibility means the stored snapshots + config
 reference let anyone audit how the price was reached later — not that the
 app recomputes a past quote from current logic and treats that as truth.
+
+**Difficult/Specialty Access Item Count** (window-characteristic calibration
+reporting): populated only for quotes created from a completed Walkthrough
+(`createQuoteFromWalkthrough` in `lib/pricing/walkthroughToQuote.ts`) —
+summed from each WalkthroughItem's own per-item Access Difficulty
+(Quantity-weighted, not row-counted; see `countAccessDifficultyItems`).
+Blank — never a fabricated `0` — for quotes created directly via the
+plain in-field quoter, which has no per-item data at all. Reporting-only:
+feeds `deriveJobSegmentation`'s calibration dimensions, never the pricing
+engine.
 
 ## Services (catalog)
 Service Code, Service Name, Service Category, Default Unit,
@@ -359,6 +370,25 @@ non-Active row (`updatePricingConfigDraft` — refuses to touch an Active
 row directly) so the owner can review and adjust every field before
 activating, per the flow: review → edit if needed → save → explicitly
 activate.
+
+**Window-characteristic comparison.** Beyond the filters above,
+`deriveJobSegmentation` also derives four Yes/No/Unknown dimensions from
+data already sitting in every Quote — Has Oversized Windows / Has
+French-Pane Windows (from the linked Quote's Input Snapshot `counts`,
+already broken out per job — zero new field collection) and Has
+Difficult-Access Items / Has Specialty-Access Items (from the Quote's own
+Difficult/Specialty Access Item Count columns, populated only for
+walkthrough-originated quotes). Each is also its own checkbox-group filter
+facet, same pattern as Story/Condition/Access/Scope. `compareByCharacteristic`
+(`lib/pricing/calibration.ts`) splits the currently-filtered comparable
+jobs by each dimension and the page renders one "Estimate accuracy by
+window characteristic" table per dimension — job count, Confidence Level,
+average/median estimate variance (actual hours minus estimated hours),
+and average on-site hours per group. Groups under 10 jobs show each job
+individually instead of an average, same small-sample-size caution used
+everywhere else on this page. Purely descriptive — never changes pricing;
+only the owner deciding to create+activate a new PricingConfig after
+reviewing this data does that.
 
 ## JobItems
 Job Item ID, Job ID, Source Quote Item ID, Service Code, Description,

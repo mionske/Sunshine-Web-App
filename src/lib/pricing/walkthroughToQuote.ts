@@ -67,6 +67,31 @@ export function itemsToQuoteCounts(items: WalkthroughItem[]): QuoteCounts {
 	return counts;
 }
 
+/** Window-characteristic calibration reporting: sums item Quantity (not
+ * row count — one row can represent several physical windows) for items
+ * whose per-item Access Difficulty is 'Difficult' or 'Specialty Access'.
+ * This data is already collected by the wizard today (see WalkthroughItem's
+ * own Access Difficulty field) but was previously discarded entirely once
+ * itemsToQuoteCounts() rolled everything into aggregate window counts —
+ * this preserves it instead, purely for later calibration reporting. Never
+ * read by the pricing engine. */
+export interface AccessDifficultyItemCounts {
+	difficultAccessItemCount: number;
+	specialtyAccessItemCount: number;
+}
+
+export function countAccessDifficultyItems(items: WalkthroughItem[]): AccessDifficultyItemCounts {
+	let difficultAccessItemCount = 0;
+	let specialtyAccessItemCount = 0;
+	for (const item of items) {
+		const quantity = num(item.Quantity);
+		if (quantity <= 0) continue;
+		if (item['Access Difficulty'] === 'Difficult') difficultAccessItemCount += quantity;
+		else if (item['Access Difficulty'] === 'Specialty Access') specialtyAccessItemCount += quantity;
+	}
+	return { difficultAccessItemCount, specialtyAccessItemCount };
+}
+
 const EXTERIOR_CONDITION_TO_ENGINE: Record<string, Condition> = {
 	Maintenance: 'light',
 	'Moderate Buildup': 'moderate',
@@ -288,6 +313,7 @@ export async function createQuoteFromWalkthrough(
 	const allWalkthroughItems = await listActiveRows(env, walkthroughItemConfig);
 	const items = allWalkthroughItems.filter((i) => i['Walkthrough ID'] === walkthroughId);
 	const counts = itemsToQuoteCounts(items);
+	const { difficultAccessItemCount, specialtyAccessItemCount } = countAccessDifficultyItems(items);
 
 	const suggestedTarget = num(walkthrough['Suggested Target Price']);
 	const overridePrice = num(walkthrough['Owner Override Price']);
@@ -299,6 +325,8 @@ export async function createQuoteFromWalkthrough(
 		opportunityId: walkthrough['Opportunity ID'] || undefined,
 		pricingConfigId: walkthrough['Pricing Config ID'] || undefined,
 		walkthroughId,
+		difficultAccessItemCount,
+		specialtyAccessItemCount,
 		input: {
 			stories: storiesForEngine(walkthrough['Story Count Observed']),
 			condition: conditionForEngine(walkthrough['Exterior Condition']),

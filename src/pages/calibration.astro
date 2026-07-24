@@ -8,6 +8,7 @@ import { getActivePricingConfig, createPricingConfig, listPricingConfigs } from 
 import { googleMapsUrl } from '../lib/mapsLink';
 import {
 	calibrationExclusionReasons,
+	compareByCharacteristic,
 	computeJobPerformance,
 	confidenceLevel,
 	deriveJobSegmentation,
@@ -16,6 +17,7 @@ import {
 	mean,
 	median,
 	recalculateCalibration,
+	type CharacteristicDimension,
 	type JobSegmentation,
 } from '../lib/pricing/calibration';
 
@@ -43,6 +45,9 @@ const CONDITION_OPTIONS = ['light', 'moderate', 'heavy', 'firstTime', 'Unknown']
 const ACCESS_OPTIONS = ['Difficult access', 'Standard access', 'Unknown'];
 const SCOPE_OPTIONS = ['Interior + Exterior', 'Exterior only', 'Interior only', 'Unknown'];
 const WINDOW_BAND_OPTIONS = ['1-10', '11-20', '21-30', '31+', 'Unknown'];
+// Window-characteristic calibration reporting (see the plan's addendum) —
+// each dimension is Yes/No/Unknown, same filter recipe as everything above.
+const YES_NO_UNKNOWN_OPTIONS = ['Yes', 'No', 'Unknown'];
 
 // Every faceted filter follows the same "checked boxes narrow this
 // dimension; nothing checked at all (no query string touching this
@@ -64,6 +69,10 @@ const selectedConditions = selectedValues(Astro.url, 'conditions', CONDITION_OPT
 const selectedAccess = selectedValues(Astro.url, 'access', ACCESS_OPTIONS, null);
 const selectedScope = selectedValues(Astro.url, 'scope', SCOPE_OPTIONS, null);
 const selectedWindowBands = selectedValues(Astro.url, 'windowBands', WINDOW_BAND_OPTIONS, null);
+const selectedOversized = selectedValues(Astro.url, 'hasOversizedWindows', YES_NO_UNKNOWN_OPTIONS, null);
+const selectedFrenchPane = selectedValues(Astro.url, 'hasFrenchPaneWindows', YES_NO_UNKNOWN_OPTIONS, null);
+const selectedDifficultAccess = selectedValues(Astro.url, 'hasDifficultAccessItems', YES_NO_UNKNOWN_OPTIONS, null);
+const selectedSpecialtyAccess = selectedValues(Astro.url, 'hasSpecialtyAccessItems', YES_NO_UNKNOWN_OPTIONS, null);
 const dateStart = Astro.url.searchParams.get('dateStart') ?? '';
 const dateEnd = Astro.url.searchParams.get('dateEnd') ?? '';
 
@@ -100,6 +109,10 @@ function inFilter(job: Job): boolean {
 	if (!selectedAccess.includes(seg.accessDifficulty)) return false;
 	if (!selectedScope.includes(seg.scope)) return false;
 	if (!selectedWindowBands.includes(seg.windowCountBand)) return false;
+	if (!selectedOversized.includes(seg.hasOversizedWindows)) return false;
+	if (!selectedFrenchPane.includes(seg.hasFrenchPaneWindows)) return false;
+	if (!selectedDifficultAccess.includes(seg.hasDifficultAccessItems)) return false;
+	if (!selectedSpecialtyAccess.includes(seg.hasSpecialtyAccessItems)) return false;
 	if (seg.pricingConfigId && PRICING_CONFIG_ID_OPTIONS.length > 0 && !selectedPricingConfigIds.includes(seg.pricingConfigId)) return false;
 	const date = job['Date Completed'];
 	if (dateStart && date && date < dateStart) return false;
@@ -109,6 +122,17 @@ function inFilter(job: Job): boolean {
 
 const eligibleJobs = completedStatusJobs.filter(isCalibrationEligible).filter(inFilter);
 const rows = eligibleJobs.map((job) => ({ job, perf: computeJobPerformance(job, targetHourlyRate), seg: segmentationByJobId.get(job['Job ID'])! }));
+
+// Window-characteristic calibration reporting — reporting only, never
+// changes pricing. Splits the same already-filtered `rows` by each
+// dimension; no new data fetching or filtering beyond what's above.
+const CHARACTERISTIC_SECTIONS: Array<{ dimension: CharacteristicDimension; title: string }> = [
+	{ dimension: 'hasOversizedWindows', title: 'Oversized/custom-sized windows' },
+	{ dimension: 'hasFrenchPaneWindows', title: 'French-pane windows' },
+	{ dimension: 'hasDifficultAccessItems', title: 'Difficult-access items' },
+	{ dimension: 'hasSpecialtyAccessItems', title: 'Specialty-access items' },
+];
+const characteristicComparisons = CHARACTERISTIC_SECTIONS.map((s) => ({ ...s, comparison: compareByCharacteristic(rows, s.dimension) }));
 
 const excludedJobs = completedStatusJobs
 	.filter((job) => !isCalibrationEligible(job))
@@ -331,6 +355,38 @@ if (Astro.request.method === 'POST') {
 						</label>
 					))}
 				</details>
+				<details>
+					<summary>Oversized/custom-sized windows</summary>
+					{YES_NO_UNKNOWN_OPTIONS.map((v) => (
+						<label style="display: block;">
+							<input type="checkbox" name="hasOversizedWindows" value={v} checked={selectedOversized.includes(v)} /> {v}
+						</label>
+					))}
+				</details>
+				<details>
+					<summary>French-pane windows</summary>
+					{YES_NO_UNKNOWN_OPTIONS.map((v) => (
+						<label style="display: block;">
+							<input type="checkbox" name="hasFrenchPaneWindows" value={v} checked={selectedFrenchPane.includes(v)} /> {v}
+						</label>
+					))}
+				</details>
+				<details>
+					<summary>Difficult-access items</summary>
+					{YES_NO_UNKNOWN_OPTIONS.map((v) => (
+						<label style="display: block;">
+							<input type="checkbox" name="hasDifficultAccessItems" value={v} checked={selectedDifficultAccess.includes(v)} /> {v}
+						</label>
+					))}
+				</details>
+				<details>
+					<summary>Specialty-access items</summary>
+					{YES_NO_UNKNOWN_OPTIONS.map((v) => (
+						<label style="display: block;">
+							<input type="checkbox" name="hasSpecialtyAccessItems" value={v} checked={selectedSpecialtyAccess.includes(v)} /> {v}
+						</label>
+					))}
+				</details>
 				{PRICING_CONFIG_ID_OPTIONS.length > 0 && (
 					<details>
 						<summary>PricingConfig version</summary>
@@ -393,6 +449,69 @@ if (Astro.request.method === 'POST') {
 				{rows.length === 0 && <tr><td colspan="12">No completed jobs match this filter.</td></tr>}
 			</tbody>
 		</table>
+
+		<section class="card">
+			<h2>Estimate accuracy by window characteristic</h2>
+			<p class="field-hint">
+				Reporting only — never changes pricing. Groups with fewer than 10
+				jobs show each job individually instead of an average, since a
+				handful of jobs isn't enough to imply a real pattern.
+			</p>
+			{characteristicComparisons.map(({ title, comparison }) => (
+				<div>
+					<h3>{title}</h3>
+					<table>
+						<thead>
+							<tr>
+								<th>Group</th>
+								<th>Jobs</th>
+								<th>Confidence</th>
+								<th>Avg est. variance</th>
+								<th>Median est. variance</th>
+								<th>Avg on-site hrs</th>
+							</tr>
+						</thead>
+						<tbody>
+							{comparison.groups.map((g) => (
+								<tr>
+									<td>{g.label}</td>
+									<td>{g.jobCount}</td>
+									<td>{g.confidenceLevel}</td>
+									<td>{g.averageEstimateVarianceHours >= 0 ? '+' : ''}{g.averageEstimateVarianceHours.toFixed(2)} hrs</td>
+									<td>{g.medianEstimateVarianceHours >= 0 ? '+' : ''}{g.medianEstimateVarianceHours.toFixed(2)} hrs</td>
+									<td>{g.averageOnSiteHours.toFixed(2)}</td>
+								</tr>
+							))}
+							{comparison.groups.length === 0 && <tr><td colspan="6">No comparable jobs in this filter.</td></tr>}
+						</tbody>
+					</table>
+					{comparison.groups.filter((g) => g.jobs.length > 0).map((g) => (
+						<details>
+							<summary>{g.label} — {g.jobCount} job{g.jobCount === 1 ? '' : 's'} (below 10, showing each job)</summary>
+							<table>
+								<thead>
+									<tr><th>Property</th><th>Est. hrs</th><th>Actual hrs</th><th>Time variance</th></tr>
+								</thead>
+								<tbody>
+									{g.jobs.map(({ job, perf }) => (
+										<tr>
+											<td>
+												{job['Property Address'] && (
+													<a href={googleMapsUrl(job['Property Address'])} target="_blank" rel="noopener noreferrer">{job['Property Address']}</a>
+												)}
+											</td>
+											<td>{perf.estimatedHours.toFixed(2)}</td>
+											<td>{perf.actualHours.toFixed(2)}</td>
+											<td>{perf.timeVarianceHours >= 0 ? '+' : ''}{perf.timeVarianceHours.toFixed(2)}</td>
+										</tr>
+									))}
+								</tbody>
+							</table>
+						</details>
+					))}
+				</div>
+			))}
+		</section>
 
 		<section class="card">
 			<h2>Excluded from calibration ({excludedJobs.length})</h2>

@@ -125,4 +125,42 @@ describe('createQuote', () => {
 		const resultSnapshot = JSON.parse(quote['Calculation Result Snapshot']);
 		expect(resultSnapshot.finalQuotedPrice).toBe(Number(quote['Final Quoted Price']));
 	});
+
+	it('leaves the access-item counts blank (never a fabricated zero) when not provided — e.g. the plain in-field quoter', async () => {
+		const { quote } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 10 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+
+		expect(quote['Difficult Access Item Count']).toBe('');
+		expect(quote['Specialty Access Item Count']).toBe('');
+	});
+
+	it('stores the access-item counts when provided — e.g. the walkthrough-to-quote path', async () => {
+		const { quote } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			difficultAccessItemCount: 3,
+			specialtyAccessItemCount: 1,
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 10 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+
+		expect(quote['Difficult Access Item Count']).toBe('3');
+		expect(quote['Specialty Access Item Count']).toBe('1');
+	});
 });

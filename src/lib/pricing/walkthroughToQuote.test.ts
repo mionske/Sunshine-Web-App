@@ -12,6 +12,7 @@ import { pricingConfigConfig, pricingConfigSchema, type PricingConfig } from '..
 import { serviceConfig, serviceSchema, type Service } from '../models/service';
 import {
 	computeWalkthroughPricing,
+	countAccessDifficultyItems,
 	createQuoteFromWalkthrough,
 	itemsToQuoteCounts,
 	saveWalkthrough,
@@ -165,6 +166,34 @@ describe('itemsToQuoteCounts', () => {
 	it('does not double count when neither side is included', () => {
 		const counts = itemsToQuoteCounts([item({ Quantity: '5', 'Interior Included': 'N', 'Exterior Included': 'N' })]);
 		expect(Object.values(counts).every((v) => v === 0)).toBe(true);
+	});
+});
+
+describe('countAccessDifficultyItems', () => {
+	it('sums Quantity (not row count) for Difficult and Specialty Access items separately', () => {
+		const counts = countAccessDifficultyItems([
+			item({ Quantity: '3', 'Access Difficulty': 'Difficult' }),
+			item({ Quantity: '2', 'Access Difficulty': 'Difficult' }),
+			item({ Quantity: '1', 'Access Difficulty': 'Specialty Access' }),
+			item({ Quantity: '5', 'Access Difficulty': 'Standard' }),
+		]);
+		expect(counts.difficultAccessItemCount).toBe(5);
+		expect(counts.specialtyAccessItemCount).toBe(1);
+	});
+
+	it('ignores items with zero or blank quantity', () => {
+		const counts = countAccessDifficultyItems([
+			item({ Quantity: '0', 'Access Difficulty': 'Difficult' }),
+			item({ Quantity: '', 'Access Difficulty': 'Specialty Access' }),
+		]);
+		expect(counts.difficultAccessItemCount).toBe(0);
+		expect(counts.specialtyAccessItemCount).toBe(0);
+	});
+
+	it('reports zero for an item set with no Difficult/Specialty Access items', () => {
+		const counts = countAccessDifficultyItems([item({ Quantity: '4', 'Access Difficulty': 'Easy' })]);
+		expect(counts.difficultAccessItemCount).toBe(0);
+		expect(counts.specialtyAccessItemCount).toBe(0);
 	});
 });
 
@@ -330,7 +359,7 @@ describe('saveWalkthrough / createQuoteFromWalkthrough (Sheets-backed)', () => {
 					screenIncluded: false,
 					trackIncluded: false,
 					condition: 'Maintenance',
-					accessDifficulty: 'Standard',
+					accessDifficulty: 'Difficult',
 					hardWater: false,
 					constructionDebris: false,
 					notes: '',
@@ -344,6 +373,8 @@ describe('saveWalkthrough / createQuoteFromWalkthrough (Sheets-backed)', () => {
 		expect(quote['Property ID']).toBe(property['Property ID']);
 		expect(quote['Walkthrough ID']).toBe(walkthroughId);
 		expect(quote['Pricing Config ID']).toBe('pc-1');
+		expect(quote['Difficult Access Item Count']).toBe('10');
+		expect(quote['Specialty Access Item Count']).toBe('0');
 		expect(items.length).toBeGreaterThan(0);
 
 		const walkthroughRows = harness.spreadsheet.getTab('Walkthroughs');

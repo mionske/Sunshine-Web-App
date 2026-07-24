@@ -104,22 +104,61 @@ export interface JobSegmentation {
 	scope: string;
 	windowCountBand: string;
 	pricingConfigId: string;
+	// Window-characteristic calibration reporting (see the plan's addendum).
+	// 'Yes' | 'No' | 'Unknown' — never a boolean, since "unknown" is a
+	// distinct, common state (no linked quote, or a quote predating this
+	// feature) that must never be conflated with a real 'No'.
+	hasOversizedWindows: string;
+	hasFrenchPaneWindows: string;
+	hasDifficultAccessItems: string;
+	hasSpecialtyAccessItems: string;
 }
 
 const UNKNOWN_SEGMENT = 'Unknown';
+const YES = 'Yes';
+const NO = 'No';
+
+/** Difficult/Specialty-Access come from the Quote's own plain columns
+ * (populated only for walkthrough-originated quotes — see
+ * countAccessDifficultyItems in walkthroughToQuote.ts), not from the JSON
+ * Input Snapshot, so they're derivable even when there's a quote but the
+ * snapshot is blank/malformed. They're still 'Unknown' — not a fabricated
+ * 'No' — for quotes created before this feature shipped, where the column
+ * is simply blank rather than a real observed zero. */
+function deriveAccessItemSegment(quote: Quote | undefined, column: 'Difficult Access Item Count' | 'Specialty Access Item Count'): string {
+	if (!quote) return UNKNOWN_SEGMENT;
+	const raw = quote[column];
+	if (raw === undefined || raw === '') return UNKNOWN_SEGMENT;
+	return num(raw) > 0 ? YES : NO;
+}
 
 export function deriveJobSegmentation(job: Job, quote: Quote | undefined): JobSegmentation {
 	const band = windowCountBand(legacyWindowCount(job));
 	const pricingConfigId = quote?.['Pricing Config ID'] ?? '';
+	const hasDifficultAccessItems = deriveAccessItemSegment(quote, 'Difficult Access Item Count');
+	const hasSpecialtyAccessItems = deriveAccessItemSegment(quote, 'Specialty Access Item Count');
 
 	if (!quote?.['Input Snapshot']) {
-		return { storyCount: UNKNOWN_SEGMENT, condition: UNKNOWN_SEGMENT, accessDifficulty: UNKNOWN_SEGMENT, scope: UNKNOWN_SEGMENT, windowCountBand: band, pricingConfigId };
+		return {
+			storyCount: UNKNOWN_SEGMENT,
+			condition: UNKNOWN_SEGMENT,
+			accessDifficulty: UNKNOWN_SEGMENT,
+			scope: UNKNOWN_SEGMENT,
+			windowCountBand: band,
+			pricingConfigId,
+			hasOversizedWindows: UNKNOWN_SEGMENT,
+			hasFrenchPaneWindows: UNKNOWN_SEGMENT,
+			hasDifficultAccessItems,
+			hasSpecialtyAccessItems,
+		};
 	}
 
 	try {
 		const input = JSON.parse(quote['Input Snapshot']) as Partial<QuoteInput>;
 		const counts = input.counts;
 		let scope = UNKNOWN_SEGMENT;
+		let hasOversizedWindows = UNKNOWN_SEGMENT;
+		let hasFrenchPaneWindows = UNKNOWN_SEGMENT;
 		if (counts) {
 			const extTotal =
 				(counts.windowExtStandard ?? 0) + (counts.windowExtOversized ?? 0) + (counts.windowExtFrenchPane ?? 0) + (counts.slidingDoorExt ?? 0) + (counts.skylightExt ?? 0);
@@ -128,6 +167,8 @@ export function deriveJobSegmentation(job: Job, quote: Quote | undefined): JobSe
 			if (extTotal > 0 && intTotal > 0) scope = 'Interior + Exterior';
 			else if (extTotal > 0) scope = 'Exterior only';
 			else if (intTotal > 0) scope = 'Interior only';
+			hasOversizedWindows = (counts.windowExtOversized ?? 0) + (counts.windowIntOversized ?? 0) > 0 ? YES : NO;
+			hasFrenchPaneWindows = (counts.windowExtFrenchPane ?? 0) + (counts.windowIntFrenchPane ?? 0) > 0 ? YES : NO;
 		}
 
 		return {
@@ -137,9 +178,24 @@ export function deriveJobSegmentation(job: Job, quote: Quote | undefined): JobSe
 			scope,
 			windowCountBand: band,
 			pricingConfigId,
+			hasOversizedWindows,
+			hasFrenchPaneWindows,
+			hasDifficultAccessItems,
+			hasSpecialtyAccessItems,
 		};
 	} catch {
-		return { storyCount: UNKNOWN_SEGMENT, condition: UNKNOWN_SEGMENT, accessDifficulty: UNKNOWN_SEGMENT, scope: UNKNOWN_SEGMENT, windowCountBand: band, pricingConfigId };
+		return {
+			storyCount: UNKNOWN_SEGMENT,
+			condition: UNKNOWN_SEGMENT,
+			accessDifficulty: UNKNOWN_SEGMENT,
+			scope: UNKNOWN_SEGMENT,
+			windowCountBand: band,
+			pricingConfigId,
+			hasOversizedWindows: UNKNOWN_SEGMENT,
+			hasFrenchPaneWindows: UNKNOWN_SEGMENT,
+			hasDifficultAccessItems,
+			hasSpecialtyAccessItems,
+		};
 	}
 }
 
@@ -344,4 +400,65 @@ export function computeJobPerformance(job: Job, targetHourlyRate: number): JobPe
 		callbackCost,
 		adjustedRevenuePerHour: actualHours > 0 ? netContribution / actualHours : 0,
 	};
+}
+
+// --- Window-characteristic calibration reporting --------------------------
+// Reporting only — never feeds back into PricingConfig. Splits an already-
+// filtered set of comparable jobs by one JobSegmentation dimension and
+// reports estimate-accuracy/on-site-hours per group, so the owner can see
+// what oversized windows, french panes, or difficult/specialty-access items
+// actually do to job time — without collecting a single new field.
+
+export type CharacteristicDimension = 'hasOversizedWindows' | 'hasFrenchPaneWindows' | 'hasDifficultAccessItems' | 'hasSpecialtyAccessItems';
+
+export interface CharacteristicGroupStats {
+	label: string; // 'Yes' | 'No' | 'Unknown'
+	jobCount: number;
+	averageEstimateVarianceHours: number;
+	medianEstimateVarianceHours: number;
+	averageOnSiteHours: number;
+	confidenceLevel: (typeof CONFIDENCE_LEVELS)[number];
+	// Populated only when jobCount < 10 — same "show the raw jobs instead of
+	// an aggregate for a small sample" convention used elsewhere on this page.
+	jobs: Array<{ job: Job; perf: JobPerformance }>;
+}
+
+export interface CharacteristicComparison {
+	dimension: CharacteristicDimension;
+	groups: CharacteristicGroupStats[];
+}
+
+const GROUP_LABEL_ORDER = [YES, NO, UNKNOWN_SEGMENT];
+
+/** Splits `rows` (job+perf+seg triples the caller has already filtered to
+ * comparable jobs) by one characteristic dimension. Never re-fetches or
+ * re-filters jobs itself — purely descriptive of what was handed in. */
+export function compareByCharacteristic(
+	rows: Array<{ job: Job; perf: JobPerformance; seg: JobSegmentation }>,
+	dimension: CharacteristicDimension
+): CharacteristicComparison {
+	const byLabel = new Map<string, Array<{ job: Job; perf: JobPerformance }>>();
+	for (const r of rows) {
+		const label = r.seg[dimension];
+		const list = byLabel.get(label) ?? [];
+		list.push({ job: r.job, perf: r.perf });
+		byLabel.set(label, list);
+	}
+
+	const groups: CharacteristicGroupStats[] = GROUP_LABEL_ORDER.filter((l) => byLabel.has(l)).map((label) => {
+		const jobs = byLabel.get(label)!;
+		const varianceHours = jobs.map((j) => j.perf.timeVarianceHours);
+		const onSiteHours = jobs.map((j) => j.perf.actualHours);
+		return {
+			label,
+			jobCount: jobs.length,
+			averageEstimateVarianceHours: mean(varianceHours),
+			medianEstimateVarianceHours: median(varianceHours),
+			averageOnSiteHours: mean(onSiteHours),
+			confidenceLevel: confidenceLevel(jobs.length),
+			jobs: jobs.length < 10 ? jobs : [],
+		};
+	});
+
+	return { dimension, groups };
 }

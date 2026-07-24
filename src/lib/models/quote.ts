@@ -41,6 +41,16 @@ export const quoteSchema = z.object({
 	'Created By': blank(),
 	Notes: blank(),
 	'QB Estimate Link': blank(),
+	// Window-characteristic calibration reporting: how many items in this
+	// quote's scope were marked Difficult/Specialty Access at walkthrough
+	// time (summed by item Quantity, not row count). Only ever populated
+	// for quotes created from a Walkthrough, where per-item access
+	// difficulty is actually observed — quotes from the plain in-field
+	// quoter have no per-item data at all, so these stay blank/unknown
+	// rather than a fabricated zero. Reporting only; never read by the
+	// pricing engine.
+	'Difficult Access Item Count': blank(),
+	'Specialty Access Item Count': blank(),
 });
 
 export type Quote = z.infer<typeof quoteSchema>;

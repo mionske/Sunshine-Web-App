@@ -7,6 +7,7 @@ import type { Quote } from '../models/quote';
 import { calibrationSnapshotSchema } from '../models/calibrationSnapshot';
 import {
 	calibrationExclusionReasons,
+	compareByCharacteristic,
 	computeCalibrationStats,
 	computeJobPerformance,
 	computePropertyPerformance,
@@ -16,6 +17,8 @@ import {
 	recalculateCalibration,
 	getLatestCalibrationSnapshot,
 	windowCountBand,
+	type JobPerformance,
+	type JobSegmentation,
 } from './calibration';
 
 function job(overrides: Partial<Job> = {}): Job {
@@ -275,6 +278,8 @@ describe('deriveJobSegmentation', () => {
 			'Created By': '',
 			Notes: '',
 			'QB Estimate Link': '',
+			'Difficult Access Item Count': '',
+			'Specialty Access Item Count': '',
 			...overrides,
 		};
 	}
@@ -288,6 +293,10 @@ describe('deriveJobSegmentation', () => {
 			scope: 'Unknown',
 			windowCountBand: '11-20',
 			pricingConfigId: '',
+			hasOversizedWindows: 'Unknown',
+			hasFrenchPaneWindows: 'Unknown',
+			hasDifficultAccessItems: 'Unknown',
+			hasSpecialtyAccessItems: 'Unknown',
 		});
 	});
 
@@ -317,6 +326,126 @@ describe('deriveJobSegmentation', () => {
 		const seg = deriveJobSegmentation(job(), quote({ 'Input Snapshot': '{not json' }));
 		expect(seg.storyCount).toBe('Unknown');
 		expect(seg.pricingConfigId).toBe('pc-1');
+	});
+
+	it('reads hasOversizedWindows/hasFrenchPaneWindows from the Input Snapshot counts', () => {
+		const input = {
+			stories: 1,
+			condition: 'light',
+			difficultAccess: false,
+			counts: { windowExtStandard: 8, windowIntStandard: 0, slidingDoorExt: 0, slidingDoorInt: 0, skylightExt: 0, skylightInt: 0, windowExtOversized: 2, windowIntOversized: 0, windowExtFrenchPane: 0, windowIntFrenchPane: 1, screenClean: 0, trackBasic: 0, trackDeep: 0 },
+		};
+		const seg = deriveJobSegmentation(job(), quote({ 'Input Snapshot': JSON.stringify(input) }));
+		expect(seg.hasOversizedWindows).toBe('Yes');
+		expect(seg.hasFrenchPaneWindows).toBe('Yes');
+	});
+
+	it('reports No for oversized/french-pane when counts are present but zero', () => {
+		const input = {
+			stories: 1,
+			condition: 'light',
+			difficultAccess: false,
+			counts: { windowExtStandard: 8, windowIntStandard: 0, slidingDoorExt: 0, slidingDoorInt: 0, skylightExt: 0, skylightInt: 0, windowExtOversized: 0, windowIntOversized: 0, windowExtFrenchPane: 0, windowIntFrenchPane: 0, screenClean: 0, trackBasic: 0, trackDeep: 0 },
+		};
+		const seg = deriveJobSegmentation(job(), quote({ 'Input Snapshot': JSON.stringify(input) }));
+		expect(seg.hasOversizedWindows).toBe('No');
+		expect(seg.hasFrenchPaneWindows).toBe('No');
+	});
+
+	it('reads hasDifficultAccessItems/hasSpecialtyAccessItems from the Quote columns, independent of Input Snapshot validity', () => {
+		const seg = deriveJobSegmentation(
+			job(),
+			quote({ 'Input Snapshot': '{not json', 'Difficult Access Item Count': '2', 'Specialty Access Item Count': '0' })
+		);
+		expect(seg.hasDifficultAccessItems).toBe('Yes');
+		expect(seg.hasSpecialtyAccessItems).toBe('No');
+	});
+
+	it('treats a blank access-item column as Unknown, not a fabricated No, even with a valid Input Snapshot', () => {
+		const input = { stories: 1, condition: 'light', difficultAccess: false, counts: { windowExtStandard: 8, windowIntStandard: 0, slidingDoorExt: 0, slidingDoorInt: 0, skylightExt: 0, skylightInt: 0, windowExtOversized: 0, windowIntOversized: 0, windowExtFrenchPane: 0, windowIntFrenchPane: 0, screenClean: 0, trackBasic: 0, trackDeep: 0 } };
+		const seg = deriveJobSegmentation(job(), quote({ 'Input Snapshot': JSON.stringify(input) }));
+		expect(seg.hasDifficultAccessItems).toBe('Unknown');
+		expect(seg.hasSpecialtyAccessItems).toBe('Unknown');
+	});
+
+	it('has no source of truth for access-item dimensions when there is no quote at all', () => {
+		const seg = deriveJobSegmentation(job(), undefined);
+		expect(seg.hasDifficultAccessItems).toBe('Unknown');
+		expect(seg.hasSpecialtyAccessItems).toBe('Unknown');
+	});
+});
+
+describe('compareByCharacteristic', () => {
+	function perf(overrides: Partial<JobPerformance> = {}): JobPerformance {
+		return {
+			quotedRevenuePerEstimatedHour: 0,
+			actualRevenuePerLaborHour: 0,
+			varianceFromTarget: 0,
+			estimatedHours: 2,
+			actualHours: 2,
+			timeVarianceHours: 0,
+			quotedRevenue: 0,
+			finalRevenue: 0,
+			directJobCosts: 0,
+			netContribution: 0,
+			callbackCost: 0,
+			adjustedRevenuePerHour: 0,
+			...overrides,
+		};
+	}
+
+	function seg(overrides: Partial<JobSegmentation> = {}): JobSegmentation {
+		return {
+			storyCount: 'Unknown',
+			condition: 'Unknown',
+			accessDifficulty: 'Unknown',
+			scope: 'Unknown',
+			windowCountBand: 'Unknown',
+			pricingConfigId: '',
+			hasOversizedWindows: 'Unknown',
+			hasFrenchPaneWindows: 'Unknown',
+			hasDifficultAccessItems: 'Unknown',
+			hasSpecialtyAccessItems: 'Unknown',
+			...overrides,
+		};
+	}
+
+	it('splits rows into Yes/No/Unknown groups and reports variance/on-site-hours per group', () => {
+		const rows = [
+			{ job: job(), perf: perf({ timeVarianceHours: 1, actualHours: 3 }), seg: seg({ hasOversizedWindows: 'Yes' }) },
+			{ job: job(), perf: perf({ timeVarianceHours: 0.5, actualHours: 2.5 }), seg: seg({ hasOversizedWindows: 'Yes' }) },
+			{ job: job(), perf: perf({ timeVarianceHours: -0.2, actualHours: 1.8 }), seg: seg({ hasOversizedWindows: 'No' }) },
+		];
+
+		const comparison = compareByCharacteristic(rows, 'hasOversizedWindows');
+		expect(comparison.dimension).toBe('hasOversizedWindows');
+
+		const yes = comparison.groups.find((g) => g.label === 'Yes')!;
+		expect(yes.jobCount).toBe(2);
+		expect(yes.averageEstimateVarianceHours).toBeCloseTo(0.75, 5);
+		expect(yes.medianEstimateVarianceHours).toBeCloseTo(0.75, 5);
+		expect(yes.averageOnSiteHours).toBeCloseTo(2.75, 5);
+
+		const no = comparison.groups.find((g) => g.label === 'No')!;
+		expect(no.jobCount).toBe(1);
+	});
+
+	it('includes raw job/perf pairs only when a group has fewer than 10 jobs', () => {
+		const smallGroupRows = Array.from({ length: 3 }, () => ({ job: job(), perf: perf(), seg: seg({ hasDifficultAccessItems: 'Yes' }) }));
+		const smallComparison = compareByCharacteristic(smallGroupRows, 'hasDifficultAccessItems');
+		expect(smallComparison.groups[0].jobs).toHaveLength(3);
+
+		const largeGroupRows = Array.from({ length: 10 }, () => ({ job: job(), perf: perf(), seg: seg({ hasDifficultAccessItems: 'Yes' }) }));
+		const largeComparison = compareByCharacteristic(largeGroupRows, 'hasDifficultAccessItems');
+		expect(largeComparison.groups[0].jobs).toHaveLength(0);
+		expect(largeComparison.groups[0].jobCount).toBe(10);
+	});
+
+	it('omits labels with no jobs entirely rather than reporting a zero-count group', () => {
+		const rows = [{ job: job(), perf: perf(), seg: seg({ hasSpecialtyAccessItems: 'Yes' }) }];
+		const comparison = compareByCharacteristic(rows, 'hasSpecialtyAccessItems');
+		expect(comparison.groups).toHaveLength(1);
+		expect(comparison.groups[0].label).toBe('Yes');
 	});
 });
 

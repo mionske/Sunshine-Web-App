@@ -570,6 +570,9 @@ function ItemForm({
 					onChange={(e) => setDraft({ ...draft, quantity: e.target.value })}
 				/>
 			</label>
+			{draft.itemType === 'Sliding Door' && (
+				<span className="field-hint">Count an oversized/XL slider as 2.</span>
+			)}
 			<label>
 				<input
 					type="checkbox"

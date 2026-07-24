@@ -133,6 +133,8 @@ export const TAB_SCHEMAS: Record<string, string[]> = {
 		'Archived At',
 		'Created By',
 		'Notes',
+		'Difficult Access Item Count',
+		'Specialty Access Item Count',
 	],
 	Services: [
 		'Service Code',

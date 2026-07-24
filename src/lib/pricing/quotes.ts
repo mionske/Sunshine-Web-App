@@ -22,6 +22,11 @@ export interface CreateQuoteParams {
 	/** Set when this quote was generated from a completed Walkthrough —
 	 * see lib/pricing/walkthroughToQuote.ts. */
 	walkthroughId?: string;
+	/** Window-characteristic calibration reporting — only ever passed by
+	 * the walkthrough-to-quote path, which is the only one with per-item
+	 * Access Difficulty data to summarize. Omitted (not zero) when unknown. */
+	difficultAccessItemCount?: number;
+	specialtyAccessItemCount?: number;
 }
 
 export interface CreateQuoteResult {
@@ -78,6 +83,8 @@ export async function createQuote(env: SheetsEnv, params: CreateQuoteParams): Pr
 					'Override Reason': params.input.overrideReason ?? '',
 					'Quote Status': 'Draft',
 					'Created By': params.createdBy ?? '',
+					'Difficult Access Item Count': params.difficultAccessItemCount !== undefined ? String(params.difficultAccessItemCount) : '',
+					'Specialty Access Item Count': params.specialtyAccessItemCount !== undefined ? String(params.specialtyAccessItemCount) : '',
 				},
 			],
 		},
