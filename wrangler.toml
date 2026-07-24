@@ -1,5 +1,10 @@
 name = "sww-web-app"
-pages_build_output_dir = "dist"
+# Deployed as a Cloudflare Worker with static assets (the current unified
+# platform @astrojs/cloudflare 14.x targets), not classic Pages —
+# `pages_build_output_dir` was removed because its mere presence makes
+# wrangler treat the whole config as a Pages project, which then rejects
+# the adapter's own "ASSETS" static-assets binding as a reserved name.
+# Deploy with: wrangler deploy --config dist/server/wrangler.json
 compatibility_date = "2026-07-22"
 compatibility_flags = ["nodejs_compat"]
 
@@ -12,4 +17,4 @@ compatibility_flags = ["nodejs_compat"]
 # without a real id.
 [[kv_namespaces]]
 binding = "QB_TOKENS"
-id = "REPLACE_WITH_REAL_KV_NAMESPACE_ID"
+id = "1a6b4efbf4bb493e9acb1935dec59f9b"
