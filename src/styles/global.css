@@ -161,6 +161,33 @@ input.field-numeric {
 	width: 90px;
 }
 
+/* Compact form layout on wider screens — most fields (name, phone, a
+ * select, a short count) don't need a full-width row each; scoped behind
+ * a min-width so phones/Job Day mode (meant for one-handed field use)
+ * keep the single-column stacked layout untouched. Textareas and buttons
+ * still span the full row so notes fields and "Save" don't get squeezed
+ * into a narrow column. */
+@media (min-width: 700px) {
+	/* A form that directly wraps <fieldset> sections (e.g. the Property
+	 * page) must NOT become a grid itself — that would squeeze whole
+	 * fieldsets into narrow columns instead of just laying out the labels
+	 * inside each one. Only forms with no fieldset wrapper (Client,
+	 * PricingConfig, etc.) get the grid applied directly. */
+	form:not(:has(> fieldset)),
+	fieldset {
+		display: grid;
+		grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+		column-gap: 1.5rem;
+		align-items: start;
+	}
+
+	form > button,
+	form > .btn,
+	label:has(textarea) {
+		grid-column: 1 / -1;
+	}
+}
+
 .field-hint {
 	display: block;
 	font-weight: 400;
