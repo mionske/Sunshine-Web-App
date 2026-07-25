@@ -230,6 +230,11 @@ what was charged. Reproducibility means the stored snapshots + config
 reference let anyone audit how the price was reached later — not that the
 app recomputes a past quote from current logic and treats that as truth.
 
+`/quotes` (nav item) lists every quote (Property/Client/Status/Final
+Quoted Price, linking to `/quotes/[id]`) — previously only `/quoter` (the
+*creation* tool) was in the nav, so an existing quote could only be
+reached via a direct link from elsewhere.
+
 **Difficult/Specialty Access Item Count** (window-characteristic calibration
 reporting): populated only for quotes created from a completed Walkthrough
 (`createQuoteFromWalkthrough` in `lib/pricing/walkthroughToQuote.ts`) —
@@ -379,6 +384,36 @@ Data Quality Notes. These five are free-text columns, not enforced
 enums — unlike Job Status, most existing rows simply won't have them set,
 and forcing a default value would fabricate false completeness on legacy
 data; the allowed-value lists only constrain what forms offer.
+
+**Historical Job Entry — Callback & Quality, Pricing Review, Job
+Performance Review** (Historical Entry Wizard only; free-text/blank
+columns, same non-fabrication reasoning as the classification fields
+above). Callback Reason (Quality Issue/Customer Request/Missed Windows/
+Streaking/Hard Water Rework/Equipment Failure/Weather/Scheduling Error/
+Other), Callback Root Cause, Callback Corrective Action, Callback Lessons
+Learned — only meaningful when Callback Required (Y/N) is Y; distinct
+from the pre-existing Callback Labor Minutes/Callback Cost columns (which
+capture the time/money impact, not the why). The wizard's own UI field is
+labeled "Callback Hours" (decimal) but still writes minutes into the
+shared Callback Labor Minutes column — converted at save time — since that
+column is also written in minutes by the live Job Day completion path
+(`jobDay.ts`). Callback time is never folded into Actual Time (hrs);
+`historicalEntry.ts`'s `onSiteMinutes()` already excludes it.
+
+Pricing Confidence (Very Low/Low/Medium/High/Very High), Would Price
+Differently Today (Y/N), Current Retail Price Estimate ($), Reason
+Pricing Changed — pricing hindsight only, never read by
+`calculateQuote`/`walkthroughToQuote.ts`/`calibration.ts`'s eligibility
+check, so none of it auto-influences pricing recommendations.
+
+Overall Job Rating, Customer Satisfaction Rating (both 1–5, free string),
+Would Accept Job Again (Y/N), Would Change Process (Y/N), Process
+Improvements. Customer Satisfaction Rating is a deliberately distinct
+column from the pre-existing Customer Rating — Customer Rating sits
+alongside Review Requested At/Review Left and is reserved for an actual
+score from a real customer-left review; Customer Satisfaction Rating is
+the owner's own retrospective judgment entered during historical data
+entry.
 
 Review Requested At (timestamp), Review Left (Yes/No/Unknown),
 Next Maintenance Follow-up Date (pre-filled as Job completion date +
@@ -618,6 +653,29 @@ the pricing engine directly (only `Exterior Condition`, via
 `Roof Access Required` exists in the schema but has no rendered control
 in the wizard today — a pre-existing gap, unrelated to this change.
 
+**Access & Equipment Modifiers** (Historical Entry Wizard only) —
+checkbox-level equipment/complexity detail recorded for a completed
+historical job, purely for reporting, never read by the pricing engine:
+**Second-Story Exterior (Y/N)**, **Ladder Required (Y/N)**, **Vaulted
+Interior Glass (Y/N)**, **Roof Access Required (Y/N)**, **Oversized Glass
+Or Large Sliders (Y/N)**, **Tight Landscaping Or Obstructions (Y/N)**,
+**Limited Interior Access (Y/N)**, **Water-Fed Pole Used (Y/N)**,
+**Traditional Exterior Cleaning Used (Y/N)**, **Other Access Issue
+(Y/N)** + **Other Access Notes**. These are genuinely new columns, not
+reuses of the live wizard's similarly-named `Ladder Required`/`Roof
+Access Required`/`Water-Fed Pole Suitable (Y/N)`/`Exterior Access
+Obstructed (Y/N)`/`Furniture Or Belongings Movement Required (Y/N)`
+above — each of those is a free-text or prospective property-capability
+concept populated by the live `WalkthroughWizard.tsx`, while these ten
+are a retrospective Y/N record of what a specific historical job actually
+involved. The Historical Entry Wizard's own "Overall Access Difficulty"
+select (relabeled from "Access difficulty") still writes the same
+`Access Difficulty` column above, but offers only Easy/Standard/Difficult
+(vs. the live wizard's 5-value list) — a genuinely difficult/specialty-
+access historical job is recorded as `Difficult` plus the relevant
+modifier checkboxes above, rather than a separate `Specialty Access`
+level.
+
 The Walkthrough intake step (`/walkthroughs/new`) shows a read-only
 **Property reference** block (window units, panes, stories, typical
 exterior method, ladder requirement, water access, roof access required,
@@ -725,7 +783,31 @@ submission, so the whole thing is a single Write-Operation-ID-tagged,
 idempotent-by-ID unit — safe to retry after a network error without
 creating duplicates. A walkthrough-only visit never creates a fake Job;
 Job Details only appears for record types where work was actually
-performed.
+performed. Walkthrough Details also carries Access & Equipment Modifiers
+(below the renamed "Overall Access Difficulty" field); Job Details also
+carries an expanded Callback & Quality section (Callback Required →
+Callback Hours/Reason/Root Cause/Corrective Action/Lessons Learned when
+checked), plus new Pricing Review and Job Performance Review cards below
+Classification — see the Jobs and Walkthroughs sections above for the
+exact columns.
+
+**Historical Records** (`/historical-records`, linked from the Dashboard
+and from `/historical-entry`) — lists every Job with a non-blank Record
+Classification (a reliable signal since only this wizard's save/update
+path ever writes that column), linking each to
+`/historical-entry/[jobId]` for **true edit mode**: the same wizard UI,
+pre-loaded from the real Client/Property/Walkthrough/Quote/Job rows via
+`buildEditState()`, posting `action: 'update'` instead of `'save'` on
+submit. `updateHistoricalEntry()` (`lib/pricing/historicalEntry.ts`)
+updates each included sub-record in place via `updateRow()` — deliberately
+not `createRelatedRows()`, whose idempotent-by-ID create semantics would
+silently skip rewriting a row whose ID already exists. Every field-mapping
+literal (Client/Property/Walkthrough/Quote/Job) is shared between the
+create and update paths via `buildClientRecord()`/`buildPropertyRecord()`/
+etc., so the two write paths can't drift apart. Walkthrough-only
+historical entries (no Job ever created) have no equivalent list/edit
+support today — they remain viewable only via their own Walkthrough
+Detail page.
 
 ## SystemTest
 Dedicated scratch tab for live Sheets round-trip verification. Never used

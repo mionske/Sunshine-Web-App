@@ -1,0 +1,53 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { listActiveRows } from '../../lib/sheets';
+import { quoteConfig } from '../../lib/models/quote';
+import { clientConfig } from '../../lib/models/client';
+import { propertyConfig } from '../../lib/models/property';
+
+const [quotes, clients, properties] = await Promise.all([
+	listActiveRows(env, quoteConfig),
+	listActiveRows(env, clientConfig),
+	listActiveRows(env, propertyConfig),
+]);
+const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
+const propertyById = Object.fromEntries(properties.map((p) => [p['Property ID'], p]));
+
+quotes.sort((a, b) => (b['Created At'] || '').localeCompare(a['Created At'] || ''));
+---
+
+<BaseLayout title="Quotes">
+	<main>
+		<h1>Quotes</h1>
+		<p>Every quote created — from the in-field <a href="/quoter">Quoter</a> or a walkthrough.</p>
+
+		<table>
+			<thead>
+				<tr>
+					<th>Property</th>
+					<th>Client</th>
+					<th>Status</th>
+					<th>Final Quoted Price</th>
+					<th></th>
+				</tr>
+			</thead>
+			<tbody>
+				{quotes.map((q) => {
+					const client = clientById[q['Client ID']];
+					const property = propertyById[q['Property ID']];
+					return (
+						<tr>
+							<td>{property ? `${property['Street Address']}, ${property.City}` : q['Property ID']}</td>
+							<td>{client ? `${client['First Name']} ${client['Last Name']}` : q['Client ID']}</td>
+							<td><span class="badge badge-accent">{q['Quote Status']}</span></td>
+							<td>{q['Final Quoted Price'] ? `$${Number(q['Final Quoted Price']).toFixed(2)}` : '—'}</td>
+							<td><a href={`/quotes/${q['Quote ID']}`}>view</a></td>
+						</tr>
+					);
+				})}
+				{quotes.length === 0 && <tr><td colspan="5">No quotes yet.</td></tr>}
+			</tbody>
+		</table>
+	</main>
+</BaseLayout>

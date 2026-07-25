@@ -30,6 +30,25 @@ export const DATA_QUALITY_LEVELS = ['Complete', 'Mostly Complete', 'Partial', 'E
 
 export const REVIEW_LEFT_VALUES = ['Yes', 'No', 'Unknown'] as const;
 
+// Historical Entry Wizard: Callback & Quality detail (only meaningful when
+// 'Callback Required (Y/N)' is 'Y') and Pricing Review. Free strings, not
+// enums on the schema itself — same "never fabricate legacy completeness"
+// reasoning as Record Classification etc. below; these constants only
+// constrain the <select> options offered in the wizard.
+export const CALLBACK_REASONS = [
+	'Quality Issue',
+	'Customer Request',
+	'Missed Windows',
+	'Streaking',
+	'Hard Water Rework',
+	'Equipment Failure',
+	'Weather',
+	'Scheduling Error',
+	'Other',
+] as const;
+
+export const PRICING_CONFIDENCE_LEVELS = ['Very Low', 'Low', 'Medium', 'High', 'Very High'] as const;
+
 export const MAINTENANCE_FOLLOW_UP_STATUSES = ['Not yet due', 'Due', 'Contacted', 'Scheduled', 'Declined'] as const;
 
 // Job Day state machine (Phase 6) — distinct from Job Status above: this
@@ -96,6 +115,25 @@ export const jobSchema = z
 		'Standard Price Equivalent': blank(),
 		'Data Quality': blank(),
 		'Data Quality Notes': blank(),
+		// Pricing Review (Historical Entry Wizard) — pricing hindsight only;
+		// never fed back into calculateQuote/walkthroughToQuote.ts
+		// automatically (see calibrationExclusionReasons in calibration.ts,
+		// which never reads these).
+		'Pricing Confidence': blank(),
+		'Would Price Differently Today (Y/N)': blank(),
+		'Current Retail Price Estimate ($)': blank(),
+		'Reason Pricing Changed': blank(),
+		// Job Performance Review (Historical Entry Wizard). 'Customer
+		// Satisfaction Rating' is deliberately distinct from 'Customer
+		// Rating' below: 'Customer Rating' sits alongside 'Review Requested
+		// At'/'Review Left' and is reserved for an actual score from a real
+		// customer-left review; this field is the owner's own retrospective
+		// judgment entered during historical data entry.
+		'Overall Job Rating': blank(),
+		'Customer Satisfaction Rating': blank(),
+		'Would Accept Job Again (Y/N)': blank(),
+		'Would Change Process (Y/N)': blank(),
+		'Process Improvements': blank(),
 		'Arrival Timestamp': blank(),
 		'Start Timestamp': blank(),
 		'Finish Timestamp': blank(),
@@ -111,6 +149,16 @@ export const jobSchema = z
 		// never actually declared here or added to the live sheet — this
 		// closes that gap rather than introducing a new one.
 		'Callback Cost': blank(),
+		// Callback & Quality detail (Historical Entry Wizard) — captures why
+		// a callback happened and what was learned, distinct from the
+		// minutes/cost columns above which only capture the time/money
+		// impact. Never folded into 'Actual Time (hrs)' — see
+		// historicalEntry.ts's onSiteMinutes(), which already excludes
+		// Callback Labor Minutes from that total.
+		'Callback Reason': blank(),
+		'Callback Root Cause': blank(),
+		'Callback Corrective Action': blank(),
+		'Callback Lessons Learned': blank(),
 		'Supplies Cost': blank(),
 		Gas: blank(),
 		'Other Expenses': blank(),

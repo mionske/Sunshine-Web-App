@@ -1,7 +1,12 @@
 import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import { findLikelyDuplicates } from '../../lib/pricing/duplicateDetection';
-import { previewCalibrationEligibility, saveHistoricalEntry, type HistoricalEntryPayload } from '../../lib/pricing/historicalEntry';
+import {
+	previewCalibrationEligibility,
+	saveHistoricalEntry,
+	updateHistoricalEntry,
+	type HistoricalEntryPayload,
+} from '../../lib/pricing/historicalEntry';
 
 export const POST: APIRoute = async ({ request }) => {
 	const body = (await request.json()) as { action: string; [key: string]: unknown };
@@ -19,6 +24,11 @@ export const POST: APIRoute = async ({ request }) => {
 
 		if (body.action === 'save') {
 			const result = await saveHistoricalEntry(env, body.payload as HistoricalEntryPayload);
+			return json({ ok: true, ...result });
+		}
+
+		if (body.action === 'update') {
+			const result = await updateHistoricalEntry(env, body.payload as HistoricalEntryPayload);
 			return json({ ok: true, ...result });
 		}
 

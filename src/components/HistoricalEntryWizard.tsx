@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { googleMapsUrl } from '../lib/mapsLink';
 import { PREFERRED_CONTACT_METHOD_OPTIONS, type Client } from '../lib/models/client';
 import type { Property } from '../lib/models/property';
-import { GLASS_CONDITION_LEVELS } from '../lib/models/walkthrough';
+import { GLASS_CONDITION_LEVELS, type Walkthrough } from '../lib/models/walkthrough';
+import { CALLBACK_REASONS, PRICING_CONFIDENCE_LEVELS, type Job } from '../lib/models/job';
+import type { Quote } from '../lib/models/quote';
 
 const RECORD_TYPES = [
 	'Walkthrough Only',
@@ -15,8 +17,27 @@ const RECORD_TYPES = [
 ] as const;
 type RecordType = (typeof RECORD_TYPES)[number];
 
+// Reverse of DEFAULTS_BY_RECORD_TYPE's classification mapping below — used
+// only by buildEditState() to infer which Record Type radio a historical
+// record's saved 'Record Classification' most likely corresponds to, since
+// Record Type itself is a wizard-only concept, never persisted anywhere.
+const RECORD_TYPE_BY_CLASSIFICATION: Partial<Record<string, RecordType>> = {
+	'Customer Job': 'Completed Customer Job',
+	'Discounted Customer Job': 'Discounted Customer Job',
+	'Test Job': 'Test Job',
+	'Practice Job': 'Practice Job',
+	'Owner Property': 'Owner Property',
+};
+
 const PROPERTY_TYPES = ['Residential', 'Commercial', 'New Build-Construction'];
-const ACCESS_LEVELS = ['Easy', 'Standard', 'Difficult', 'Specialty Access', 'Unknown'];
+// Overall Access Difficulty — trimmed to 3 values for this wizard only.
+// This is a local, UI-only list (not imported from walkthrough.ts's own
+// 5-value ACCESS_LEVELS, which the live WalkthroughWizard still uses
+// unchanged) — a genuinely difficult/specialty-access historical job is
+// recorded as 'Difficult' plus the relevant Access & Equipment Modifier
+// checkboxes below, rather than a separate 'Specialty Access' level.
+const ACCESS_LEVELS = ['Easy', 'Standard', 'Difficult'];
+const RATING_OPTIONS = ['1', '2', '3', '4', '5'];
 const RECORD_CLASSIFICATIONS = [
 	'Customer Job',
 	'Discounted Customer Job',
@@ -38,6 +59,32 @@ const DEFAULTS_BY_RECORD_TYPE: Partial<Record<RecordType, { classification: stri
 
 function newId(): string {
 	return crypto.randomUUID();
+}
+
+function RatingRadios({
+	label,
+	name,
+	value,
+	onChange,
+}: {
+	label: string;
+	name: string;
+	value: string;
+	onChange: (v: string) => void;
+}) {
+	return (
+		<div>
+			<p className="field-label">{label}</p>
+			<div className="segmented">
+				{RATING_OPTIONS.map((n) => (
+					<label key={n}>
+						<input type="radio" name={name} checked={value === n} onChange={() => onChange(n)} />
+						{n}
+					</label>
+				))}
+			</div>
+		</div>
+	);
 }
 
 interface ClientState {
@@ -90,6 +137,19 @@ interface WalkthroughState {
 	steelWool: string;
 	nonScratchPad: string;
 	restorationNotes: string;
+	// Access & Equipment Modifiers — 'Y'/'N' strings, matching the
+	// restoration checkboxes' own convention above.
+	secondStoryExterior: string;
+	ladderRequired: string;
+	vaultedInteriorGlass: string;
+	roofAccessRequired: string;
+	oversizedGlass: string;
+	exteriorObstructions: string;
+	limitedInteriorAccess: string;
+	waterFedPoleUsed: string;
+	traditionalExteriorCleaningUsed: string;
+	otherAccessIssue: string;
+	otherAccessNotes: string;
 	estimatedOnSiteLaborHours: string;
 	notes: string;
 }
@@ -129,16 +189,33 @@ interface JobState {
 	finalRevenue: string;
 	directCosts: string;
 	callbackOccurred: boolean;
-	callbackLaborMinutes: string;
+	// Decimal hours (e.g. '4' or '4.5') — converted to minutes only at the
+	// historicalEntry.ts save boundary, since the shared 'Callback Labor
+	// Minutes' sheet column is also written in minutes by the live Job Day
+	// completion path (jobDay.ts).
+	callbackHours: string;
 	callbackCost: string;
+	callbackReason: string;
+	callbackRootCause: string;
+	callbackCorrectiveAction: string;
+	callbackLessonsLearned: string;
 	recordClassification: string;
 	revenueTreatment: string;
 	standardPriceEquivalent: string;
 	dataQuality: string;
 	dataQualityNotes: string;
+	pricingConfidence: string;
+	wouldPriceDifferentlyToday: boolean;
+	currentRetailPriceEstimate: string;
+	reasonPricingChanged: string;
+	overallJobRating: string;
+	customerSatisfactionRating: string;
+	wouldAcceptJobAgain: boolean;
+	wouldChangeProcess: boolean;
+	processImprovements: string;
 }
 
-interface WizardState {
+export interface WizardState {
 	step: number;
 	recordType: RecordType | '';
 	client: ClientState;
@@ -196,6 +273,17 @@ function emptyState(prefill?: { clientId?: string; propertyId?: string }): Wizar
 			steelWool: '',
 			nonScratchPad: '',
 			restorationNotes: '',
+			secondStoryExterior: '',
+			ladderRequired: '',
+			vaultedInteriorGlass: '',
+			roofAccessRequired: '',
+			oversizedGlass: '',
+			exteriorObstructions: '',
+			limitedInteriorAccess: '',
+			waterFedPoleUsed: '',
+			traditionalExteriorCleaningUsed: '',
+			otherAccessIssue: '',
+			otherAccessNotes: '',
 			estimatedOnSiteLaborHours: '',
 			notes: '',
 		},
@@ -228,13 +316,26 @@ function emptyState(prefill?: { clientId?: string; propertyId?: string }): Wizar
 			finalRevenue: '',
 			directCosts: '',
 			callbackOccurred: false,
-			callbackLaborMinutes: '',
+			callbackHours: '',
 			callbackCost: '',
+			callbackReason: '',
+			callbackRootCause: '',
+			callbackCorrectiveAction: '',
+			callbackLessonsLearned: '',
 			recordClassification: '',
 			revenueTreatment: '',
 			standardPriceEquivalent: '',
 			dataQuality: '',
 			dataQualityNotes: '',
+			pricingConfidence: '',
+			wouldPriceDifferentlyToday: false,
+			currentRetailPriceEstimate: '',
+			reasonPricingChanged: '',
+			overallJobRating: '',
+			customerSatisfactionRating: '',
+			wouldAcceptJobAgain: false,
+			wouldChangeProcess: false,
+			processImprovements: '',
 		},
 	};
 }
@@ -251,7 +352,7 @@ const DRAFT_KEY = 'sww-historical-entry-draft';
 // page's "Add historical record" link) and the in-wizard "existing
 // client/property" pickers below — one place that knows how to turn a
 // real Client/Property row into this wizard's editable field shape.
-function clientFieldsFromRecord(c: Client): Partial<ClientState> {
+export function clientFieldsFromRecord(c: Client): Partial<ClientState> {
 	return {
 		id: c['Client ID'],
 		isExisting: true,
@@ -264,7 +365,7 @@ function clientFieldsFromRecord(c: Client): Partial<ClientState> {
 	};
 }
 
-function propertyFieldsFromRecord(p: Property): Partial<PropertyState> {
+export function propertyFieldsFromRecord(p: Property): Partial<PropertyState> {
 	return {
 		id: p['Property ID'],
 		isExisting: true,
@@ -282,6 +383,128 @@ function propertyFieldsFromRecord(p: Property): Partial<PropertyState> {
 		generalNotes: p['General Notes'],
 		buildingComplexName: p['Building/Complex Name'],
 		unitIdentifier: p['Unit Identifier'],
+	};
+}
+
+function walkthroughFieldsFromRecord(w: Walkthrough): Partial<WalkthroughState> {
+	return {
+		id: w['Walkthrough ID'],
+		date: w['Walkthrough Date'],
+		status: w.Status,
+		exteriorCondition: w['Exterior Condition'],
+		interiorCondition: w['Interior Condition'],
+		accessDifficulty: w['Access Difficulty'],
+		hardWaterPresent: w['Hard Water Present (Y/N)'],
+		constructionDebrisPresent: w['Construction Debris Present (Y/N)'],
+		siliconeResidue: w['Silicone Adhesive Or Sticker Residue (Y/N)'],
+		paintOverspray: w['Paint Overspray (Y/N)'],
+		razorScraping: w['Razor Scraping Required (Y/N)'],
+		steelWool: w['Steel Wool Required (Y/N)'],
+		nonScratchPad: w['Non-Scratch Pad Required (Y/N)'],
+		restorationNotes: w['Restoration Notes'],
+		secondStoryExterior: w['Second-Story Exterior (Y/N)'],
+		ladderRequired: w['Ladder Required (Y/N)'],
+		vaultedInteriorGlass: w['Vaulted Interior Glass (Y/N)'],
+		roofAccessRequired: w['Roof Access Required (Y/N)'],
+		oversizedGlass: w['Oversized Glass Or Large Sliders (Y/N)'],
+		exteriorObstructions: w['Tight Landscaping Or Obstructions (Y/N)'],
+		limitedInteriorAccess: w['Limited Interior Access (Y/N)'],
+		waterFedPoleUsed: w['Water-Fed Pole Used (Y/N)'],
+		traditionalExteriorCleaningUsed: w['Traditional Exterior Cleaning Used (Y/N)'],
+		otherAccessIssue: w['Other Access Issue (Y/N)'],
+		otherAccessNotes: w['Other Access Notes'],
+		estimatedOnSiteLaborHours: w['Estimated On-Site Labor Hours'],
+		notes: w.Notes,
+	};
+}
+
+function quoteFieldsFromRecord(q: Quote): Partial<QuoteState> {
+	return {
+		id: q['Quote ID'],
+		date: q['Created At'],
+		amount: q['Final Quoted Price'],
+		status: q['Quote Status'],
+		discountAmount: q.Discount,
+		discountReason: q['Override Reason'],
+		pricingConfigId: q['Pricing Config ID'],
+		pricingConfigUnknown: !q['Pricing Config ID'],
+		notes: q.Notes,
+	};
+}
+
+function jobFieldsFromRecord(j: Job): Partial<JobState> {
+	const hasBreakdown = Boolean(j['Setup Time'] || j['Cleaning Time'] || j['Inspection Time'] || j['Pack-up Time']);
+	const actualHours = Number(j['Actual Time (hrs)']);
+	const callbackMinutes = Number(j['Callback Labor Minutes']);
+	return {
+		id: j['Job ID'],
+		serviceDate: j['Date Completed'],
+		status: j['Job Status'],
+		timeMode: hasBreakdown ? 'breakdown' : 'total',
+		setupMinutes: j['Setup Time'],
+		cleaningMinutes: j['Cleaning Time'],
+		inspectionMinutes: j['Inspection Time'],
+		packUpMinutes: j['Pack-up Time'],
+		totalOnSiteMinutesOverride:
+			!hasBreakdown && Number.isFinite(actualHours) && actualHours > 0 ? String(Math.round(actualHours * 60)) : '',
+		travelMinutes: j['Travel Time'],
+		offSiteAdminMinutes: j['Off-Site Admin Time'],
+		finalRevenue: j['Final Price ($)'],
+		directCosts: j['Total Job Cost'],
+		callbackOccurred: j['Callback Required (Y/N)'] === 'Y',
+		callbackHours: Number.isFinite(callbackMinutes) && callbackMinutes > 0 ? String(callbackMinutes / 60) : '',
+		callbackCost: j['Callback Cost'],
+		callbackReason: j['Callback Reason'],
+		callbackRootCause: j['Callback Root Cause'],
+		callbackCorrectiveAction: j['Callback Corrective Action'],
+		callbackLessonsLearned: j['Callback Lessons Learned'],
+		recordClassification: j['Record Classification'],
+		revenueTreatment: j['Revenue Treatment'],
+		standardPriceEquivalent: j['Standard Price Equivalent'],
+		dataQuality: j['Data Quality'],
+		dataQualityNotes: j['Data Quality Notes'],
+		pricingConfidence: j['Pricing Confidence'],
+		wouldPriceDifferentlyToday: j['Would Price Differently Today (Y/N)'] === 'Y',
+		currentRetailPriceEstimate: j['Current Retail Price Estimate ($)'],
+		reasonPricingChanged: j['Reason Pricing Changed'],
+		overallJobRating: j['Overall Job Rating'],
+		customerSatisfactionRating: j['Customer Satisfaction Rating'],
+		wouldAcceptJobAgain: j['Would Accept Job Again (Y/N)'] === 'Y',
+		wouldChangeProcess: j['Would Change Process (Y/N)'] === 'Y',
+		processImprovements: j['Process Improvements'],
+	};
+}
+
+/** Builds edit-mode WizardState from real, already-saved records — used by
+ * the /historical-entry/[jobId] edit route. Record Type is inferred from
+ * the Job's saved Record Classification (see RECORD_TYPE_BY_CLASSIFICATION
+ * above) since Record Type itself is never persisted. */
+export function buildEditState(records: {
+	client: Client;
+	property: Property;
+	walkthrough?: Walkthrough;
+	quote?: Quote;
+	job?: Job;
+}): WizardState {
+	const { client, property, walkthrough, quote, job } = records;
+	const base = emptyState();
+	const recordType: RecordType = job
+		? (RECORD_TYPE_BY_CLASSIFICATION[job['Record Classification']] ?? 'Completed Customer Job')
+		: quote
+			? 'Quote Created'
+			: 'Walkthrough Only';
+
+	return {
+		...base,
+		step: 1,
+		recordType,
+		client: { ...base.client, ...clientFieldsFromRecord(client) },
+		property: { ...base.property, ...propertyFieldsFromRecord(property) },
+		walkthrough: walkthrough
+			? { ...base.walkthrough, ...walkthroughFieldsFromRecord(walkthrough), include: true }
+			: base.walkthrough,
+		quote: quote ? { ...base.quote, ...quoteFieldsFromRecord(quote), include: true } : base.quote,
+		job: job ? { ...base.job, ...jobFieldsFromRecord(job), include: true } : base.job,
 	};
 }
 
@@ -306,13 +529,25 @@ export default function HistoricalEntryWizard({
 	propertyId,
 	clients,
 	properties,
+	mode = 'create',
+	initialState,
 }: {
 	clientId?: string;
 	propertyId?: string;
 	clients: Client[];
 	properties: Property[];
+	// Edit mode (Historical Records "view / edit"): initialState is a full
+	// WizardState built by buildEditState() from real, already-saved
+	// records — every sub-record is a known existing ID, so duplicate
+	// detection (which already no-ops once client/property.isExisting is
+	// true) and the URL-prefill/localStorage-draft paths below are all
+	// skipped in favor of it. save() posts action:'update' instead of
+	// 'save' — see historicalEntry.ts's updateHistoricalEntry().
+	mode?: 'create' | 'edit';
+	initialState?: WizardState;
 }) {
 	const [state, setState] = useState<WizardState>(() => {
+		if (initialState) return initialState;
 		if (clientId || propertyId) {
 			let s = emptyState({ clientId, propertyId });
 			const prefillClient = clientId && clients.find((c) => c['Client ID'] === clientId);
@@ -340,9 +575,9 @@ export default function HistoricalEntryWizard({
 	const [saveResult, setSaveResult] = useState<Record<string, unknown> | null>(null);
 
 	useEffect(() => {
-		if (saveResult) return; // don't keep persisting a draft that already saved successfully
+		if (saveResult || mode === 'edit') return; // don't persist an edit-mode session as if it were a new-record draft
 		window.localStorage.setItem(DRAFT_KEY, JSON.stringify(state));
-	}, [state, saveResult]);
+	}, [state, saveResult, mode]);
 
 	useEffect(() => {
 		function warnOnUnload(e: BeforeUnloadEvent) {
@@ -485,13 +720,26 @@ export default function HistoricalEntryWizard({
 			finalRevenue: job.finalRevenue,
 			directCosts: job.directCosts,
 			callbackOccurred: job.callbackOccurred,
-			callbackLaborMinutes: job.callbackLaborMinutes,
+			callbackHours: job.callbackHours,
 			callbackCost: job.callbackCost,
+			callbackReason: job.callbackReason,
+			callbackRootCause: job.callbackRootCause,
+			callbackCorrectiveAction: job.callbackCorrectiveAction,
+			callbackLessonsLearned: job.callbackLessonsLearned,
 			recordClassification: job.recordClassification,
 			revenueTreatment: job.revenueTreatment,
 			standardPriceEquivalent: job.standardPriceEquivalent,
 			dataQuality: job.dataQuality,
 			dataQualityNotes: job.dataQualityNotes,
+			pricingConfidence: job.pricingConfidence,
+			wouldPriceDifferentlyToday: job.wouldPriceDifferentlyToday,
+			currentRetailPriceEstimate: job.currentRetailPriceEstimate,
+			reasonPricingChanged: job.reasonPricingChanged,
+			overallJobRating: job.overallJobRating,
+			customerSatisfactionRating: job.customerSatisfactionRating,
+			wouldAcceptJobAgain: job.wouldAcceptJobAgain,
+			wouldChangeProcess: job.wouldChangeProcess,
+			processImprovements: job.processImprovements,
 		};
 	}
 
@@ -509,7 +757,7 @@ export default function HistoricalEntryWizard({
 			const res = await fetch('/api/historical-entry', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'save', payload }),
+				body: JSON.stringify({ action: mode === 'edit' ? 'update' : 'save', payload }),
 			});
 			const body = (await res.json()) as { ok: boolean; error?: string; [key: string]: unknown };
 			if (!body.ok) {
@@ -528,8 +776,8 @@ export default function HistoricalEntryWizard({
 	if (saveResult) {
 		return (
 			<div className="card">
-				<h2>Saved</h2>
-				<p>Historical record saved successfully.</p>
+				<h2>{mode === 'edit' ? 'Updated' : 'Saved'}</h2>
+				<p>Historical record {mode === 'edit' ? 'updated' : 'saved'} successfully.</p>
 				<ul>
 					{Boolean(saveResult.propertyId) && (
 						<li>
@@ -542,9 +790,13 @@ export default function HistoricalEntryWizard({
 						</li>
 					)}
 				</ul>
-				<button type="button" onClick={startOver}>
-					Enter another historical record
-				</button>
+				{mode === 'edit' ? (
+					<a href="/historical-records">Back to Historical Records</a>
+				) : (
+					<button type="button" onClick={startOver}>
+						Enter another historical record
+					</button>
+				)}
 			</div>
 		);
 	}
@@ -863,7 +1115,7 @@ export default function HistoricalEntryWizard({
 								</select>
 							</label>
 							<label>
-								Access difficulty
+								Overall Access Difficulty
 								<select value={state.walkthrough.accessDifficulty} onChange={(e) => update('walkthrough', { accessDifficulty: e.target.value })}>
 									<option value="" />
 									{ACCESS_LEVELS.map((a) => (
@@ -871,6 +1123,100 @@ export default function HistoricalEntryWizard({
 									))}
 								</select>
 							</label>
+							<fieldset>
+								<legend>Access &amp; Equipment Modifiers</legend>
+								<div className="checkbox-grid">
+									<label>
+										<input
+											type="checkbox"
+											checked={state.walkthrough.secondStoryExterior === 'Y'}
+											onChange={(e) => update('walkthrough', { secondStoryExterior: e.target.checked ? 'Y' : 'N' })}
+										/>{' '}
+										Second-Story Exterior
+									</label>
+									<label>
+										<input
+											type="checkbox"
+											checked={state.walkthrough.ladderRequired === 'Y'}
+											onChange={(e) => update('walkthrough', { ladderRequired: e.target.checked ? 'Y' : 'N' })}
+										/>{' '}
+										Ladder Required
+									</label>
+									<label>
+										<input
+											type="checkbox"
+											checked={state.walkthrough.vaultedInteriorGlass === 'Y'}
+											onChange={(e) => update('walkthrough', { vaultedInteriorGlass: e.target.checked ? 'Y' : 'N' })}
+										/>{' '}
+										Vaulted Interior Glass
+									</label>
+									<label>
+										<input
+											type="checkbox"
+											checked={state.walkthrough.roofAccessRequired === 'Y'}
+											onChange={(e) => update('walkthrough', { roofAccessRequired: e.target.checked ? 'Y' : 'N' })}
+										/>{' '}
+										Roof Access Required
+									</label>
+									<label>
+										<input
+											type="checkbox"
+											checked={state.walkthrough.oversizedGlass === 'Y'}
+											onChange={(e) => update('walkthrough', { oversizedGlass: e.target.checked ? 'Y' : 'N' })}
+										/>{' '}
+										Oversized Glass / Large Sliders
+									</label>
+									<label>
+										<input
+											type="checkbox"
+											checked={state.walkthrough.exteriorObstructions === 'Y'}
+											onChange={(e) => update('walkthrough', { exteriorObstructions: e.target.checked ? 'Y' : 'N' })}
+										/>{' '}
+										Tight Landscaping or Obstructions
+									</label>
+									<label>
+										<input
+											type="checkbox"
+											checked={state.walkthrough.limitedInteriorAccess === 'Y'}
+											onChange={(e) => update('walkthrough', { limitedInteriorAccess: e.target.checked ? 'Y' : 'N' })}
+										/>{' '}
+										Limited Interior Access
+									</label>
+									<label>
+										<input
+											type="checkbox"
+											checked={state.walkthrough.waterFedPoleUsed === 'Y'}
+											onChange={(e) => update('walkthrough', { waterFedPoleUsed: e.target.checked ? 'Y' : 'N' })}
+										/>{' '}
+										Water-Fed Pole Used
+									</label>
+									<label>
+										<input
+											type="checkbox"
+											checked={state.walkthrough.traditionalExteriorCleaningUsed === 'Y'}
+											onChange={(e) => update('walkthrough', { traditionalExteriorCleaningUsed: e.target.checked ? 'Y' : 'N' })}
+										/>{' '}
+										Traditional Exterior Cleaning Used
+									</label>
+									<label>
+										<input
+											type="checkbox"
+											checked={state.walkthrough.otherAccessIssue === 'Y'}
+											onChange={(e) => update('walkthrough', { otherAccessIssue: e.target.checked ? 'Y' : 'N' })}
+										/>{' '}
+										Other Access Issue
+									</label>
+								</div>
+								{state.walkthrough.otherAccessIssue === 'Y' && (
+									<label>
+										Other Access Notes
+										<textarea
+											value={state.walkthrough.otherAccessNotes}
+											onChange={(e) => update('walkthrough', { otherAccessNotes: e.target.value })}
+										/>
+									</label>
+								)}
+							</fieldset>
 							<div className="checkbox-grid">
 								<label>
 									<input
@@ -1111,21 +1457,51 @@ export default function HistoricalEntryWizard({
 									checked={state.job.callbackOccurred}
 									onChange={(e) => update('job', { callbackOccurred: e.target.checked })}
 								/>{' '}
-								A callback was required
+								Callback Required
 							</label>
 							{state.job.callbackOccurred && (
 								<>
 									<label>
-										Callback labor minutes
+										Callback Hours
 										<input
 											type="text"
-											value={state.job.callbackLaborMinutes}
-											onChange={(e) => update('job', { callbackLaborMinutes: e.target.value })}
+											value={state.job.callbackHours}
+											onChange={(e) => update('job', { callbackHours: e.target.value })}
 										/>
 									</label>
 									<label>
 										Callback cost ($)
 										<input type="text" value={state.job.callbackCost} onChange={(e) => update('job', { callbackCost: e.target.value })} />
+									</label>
+									<label>
+										Callback Reason
+										<select value={state.job.callbackReason} onChange={(e) => update('job', { callbackReason: e.target.value })}>
+											<option value="" />
+											{CALLBACK_REASONS.map((r) => (
+												<option key={r}>{r}</option>
+											))}
+										</select>
+									</label>
+									<label>
+										Root Cause
+										<textarea
+											value={state.job.callbackRootCause}
+											onChange={(e) => update('job', { callbackRootCause: e.target.value })}
+										/>
+									</label>
+									<label>
+										Corrective Action
+										<textarea
+											value={state.job.callbackCorrectiveAction}
+											onChange={(e) => update('job', { callbackCorrectiveAction: e.target.value })}
+										/>
+									</label>
+									<label>
+										Lessons Learned
+										<textarea
+											value={state.job.callbackLessonsLearned}
+											onChange={(e) => update('job', { callbackLessonsLearned: e.target.value })}
+										/>
 									</label>
 								</>
 							)}
@@ -1177,6 +1553,91 @@ export default function HistoricalEntryWizard({
 									<textarea value={state.job.dataQualityNotes} onChange={(e) => update('job', { dataQualityNotes: e.target.value })} />
 								</label>
 							</fieldset>
+							<fieldset>
+								<legend>Pricing Review</legend>
+								<label>
+									Pricing Confidence
+									<select value={state.job.pricingConfidence} onChange={(e) => update('job', { pricingConfidence: e.target.value })}>
+										<option value="" />
+										{PRICING_CONFIDENCE_LEVELS.map((p) => (
+											<option key={p}>{p}</option>
+										))}
+									</select>
+								</label>
+								<label>
+									Would you price this job differently today?
+									<select
+										value={state.job.wouldPriceDifferentlyToday ? 'Yes' : 'No'}
+										onChange={(e) => update('job', { wouldPriceDifferentlyToday: e.target.value === 'Yes' })}
+									>
+										<option>No</option>
+										<option>Yes</option>
+									</select>
+								</label>
+								{state.job.wouldPriceDifferentlyToday && (
+									<>
+										<label>
+											Current Retail Price Estimate ($)
+											<input
+												type="text"
+												value={state.job.currentRetailPriceEstimate}
+												onChange={(e) => update('job', { currentRetailPriceEstimate: e.target.value })}
+											/>
+										</label>
+										<label>
+											Reason Pricing Changed
+											<textarea
+												value={state.job.reasonPricingChanged}
+												onChange={(e) => update('job', { reasonPricingChanged: e.target.value })}
+											/>
+										</label>
+									</>
+								)}
+							</fieldset>
+							<fieldset>
+								<legend>Job Performance Review</legend>
+								<RatingRadios
+									label="Overall Job Rating"
+									name="overallJobRating"
+									value={state.job.overallJobRating}
+									onChange={(v) => update('job', { overallJobRating: v })}
+								/>
+								<RatingRadios
+									label="Customer Satisfaction"
+									name="customerSatisfactionRating"
+									value={state.job.customerSatisfactionRating}
+									onChange={(v) => update('job', { customerSatisfactionRating: v })}
+								/>
+								<label>
+									Would you accept this job again?
+									<select
+										value={state.job.wouldAcceptJobAgain ? 'Yes' : 'No'}
+										onChange={(e) => update('job', { wouldAcceptJobAgain: e.target.value === 'Yes' })}
+									>
+										<option>Yes</option>
+										<option>No</option>
+									</select>
+								</label>
+								<label>
+									Would you change your process?
+									<select
+										value={state.job.wouldChangeProcess ? 'Yes' : 'No'}
+										onChange={(e) => update('job', { wouldChangeProcess: e.target.value === 'Yes' })}
+									>
+										<option>No</option>
+										<option>Yes</option>
+									</select>
+								</label>
+								{state.job.wouldChangeProcess && (
+									<label>
+										Process Improvements
+										<textarea
+											value={state.job.processImprovements}
+											onChange={(e) => update('job', { processImprovements: e.target.value })}
+										/>
+									</label>
+								)}
+							</fieldset>
 						</>
 					)}
 					<div className="button-row">
@@ -1193,16 +1654,18 @@ export default function HistoricalEntryWizard({
 			{state.step === 7 && (
 				<section className="card">
 					<h2>7. Review</h2>
-					<p>This entry will create:</p>
+					<p>{mode === 'edit' ? 'This will update:' : 'This entry will create:'}</p>
 					<ul>
 						{!state.client.isExisting && <li>1 Client</li>}
 						{!state.property.isExisting && <li>1 Property</li>}
-						{showsWalkthrough(state.recordType) && state.walkthrough.include && <li>1 Walkthrough</li>}
-						{showsQuote(state.recordType) && state.quote.include && <li>1 Quote</li>}
-						{showsJob(state.recordType) && state.job.include && <li>1 Job</li>}
+						{showsWalkthrough(state.recordType) && state.walkthrough.include && (
+							<li>1 Walkthrough{mode === 'edit' ? ' (existing)' : ''}</li>
+						)}
+						{showsQuote(state.recordType) && state.quote.include && <li>1 Quote{mode === 'edit' ? ' (existing)' : ''}</li>}
+						{showsJob(state.recordType) && state.job.include && <li>1 Job{mode === 'edit' ? ' (existing)' : ''}</li>}
 					</ul>
-					{state.client.isExisting && <p>Reusing existing Client.</p>}
-					{state.property.isExisting && <p>Reusing existing Property.</p>}
+					{state.client.isExisting && mode !== 'edit' && <p>Reusing existing Client.</p>}
+					{state.property.isExisting && mode !== 'edit' && <p>Reusing existing Property.</p>}
 
 					{showsJob(state.recordType) && state.job.include && calibrationPreview && (
 						<p>
@@ -1228,7 +1691,17 @@ export default function HistoricalEntryWizard({
 							Back
 						</button>
 						<button type="button" disabled={saving} onClick={save}>
-							{saving ? 'Saving…' : saveError ? 'Retry save' : 'Save'}
+							{saving
+								? mode === 'edit'
+									? 'Updating…'
+									: 'Saving…'
+								: saveError
+									? mode === 'edit'
+										? 'Retry update'
+										: 'Retry save'
+									: mode === 'edit'
+										? 'Update'
+										: 'Save'}
 						</button>
 					</div>
 				</section>

@@ -22,7 +22,10 @@ const [clients, properties] = await Promise.all([
 <BaseLayout title="Add historical record">
 	<main>
 		<h1>Add historical record</h1>
-		<p>For entering properties/jobs that already happened, before this app existed.</p>
+		<p>
+			For entering properties/jobs that already happened, before this app existed. To revisit one already entered,
+			see <a href="/historical-records">Historical Records</a>.
+		</p>
 		<HistoricalEntryWizard client:load clientId={clientId} propertyId={propertyId} clients={clients} properties={properties} />
 	</main>
 </BaseLayout>

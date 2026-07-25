@@ -1,0 +1,67 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { listActiveRows } from '../lib/sheets';
+import { jobConfig } from '../lib/models/job';
+import { clientConfig } from '../lib/models/client';
+import { propertyConfig } from '../lib/models/property';
+
+// A "historical record" is identified as any Job with a non-blank Record
+// Classification — that column is written by exactly one code path in the
+// whole app (the Historical Entry Wizard's save/update), never by the live
+// quote-acceptance job-creation flow, so it's a reliable signal without
+// needing a dedicated marker. Walkthrough-only historical entries (no Job
+// ever created) have no equivalent marker today and aren't listed here —
+// they remain viewable only via their own Walkthrough Detail page.
+const [jobs, clients, properties] = await Promise.all([
+	listActiveRows(env, jobConfig),
+	listActiveRows(env, clientConfig),
+	listActiveRows(env, propertyConfig),
+]);
+const propertyById = Object.fromEntries(properties.map((p) => [p['Property ID'], p]));
+const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
+
+const historicalJobs = jobs
+	.filter((j) => Boolean(j['Record Classification']))
+	.sort((a, b) => (b['Date Completed'] || '').localeCompare(a['Date Completed'] || ''));
+---
+
+<BaseLayout title="Historical Records">
+	<main>
+		<h1>Historical Records</h1>
+		<p>
+			Jobs entered through the <a href="/historical-entry">Historical Job Entry</a> workflow. Click a record to view
+			and edit its Property Complexity, Job Execution, and Pricing Hindsight detail.
+		</p>
+
+		<table>
+			<thead>
+				<tr>
+					<th>Property</th>
+					<th>Client</th>
+					<th>Service Date</th>
+					<th>Classification</th>
+					<th>Final Price</th>
+					<th></th>
+				</tr>
+			</thead>
+			<tbody>
+				{historicalJobs.map((j) => {
+					const property = propertyById[j['Property ID']];
+					const client = property ? clientById[property['Client ID']] : undefined;
+					return (
+						<tr>
+							<td>{property ? `${property['Street Address']}, ${property.City}` : j['Property ID'] || '—'}</td>
+							<td>{client ? `${client['First Name']} ${client['Last Name']}` : '—'}</td>
+							<td>{j['Date Completed'] || '—'}</td>
+							<td><span class="badge">{j['Record Classification']}</span></td>
+							<td>{j['Final Price ($)'] ? `$${Number(j['Final Price ($)']).toFixed(2)}` : '—'}</td>
+							<td><a href={`/historical-entry/${j['Job ID']}`}>view / edit</a></td>
+						</tr>
+					);
+				})}
+				{historicalJobs.length === 0 && <tr><td colspan="6">No historical records yet.</td></tr>}
+			</tbody>
+		</table>
+	</main>
+</BaseLayout>

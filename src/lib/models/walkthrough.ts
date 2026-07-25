@@ -88,6 +88,26 @@ export const walkthroughSchema = z.object({
 	'Water-Fed Pole Suitable (Y/N)': blank(),
 	'Ladder Required': blank(),
 	'Roof Access Required': blank(),
+	// Access & Equipment Modifiers (Historical Entry Wizard) — specific,
+	// checkbox-level equipment/complexity flags recorded for a completed
+	// historical job, purely for reporting, never read by the pricing
+	// engine. Distinct from the free-text 'Ladder Required'/'Roof Access
+	// Required' above and from 'Water-Fed Pole Suitable (Y/N)'/'Exterior
+	// Access Obstructed (Y/N)'/'Furniture Or Belongings Movement Required
+	// (Y/N)' — those are prospective property-capability judgments made by
+	// the live Walkthrough Wizard; these are a retrospective record of what
+	// this specific historical job actually involved.
+	'Second-Story Exterior (Y/N)': blank(),
+	'Ladder Required (Y/N)': blank(),
+	'Vaulted Interior Glass (Y/N)': blank(),
+	'Roof Access Required (Y/N)': blank(),
+	'Oversized Glass Or Large Sliders (Y/N)': blank(),
+	'Tight Landscaping Or Obstructions (Y/N)': blank(),
+	'Limited Interior Access (Y/N)': blank(),
+	'Water-Fed Pole Used (Y/N)': blank(),
+	'Traditional Exterior Cleaning Used (Y/N)': blank(),
+	'Other Access Issue (Y/N)': blank(),
+	'Other Access Notes': blank(),
 	'Estimated On-Site Labor Hours': blank(),
 	'Suggested Low Price': blank(),
 	'Suggested Target Price': blank(),
