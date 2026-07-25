@@ -757,16 +757,18 @@ export default function HistoricalEntryWizard({
 								</label>
 							</fieldset>
 						</div>
-							<button type="button" onClick={() => goTo(1)}>
-								Back
-							</button>{' '}
-							<button
-								type="button"
-								disabled={checkingDuplicates || (!state.property.isExisting && !state.property.propertyType)}
-								onClick={checkDuplicatesThenAdvance}
-							>
-								{checkingDuplicates ? 'Checking…' : 'Next'}
-							</button>
+							<div className="button-row">
+								<button type="button" className="btn-secondary" onClick={() => goTo(1)}>
+									Back
+								</button>
+								<button
+									type="button"
+									disabled={checkingDuplicates || (!state.property.isExisting && !state.property.propertyType)}
+									onClick={checkDuplicatesThenAdvance}
+								>
+									{checkingDuplicates ? 'Checking…' : 'Next'}
+								</button>
+							</div>
 						</>
 					)}
 				</section>
@@ -811,12 +813,14 @@ export default function HistoricalEntryWizard({
 						General notes
 						<textarea value={state.property.generalNotes} onChange={(e) => update('property', { generalNotes: e.target.value })} />
 					</label>
-					<button type="button" onClick={() => goTo(2)}>
-						Back
-					</button>{' '}
-					<button type="button" onClick={() => goTo(showsWalkthrough(state.recordType) ? 4 : showsQuote(state.recordType) ? 5 : 6)}>
-						Next
-					</button>
+					<div className="button-row">
+						<button type="button" className="btn-secondary" onClick={() => goTo(2)}>
+							Back
+						</button>
+						<button type="button" onClick={() => goTo(showsWalkthrough(state.recordType) ? 4 : showsQuote(state.recordType) ? 5 : 6)}>
+							Next
+						</button>
+					</div>
 				</section>
 			)}
 
@@ -936,12 +940,14 @@ export default function HistoricalEntryWizard({
 							</label>
 						</>
 					)}
-					<button type="button" onClick={() => goTo(3)}>
-						Back
-					</button>{' '}
-					<button type="button" onClick={() => goTo(showsQuote(state.recordType) ? 5 : 6)}>
-						Next
-					</button>
+					<div className="button-row">
+						<button type="button" className="btn-secondary" onClick={() => goTo(3)}>
+							Back
+						</button>
+						<button type="button" onClick={() => goTo(showsQuote(state.recordType) ? 5 : 6)}>
+							Next
+						</button>
+					</div>
 				</section>
 			)}
 
@@ -990,12 +996,14 @@ export default function HistoricalEntryWizard({
 							</label>
 						</>
 					)}
-					<button type="button" onClick={() => goTo(showsWalkthrough(state.recordType) ? 4 : 3)}>
-						Back
-					</button>{' '}
-					<button type="button" onClick={() => goTo(showsJob(state.recordType) ? 6 : 7)} disabled={false}>
-						Next
-					</button>
+					<div className="button-row">
+						<button type="button" className="btn-secondary" onClick={() => goTo(showsWalkthrough(state.recordType) ? 4 : 3)}>
+							Back
+						</button>
+						<button type="button" onClick={() => goTo(showsJob(state.recordType) ? 6 : 7)} disabled={false}>
+							Next
+						</button>
+					</div>
 				</section>
 			)}
 
@@ -1146,12 +1154,14 @@ export default function HistoricalEntryWizard({
 							</fieldset>
 						</>
 					)}
-					<button type="button" onClick={() => goTo(showsQuote(state.recordType) ? 5 : showsWalkthrough(state.recordType) ? 4 : 3)}>
-						Back
-					</button>{' '}
-					<button type="button" onClick={goToReview}>
-						Review
-					</button>
+					<div className="button-row">
+						<button type="button" className="btn-secondary" onClick={() => goTo(showsQuote(state.recordType) ? 5 : showsWalkthrough(state.recordType) ? 4 : 3)}>
+							Back
+						</button>
+						<button type="button" onClick={goToReview}>
+							Review
+						</button>
+					</div>
 				</section>
 			)}
 
@@ -1188,12 +1198,14 @@ export default function HistoricalEntryWizard({
 						</p>
 					)}
 
-					<button type="button" onClick={() => goTo(showsJob(state.recordType) ? 6 : showsQuote(state.recordType) ? 5 : showsWalkthrough(state.recordType) ? 4 : 3)}>
-						Back
-					</button>{' '}
-					<button type="button" disabled={saving} onClick={save}>
-						{saving ? 'Saving…' : saveError ? 'Retry save' : 'Save'}
-					</button>
+					<div className="button-row">
+						<button type="button" className="btn-secondary" onClick={() => goTo(showsJob(state.recordType) ? 6 : showsQuote(state.recordType) ? 5 : showsWalkthrough(state.recordType) ? 4 : 3)}>
+							Back
+						</button>
+						<button type="button" disabled={saving} onClick={save}>
+							{saving ? 'Saving…' : saveError ? 'Retry save' : 'Save'}
+						</button>
+					</div>
 				</section>
 			)}
 		</div>

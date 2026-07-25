@@ -637,19 +637,21 @@ export default function WalkthroughWizard({
 						General notes
 						<textarea value={state.notes} onChange={(e) => update({ notes: e.target.value })} />
 					</label>
-					<button type="button" onClick={() => goTo(5)}>
-						Back
-					</button>{' '}
-					<button
-						type="button"
-						disabled={loadingPricing}
-						onClick={async () => {
-							await loadPricingPreview();
-							goTo(7);
-						}}
-					>
-						{loadingPricing ? 'Calculating…' : 'Calculate pricing'}
-					</button>
+					<div className="button-row">
+						<button type="button" className="btn-secondary" onClick={() => goTo(5)}>
+							Back
+						</button>
+						<button
+							type="button"
+							disabled={loadingPricing}
+							onClick={async () => {
+								await loadPricingPreview();
+								goTo(7);
+							}}
+						>
+							{loadingPricing ? 'Calculating…' : 'Calculate pricing'}
+						</button>
+					</div>
 				</section>
 			)}
 
@@ -673,12 +675,14 @@ export default function WalkthroughWizard({
 						<p>No pricing calculated yet.</p>
 					)}
 					{saveError && <p role="alert">{saveError}</p>}
-					<button type="button" onClick={() => goTo(6)}>
-						Back
-					</button>{' '}
-					<button type="button" disabled={saving || !pricing} onClick={save}>
-						{saving ? 'Saving…' : 'Save walkthrough'}
-					</button>
+					<div className="button-row">
+						<button type="button" className="btn-secondary" onClick={() => goTo(6)}>
+							Back
+						</button>
+						<button type="button" disabled={saving || !pricing} onClick={save}>
+							{saving ? 'Saving…' : 'Save walkthrough'}
+						</button>
+					</div>
 				</section>
 			)}
 		</div>
@@ -748,14 +752,14 @@ function AreaStep({
 				</button>
 			)}
 
-			<p>
-				<button type="button" onClick={onBack}>
+			<div className="button-row">
+				<button type="button" className="btn-secondary" onClick={onBack}>
 					Back
-				</button>{' '}
+				</button>
 				<button type="button" onClick={onNext}>
 					{nextLabel}
 				</button>
-			</p>
+			</div>
 		</section>
 	);
 }

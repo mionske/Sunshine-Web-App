@@ -1065,6 +1065,7 @@ details.card[open] > summary {
 	.form-grid > .pane-grid,
 	.form-grid > .count-grid,
 	.form-grid > .checkbox-grid,
+	.form-grid > .button-row,
 	.form-grid > fieldset,
 	.form-grid > h2,
 	.form-grid > h3,
