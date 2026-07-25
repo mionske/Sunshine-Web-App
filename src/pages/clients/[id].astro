@@ -2,7 +2,7 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { createRow, findById, listActiveRows, updateRow } from '../../lib/sheets';
-import { clientConfig } from '../../lib/models/client';
+import { clientConfig, PREFERRED_CONTACT_METHOD_OPTIONS } from '../../lib/models/client';
 import { propertyConfig, PROPERTY_TYPES, MAINTENANCE_FREQUENCY_OPTIONS, PREFERRED_SERVICE_SEASON_OPTIONS } from '../../lib/models/property';
 import { formatPhoneDigits } from '../../lib/phoneFormat';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
@@ -135,7 +135,13 @@ const editing = Astro.url.searchParams.get('edit') === '1';
 					<label>Phone <input type="tel" name="phone" inputmode="numeric" value={client.Phone} placeholder="303-931-3903" /></label>
 					<label>Email <input type="email" name="email" value={client.Email} /></label>
 					<label>Referral source <input type="text" name="referralSource" value={client['Referral Source']} /></label>
-					<label>Preferred contact method <input type="text" name="preferredContactMethod" value={client['Preferred Contact Method']} /></label>
+					<label>
+						Preferred contact method
+						<select name="preferredContactMethod">
+							<option value="" selected={!client['Preferred Contact Method']} />
+							{PREFERRED_CONTACT_METHOD_OPTIONS.map((m) => <option value={m} selected={m === client['Preferred Contact Method']}>{m}</option>)}
+						</select>
+					</label>
 					<label>Notes <textarea name="notes">{client.Notes}</textarea></label>
 					<button type="submit">Save</button>
 					<a class="btn btn-secondary" href={`/clients/${id}`}>Cancel</a>

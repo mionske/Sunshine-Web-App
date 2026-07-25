@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { googleMapsUrl } from '../lib/mapsLink';
+import { PREFERRED_CONTACT_METHOD_OPTIONS, type Client } from '../lib/models/client';
+import type { Property } from '../lib/models/property';
 
 const RECORD_TYPES = [
 	'Walkthrough Only',
@@ -222,6 +224,44 @@ interface DuplicateCandidate {
 
 const DRAFT_KEY = 'sww-historical-entry-draft';
 
+// Shared by both the URL-prefill path (arriving via a Property/Client
+// page's "Add historical record" link) and the in-wizard "existing
+// client/property" pickers below — one place that knows how to turn a
+// real Client/Property row into this wizard's editable field shape.
+function clientFieldsFromRecord(c: Client): Partial<ClientState> {
+	return {
+		id: c['Client ID'],
+		isExisting: true,
+		firstName: c['First Name'],
+		lastName: c['Last Name'],
+		phone: c.Phone,
+		email: c.Email,
+		preferredContactMethod: c['Preferred Contact Method'],
+		referralSource: c['Referral Source'],
+	};
+}
+
+function propertyFieldsFromRecord(p: Property): Partial<PropertyState> {
+	return {
+		id: p['Property ID'],
+		isExisting: true,
+		propertyType: p['Property Type'],
+		streetAddress: p['Street Address'],
+		city: p.City,
+		state: p.State,
+		zip: p.Zip,
+		stories: p.Stories,
+		totalWindowUnits: p['Total Window Units'],
+		totalGlassPanes: p['Total Glass Panes'],
+		screenCount: p['Screen Count'],
+		accessNotes: p['Access Notes'],
+		petNotes: p['Pet Notes'],
+		generalNotes: p['General Notes'],
+		buildingComplexName: p['Building/Complex Name'],
+		unitIdentifier: p['Unit Identifier'],
+	};
+}
+
 function showsWalkthrough(recordType: RecordType | ''): boolean {
 	return recordType !== '';
 }
@@ -238,9 +278,26 @@ function showsJob(recordType: RecordType | ''): boolean {
 	);
 }
 
-export default function HistoricalEntryWizard({ clientId, propertyId }: { clientId?: string; propertyId?: string }) {
+export default function HistoricalEntryWizard({
+	clientId,
+	propertyId,
+	clients,
+	properties,
+}: {
+	clientId?: string;
+	propertyId?: string;
+	clients: Client[];
+	properties: Property[];
+}) {
 	const [state, setState] = useState<WizardState>(() => {
-		if (clientId || propertyId) return emptyState({ clientId, propertyId });
+		if (clientId || propertyId) {
+			let s = emptyState({ clientId, propertyId });
+			const prefillClient = clientId && clients.find((c) => c['Client ID'] === clientId);
+			if (prefillClient) s = { ...s, client: { ...s.client, ...clientFieldsFromRecord(prefillClient) } };
+			const prefillProperty = propertyId && properties.find((p) => p['Property ID'] === propertyId);
+			if (prefillProperty) s = { ...s, property: { ...s.property, ...propertyFieldsFromRecord(prefillProperty) } };
+			return s;
+		}
 		const saved = typeof window !== 'undefined' ? window.localStorage.getItem(DRAFT_KEY) : null;
 		if (saved) {
 			try {
@@ -280,6 +337,29 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 
 	function goTo(step: number) {
 		setState((s) => ({ ...s, step }));
+	}
+
+	// "Existing client/property" pickers — an id of '' means "— New —" was
+	// chosen, which resets that section back to a fresh blank record rather
+	// than leaving stale fields from a previously-selected existing one.
+	function selectExistingClient(id: string) {
+		if (!id) {
+			setState((s) => ({ ...s, client: emptyState().client }));
+			return;
+		}
+		const c = clients.find((c) => c['Client ID'] === id);
+		if (!c) return;
+		setState((s) => ({ ...s, client: { ...s.client, ...clientFieldsFromRecord(c) } }));
+	}
+
+	function selectExistingProperty(id: string) {
+		if (!id) {
+			setState((s) => ({ ...s, property: emptyState().property }));
+			return;
+		}
+		const p = properties.find((p) => p['Property ID'] === id);
+		if (!p) return;
+		setState((s) => ({ ...s, property: { ...s.property, ...propertyFieldsFromRecord(p) } }));
 	}
 
 	function startOver() {
@@ -446,6 +526,8 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 		);
 	}
 
+	const clientProperties = properties.filter((p) => p['Client ID'] === state.client.id);
+
 	return (
 		<div>
 			<p>Step {state.step} of 7</p>
@@ -455,7 +537,7 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 					<h2>1. Record type</h2>
 					<p>What kind of record is this?</p>
 					{RECORD_TYPES.map((type) => (
-						<label key={type} style={{ display: 'block' }}>
+						<label key={type}>
 							<input
 								type="radio"
 								name="recordType"
@@ -528,6 +610,20 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 							<fieldset>
 								<legend>Client</legend>
 								<label>
+									Existing client
+									<select
+										value={state.client.isExisting ? state.client.id : ''}
+										onChange={(e) => selectExistingClient(e.target.value)}
+									>
+										<option value="">— New client —</option>
+										{clients.map((c) => (
+											<option key={c['Client ID']} value={c['Client ID']}>
+												{c['First Name']} {c['Last Name']}
+											</option>
+										))}
+									</select>
+								</label>
+								<label>
 									First name / label
 									<input
 										type="text"
@@ -553,11 +649,17 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 								</label>
 								<label>
 									Preferred contact method
-									<input
-										type="text"
+									<select
 										value={state.client.preferredContactMethod}
 										onChange={(e) => update('client', { preferredContactMethod: e.target.value })}
-									/>
+									>
+										<option value="" />
+										{PREFERRED_CONTACT_METHOD_OPTIONS.map((m) => (
+											<option key={m} value={m}>
+												{m}
+											</option>
+										))}
+									</select>
 								</label>
 								<label>
 									Referral source
@@ -570,6 +672,22 @@ export default function HistoricalEntryWizard({ clientId, propertyId }: { client
 							</fieldset>
 							<fieldset>
 								<legend>Property</legend>
+								{clientProperties.length > 0 && (
+									<label>
+										Existing property for this client
+										<select
+											value={state.property.isExisting ? state.property.id : ''}
+											onChange={(e) => selectExistingProperty(e.target.value)}
+										>
+											<option value="">— New property —</option>
+											{clientProperties.map((p) => (
+												<option key={p['Property ID']} value={p['Property ID']}>
+													{p['Street Address']}, {p.City}
+												</option>
+											))}
+										</select>
+									</label>
+								)}
 								<label>
 									Property type
 									<select

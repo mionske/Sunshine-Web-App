@@ -2,7 +2,7 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { createRow, listActiveRows } from '../../lib/sheets';
-import { clientConfig } from '../../lib/models/client';
+import { clientConfig, PREFERRED_CONTACT_METHOD_OPTIONS } from '../../lib/models/client';
 import { formatPhoneDigits } from '../../lib/phoneFormat';
 
 let error: string | null = null;
@@ -77,7 +77,13 @@ const newId = crypto.randomUUID();
 				<label>Email <input type="email" name="email" /></label>
 				<label>Referral source <input type="text" name="referralSource" /></label>
 				<label>First contact date <input type="date" name="firstContactDate" /></label>
-				<label>Preferred contact method <input type="text" name="preferredContactMethod" /></label>
+				<label>
+				Preferred contact method
+				<select name="preferredContactMethod">
+					<option value="" />
+					{PREFERRED_CONTACT_METHOD_OPTIONS.map((m) => <option value={m}>{m}</option>)}
+				</select>
+			</label>
 				<label>Notes <textarea name="notes"></textarea></label>
 				<button type="submit">Add client</button>
 			</form>

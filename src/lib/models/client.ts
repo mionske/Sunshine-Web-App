@@ -3,6 +3,8 @@ import type { TabConfig } from '../sheets';
 
 const blank = () => z.coerce.string().default('');
 
+export const PREFERRED_CONTACT_METHOD_OPTIONS = ['Email', 'Text'] as const;
+
 // Data-ownership separation: MAINTENANCE_FREQUENCY_OPTIONS /
 // PREFERRED_SERVICE_SEASON_OPTIONS for the two fields below are defined
 // once on lib/models/property.ts (Phase 9) and imported from there by the

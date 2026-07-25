@@ -1,15 +1,28 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import HistoricalEntryWizard from '../components/HistoricalEntryWizard';
+import { env } from 'cloudflare:workers';
+import { listActiveRows } from '../lib/sheets';
+import { clientConfig } from '../lib/models/client';
+import { propertyConfig } from '../lib/models/property';
 
 const clientId = Astro.url.searchParams.get('clientId') ?? undefined;
 const propertyId = Astro.url.searchParams.get('propertyId') ?? undefined;
+
+// Loaded so the wizard's Step 2 can offer "pick an existing client/
+// property" instead of only free-text entry into new records — this is a
+// small business with a small, fully-loadable client list, so no search
+// API is needed, just the full active list passed down.
+const [clients, properties] = await Promise.all([
+	listActiveRows(env, clientConfig),
+	listActiveRows(env, propertyConfig),
+]);
 ---
 
 <BaseLayout title="Add historical record">
 	<main>
 		<h1>Add historical record</h1>
 		<p>For entering properties/jobs that already happened, before this app existed.</p>
-		<HistoricalEntryWizard client:load clientId={clientId} propertyId={propertyId} />
+		<HistoricalEntryWizard client:load clientId={clientId} propertyId={propertyId} clients={clients} properties={properties} />
 	</main>
 </BaseLayout>

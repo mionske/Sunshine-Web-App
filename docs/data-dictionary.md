@@ -28,7 +28,9 @@ Client ID, First Name, Last Name, Phone, Email, Address (deprecated, kept
 only for safe round-tripping of one pre-existing value — clients don't
 carry their own address at all; every client lives at the property being
 serviced, so the address lives once on Properties instead), Referral
-Source, First Contact Date, Customer Since, Preferred Contact Method,
+Source, First Contact Date, Customer Since, **Preferred Contact Method**
+(Email/Text — dropdown; plain string column, not a zod enum, so blank/
+legacy free-text values still round-trip),
 **Desired Maintenance Frequency** (One Time/Quarterly/Twice Yearly/
 Yearly/Custom/Unknown) and **Preferred Service Season** (Spring/Summer/
 Fall/Winter/No preference/Unknown) — moved here from Properties (see the
