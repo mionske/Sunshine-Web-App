@@ -113,6 +113,7 @@ export interface HistoricalEntryPayload {
 		// shared 'Callback Labor Minutes' sheet column (see saveHistoricalEntry).
 		callbackHours: string;
 		callbackCost: string;
+		callbackCategory: string;
 		callbackReason: string;
 		callbackRootCause: string;
 		callbackCorrectiveAction: string;
@@ -278,6 +279,7 @@ function buildJobRecord(payload: HistoricalEntryPayload) {
 				? String(Math.round(Number(payload.job.callbackHours) * 60))
 				: '',
 		'Callback Cost': payload.job.callbackCost,
+		'Callback Category': payload.job.callbackCategory,
 		'Callback Reason': payload.job.callbackReason,
 		'Callback Root Cause': payload.job.callbackRootCause,
 		'Callback Corrective Action': payload.job.callbackCorrectiveAction,

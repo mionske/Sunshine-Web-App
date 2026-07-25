@@ -106,6 +106,7 @@ function basePayload(overrides: Partial<HistoricalEntryPayload> = {}): Historica
 			callbackOccurred: false,
 			callbackHours: '',
 			callbackCost: '',
+			callbackCategory: '',
 			callbackReason: '',
 			callbackRootCause: '',
 			callbackCorrectiveAction: '',
@@ -342,6 +343,7 @@ describe('saveHistoricalEntry', () => {
 				totalOnSiteMinutesOverride: '480',
 				callbackOccurred: true,
 				callbackHours: '2',
+				callbackCategory: 'Quality',
 				callbackReason: 'Streaking',
 				callbackRootCause: 'Hard water spots not fully removed on first pass.',
 				callbackCorrectiveAction: 'Re-cleaned with a squeegee pass and vinegar solution.',
@@ -354,6 +356,7 @@ describe('saveHistoricalEntry', () => {
 		const rows = harness.spreadsheet.getTab('Jobs');
 		const headers = rows[0];
 		const row = rows[1];
+		expect(row[headers.indexOf('Callback Category')]).toBe('Quality');
 		expect(row[headers.indexOf('Callback Reason')]).toBe('Streaking');
 		expect(row[headers.indexOf('Callback Root Cause')]).toBe('Hard water spots not fully removed on first pass.');
 		expect(row[headers.indexOf('Callback Corrective Action')]).toBe('Re-cleaned with a squeegee pass and vinegar solution.');

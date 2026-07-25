@@ -68,7 +68,22 @@ export const quoteSchema = z.object({
 	'Archived At': blank(),
 	'Created By': blank(),
 	Notes: blank(),
+	// Legacy — superseded by 'QB Estimate ID' below. Was a manually-pasted
+	// raw QuickBooks URL; never written to again by the new QuickBooks
+	// linking UI (see lib/qb/recordLinking.ts). Kept declared so old rows
+	// still round-trip.
 	'QB Estimate Link': blank(),
+	// The real link to a synced QBEstimates row (see lib/models/qbEstimate.ts)
+	// — set only via lib/qb/recordLinking.ts's confirmQBEstimateLink(),
+	// never hand-typed. Once set, the linked estimate's Status/Total/
+	// Doc Number/Txn Date/Updated At are the authoritative display, and this
+	// app never writes back to QuickBooks.
+	'QB Estimate ID': blank(),
+	// Stores a QB Estimate ID the owner explicitly dismissed from the
+	// "Potential QuickBooks Match Found" suggestion (see
+	// findStrongQuoteMatchSuggestion in lib/qb/recordLinking.ts) so the same
+	// suggestion doesn't keep reappearing on every page view.
+	'QB Match Suggestion Dismissed': blank(),
 	// Window-characteristic calibration reporting: how many items in this
 	// quote's scope were marked Difficult/Specialty Access at walkthrough
 	// time (summed by item Quantity, not row count). Only ever populated

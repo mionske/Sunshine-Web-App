@@ -8,8 +8,24 @@ import { clientConfig } from '../../lib/models/client';
 import { propertyConfig } from '../../lib/models/property';
 import { acceptQuote, findJobByQuoteId, updateJobStatus, JOB_STATUSES } from '../../lib/pricing/jobLifecycle';
 import { updateRow } from '../../lib/sheets';
-import { REVIEW_LEFT_VALUES, MAINTENANCE_FOLLOW_UP_STATUSES } from '../../lib/models/job';
+import { REVIEW_LEFT_VALUES, MAINTENANCE_FOLLOW_UP_STATUSES, jobConfig } from '../../lib/models/job';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
+import { formatTimestamp } from '../../lib/format';
+import { QBRelinkConfirmationRequiredError } from '../../lib/qb/matching';
+import { syncSingleEntity } from '../../lib/qb/sync';
+import {
+	confirmQBEstimateLink,
+	confirmQBInvoiceLink,
+	findPaymentsForInvoice,
+	findQBEstimateCandidates,
+	findQBInvoiceCandidates,
+	findStrongJobMatchSuggestion,
+	findStrongQuoteMatchSuggestion,
+	getLinkedQBEstimate,
+	getLinkedQBInvoice,
+	qboEstimateWebUrl,
+	qboInvoiceWebUrl,
+} from '../../lib/qb/recordLinking';
 
 const { id } = Astro.params;
 let error: string | null = null;
@@ -28,18 +44,38 @@ if (Astro.request.method === 'POST') {
 				'Scheduled Date': String(form.get('scheduledDate') ?? ''),
 				'Actual Time (hrs)': String(form.get('actualTime') ?? ''),
 				'Final Price ($)': String(form.get('finalPrice') ?? ''),
-				'QB Invoice Link': String(form.get('qbInvoiceLink') ?? ''),
 				'Review Requested At': String(form.get('reviewRequestedAt') ?? ''),
 				'Review Left': String(form.get('reviewLeft') ?? ''),
 				'Next Maintenance Follow-up Date': String(form.get('nextMaintenanceFollowUpDate') ?? ''),
 				'Maintenance Follow-up Status': String(form.get('maintenanceFollowUpStatus') ?? ''),
 			});
-		} else if (action === 'update-qb-estimate-link') {
-			await updateRow(env, quoteConfig, id!, { 'QB Estimate Link': String(form.get('qbEstimateLink') ?? '') });
+		} else if (action === 'link-qb-estimate') {
+			const qbEstimateId = String(form.get('qbEstimateId') ?? '');
+			const confirmRelink = form.get('confirmRelink') === 'on';
+			await confirmQBEstimateLink(env, id!, qbEstimateId, { confirmRelink });
+		} else if (action === 'dismiss-qb-estimate-suggestion') {
+			await updateRow(env, quoteConfig, id!, { 'QB Match Suggestion Dismissed': String(form.get('qbEstimateId') ?? '') });
+		} else if (action === 'refresh-qb-estimate') {
+			await syncSingleEntity(env, 'Estimate', String(form.get('qbEstimateId') ?? ''));
+		} else if (action === 'link-qb-invoice') {
+			const jobId = String(form.get('jobId') ?? '');
+			const qbInvoiceId = String(form.get('qbInvoiceId') ?? '');
+			const confirmRelink = form.get('confirmRelink') === 'on';
+			await confirmQBInvoiceLink(env, jobId, qbInvoiceId, { confirmRelink });
+		} else if (action === 'dismiss-qb-invoice-suggestion') {
+			await updateRow(env, jobConfig, String(form.get('jobId') ?? ''), {
+				'QB Match Suggestion Dismissed': String(form.get('qbInvoiceId') ?? ''),
+			});
+		} else if (action === 'refresh-qb-invoice') {
+			await syncSingleEntity(env, 'Invoice', String(form.get('qbInvoiceId') ?? ''));
 		}
 		return Astro.redirect(`/quotes/${id}`);
 	} catch (e) {
-		error = (e as Error).message;
+		if (e instanceof QBRelinkConfirmationRequiredError) {
+			error = `${e.message} Check "Confirm re-link" and submit again to proceed.`;
+		} else {
+			error = (e as Error).message;
+		}
 	}
 }
 
@@ -56,6 +92,46 @@ const property = await findById(env, propertyConfig, quote['Property ID']);
 const job = await findJobByQuoteId(env, id!);
 
 const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] === 'Sent';
+
+// QuickBooks Estimate summary card data
+const linkedEstimate = quote['QB Estimate ID'] ? await getLinkedQBEstimate(env, quote) : null;
+const estimateObjectMissing = Boolean(quote['QB Estimate ID']) && !linkedEstimate;
+const suggestedEstimate = !quote['QB Estimate ID'] && client ? await findStrongQuoteMatchSuggestion(env, quote, client) : null;
+const estimateQuery = Astro.url.searchParams.get('estimateQuery');
+const estimateScope = Astro.url.searchParams.get('estimateScope') === 'all' ? 'all' : 'client';
+const estimateCandidates =
+	!quote['QB Estimate ID'] && estimateQuery !== null
+		? await findQBEstimateCandidates(env, {
+				qbCustomerId: client?.['QB Customer ID'],
+				searchAll: estimateScope === 'all' || !client?.['QB Customer ID'],
+				query: estimateQuery,
+			})
+		: [];
+const estimateMismatch =
+	linkedEstimate && quote['Final Quoted Price'] && Number(quote['Final Quoted Price']) !== Number(linkedEstimate.Total);
+
+// QuickBooks Invoice summary card data (only relevant once a Job exists)
+const linkedInvoice = job?.['QB Invoice ID'] ? await getLinkedQBInvoice(env, job) : null;
+const invoiceObjectMissing = Boolean(job?.['QB Invoice ID']) && !linkedInvoice;
+const suggestedInvoice = job && !job['QB Invoice ID'] && client ? await findStrongJobMatchSuggestion(env, job, client) : null;
+const invoiceQuery = Astro.url.searchParams.get('invoiceQuery');
+const invoiceScope = Astro.url.searchParams.get('invoiceScope') === 'all' ? 'all' : 'client';
+const invoiceCandidates =
+	job && !job['QB Invoice ID'] && invoiceQuery !== null
+		? await findQBInvoiceCandidates(env, {
+				qbCustomerId: client?.['QB Customer ID'],
+				searchAll: invoiceScope === 'all' || !client?.['QB Customer ID'],
+				query: invoiceQuery,
+			})
+		: [];
+const invoicePayments = linkedInvoice ? await findPaymentsForInvoice(env, linkedInvoice['QB Invoice ID']) : [];
+const invoiceAmountPaid = linkedInvoice ? Number(linkedInvoice.Total) - Number(linkedInvoice.Balance) : 0;
+const invoicePaymentDate = invoicePayments
+	.map((p) => p['Payment Date'])
+	.filter(Boolean)
+	.sort()
+	.at(-1);
+const invoiceMismatch = linkedInvoice && job?.['Final Price ($)'] && Number(job['Final Price ($)']) !== Number(linkedInvoice.Total);
 ---
 
 <BaseLayout title="Quote">
@@ -165,15 +241,95 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 
 		<div class="card-grid">
 			<div class="card">
-				<h2>QuickBooks</h2>
-				{quote['QB Estimate Link'] && (
-					<p><a href={quote['QB Estimate Link']} target="_blank" rel="noopener noreferrer">Open in QuickBooks →</a></p>
+				<h2>QuickBooks Estimate</h2>
+				{linkedEstimate ? (
+					<>
+						<p>
+							Estimate #{linkedEstimate['Doc Number'] || linkedEstimate['QB Estimate ID']}{' '}
+							<span class="badge badge-accent">{linkedEstimate.Status}</span>
+						</p>
+						<div class="field-display-grid">
+							<div><span class="field-display-label">Estimate Total</span><span class="field-display-value">${Number(linkedEstimate.Total).toFixed(2)}</span></div>
+							<div><span class="field-display-label">Last Synced</span><span class="field-display-value">{formatTimestamp(linkedEstimate['Updated At'])}</span></div>
+						</div>
+						{estimateMismatch && (
+							<p role="alert">
+								Historical amount: ${Number(quote['Final Quoted Price']).toFixed(2)} · QuickBooks estimate: ${Number(linkedEstimate.Total).toFixed(2)}
+							</p>
+						)}
+						<p><a href={qboEstimateWebUrl(linkedEstimate['QB Estimate ID'])} target="_blank" rel="noopener noreferrer">View Estimate in QuickBooks ↗</a></p>
+						<form method="POST" onsubmit="this.querySelector('button').disabled = true">
+							<input type="hidden" name="_action" value="refresh-qb-estimate" />
+							<input type="hidden" name="qbEstimateId" value={linkedEstimate['QB Estimate ID']} />
+							<button type="submit">Refresh QuickBooks Data</button>
+						</form>
+					</>
+				) : estimateObjectMissing ? (
+					<p role="alert">The linked QuickBooks object could not be found.</p>
+				) : suggestedEstimate ? (
+					<div class="card">
+						<p>
+							<strong>Potential QuickBooks Match Found</strong><br />
+							Estimate #{suggestedEstimate['Doc Number'] || suggestedEstimate['QB Estimate ID']} · $
+							{Number(suggestedEstimate.Total).toFixed(2)} · {suggestedEstimate['Txn Date']}
+						</p>
+						<div class="button-row">
+							<form method="POST">
+								<input type="hidden" name="_action" value="link-qb-estimate" />
+								<input type="hidden" name="qbEstimateId" value={suggestedEstimate['QB Estimate ID']} />
+								<button type="submit">Link</button>
+							</form>
+							<form method="POST">
+								<input type="hidden" name="_action" value="dismiss-qb-estimate-suggestion" />
+								<input type="hidden" name="qbEstimateId" value={suggestedEstimate['QB Estimate ID']} />
+								<button type="submit" class="btn-secondary">Dismiss</button>
+							</form>
+						</div>
+					</div>
+				) : (
+					<p>No QuickBooks Estimate Linked</p>
 				)}
-				<form method="POST" class="inline-field-form">
-					<input type="hidden" name="_action" value="update-qb-estimate-link" />
-					<label>QB Estimate Link <input type="url" name="qbEstimateLink" value={quote['QB Estimate Link']} placeholder="https://..." /></label>
-					<button type="submit">Save link</button>
-				</form>
+				{!linkedEstimate && (
+					<details class="card" open={estimateQuery !== null}>
+						<summary>Link Existing Estimate</summary>
+						<form method="GET" class="inline-field-form">
+							<label>Search <input type="text" name="estimateQuery" value={estimateQuery ?? ''} placeholder="Customer, number, date, total..." /></label>
+							{client?.['QB Customer ID'] && (
+								<label>
+									<input type="checkbox" name="estimateScope" value="all" checked={estimateScope === 'all'} /> Search All QuickBooks Records
+								</label>
+							)}
+							<button type="submit">Search</button>
+						</form>
+						{estimateQuery !== null && (
+							<table>
+								<thead><tr><th>Customer</th><th>Number</th><th>Total</th><th>Date</th><th>Status</th><th></th></tr></thead>
+								<tbody>
+									{estimateCandidates.map(({ estimate, customer }) => (
+										<tr>
+											<td>{customer?.['Display Name'] || estimate['QB Customer ID']}</td>
+											<td>{estimate['Doc Number'] || estimate['QB Estimate ID']}</td>
+											<td>${Number(estimate.Total).toFixed(2)}</td>
+											<td>{estimate['Txn Date']}</td>
+											<td>{estimate.Status}</td>
+											<td>
+												<form method="POST">
+													<input type="hidden" name="_action" value="link-qb-estimate" />
+													<input type="hidden" name="qbEstimateId" value={estimate['QB Estimate ID']} />
+													{quote['QB Estimate ID'] && quote['QB Estimate ID'] !== estimate['QB Estimate ID'] && (
+														<label><input type="checkbox" name="confirmRelink" /> Confirm re-link</label>
+													)}
+													<button type="submit">Link</button>
+												</form>
+											</td>
+										</tr>
+									))}
+									{estimateCandidates.length === 0 && <tr><td colspan="6">No matching Estimates found.</td></tr>}
+								</tbody>
+							</table>
+						)}
+					</details>
+				)}
 			</div>
 
 			{canAccept && (
@@ -206,10 +362,6 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 						<label>Actual time (hrs) <input type="text" name="actualTime" value={job['Actual Time (hrs)']} /></label>
 					</div>
 					<label>Final price ($) <input type="text" name="finalPrice" value={job['Final Price ($)']} /></label>
-					<label>QB Invoice Link <input type="url" name="qbInvoiceLink" value={job['QB Invoice Link']} placeholder="https://..." /></label>
-					{job['QB Invoice Link'] && (
-						<p><a href={job['QB Invoice Link']} target="_blank" rel="noopener noreferrer">Open in QuickBooks →</a></p>
-					)}
 					<div class="pane-grid">
 						<label>Review requested at <input type="date" name="reviewRequestedAt" value={job['Review Requested At']} /></label>
 						<label>
@@ -230,6 +382,106 @@ const canAccept = quote['Quote Status'] === 'Draft' || quote['Quote Status'] ===
 					</label>
 					<button type="submit">Update job</button>
 				</form>
+			</div>
+		)}
+
+		{job && (
+			<div class="card">
+				<h2>QuickBooks Invoice</h2>
+				{linkedInvoice ? (
+					<>
+						<p>
+							Invoice #{linkedInvoice['Doc Number'] || linkedInvoice['QB Invoice ID']}{' '}
+							<span class="badge badge-accent">{linkedInvoice.Status}</span>
+						</p>
+						<div class="field-display-grid">
+							<div><span class="field-display-label">Invoice Total</span><span class="field-display-value">${Number(linkedInvoice.Total).toFixed(2)}</span></div>
+							<div><span class="field-display-label">Amount Paid</span><span class="field-display-value">${invoiceAmountPaid.toFixed(2)}</span></div>
+							<div><span class="field-display-label">Balance Due</span><span class="field-display-value">${Number(linkedInvoice.Balance).toFixed(2)}</span></div>
+							{invoicePaymentDate && <div><span class="field-display-label">Payment Date</span><span class="field-display-value">{invoicePaymentDate}</span></div>}
+							<div><span class="field-display-label">Last Synced</span><span class="field-display-value">{formatTimestamp(linkedInvoice['Updated At'])}</span></div>
+						</div>
+						{invoiceMismatch && (
+							<p role="alert">
+								Historical amount: ${Number(job['Final Price ($)']).toFixed(2)} · QuickBooks invoice: ${Number(linkedInvoice.Total).toFixed(2)}
+							</p>
+						)}
+						<p><a href={qboInvoiceWebUrl(linkedInvoice['QB Invoice ID'])} target="_blank" rel="noopener noreferrer">View Invoice in QuickBooks ↗</a></p>
+						<form method="POST" onsubmit="this.querySelector('button').disabled = true">
+							<input type="hidden" name="_action" value="refresh-qb-invoice" />
+							<input type="hidden" name="qbInvoiceId" value={linkedInvoice['QB Invoice ID']} />
+							<button type="submit">Refresh QuickBooks Data</button>
+						</form>
+					</>
+				) : invoiceObjectMissing ? (
+					<p role="alert">The linked QuickBooks object could not be found.</p>
+				) : suggestedInvoice ? (
+					<div class="card">
+						<p>
+							<strong>Potential QuickBooks Match Found</strong><br />
+							Invoice #{suggestedInvoice['Doc Number'] || suggestedInvoice['QB Invoice ID']} · $
+							{Number(suggestedInvoice.Total).toFixed(2)} · {suggestedInvoice['Txn Date']}
+						</p>
+						<div class="button-row">
+							<form method="POST">
+								<input type="hidden" name="_action" value="link-qb-invoice" />
+								<input type="hidden" name="jobId" value={job['Job ID']} />
+								<input type="hidden" name="qbInvoiceId" value={suggestedInvoice['QB Invoice ID']} />
+								<button type="submit">Link</button>
+							</form>
+							<form method="POST">
+								<input type="hidden" name="_action" value="dismiss-qb-invoice-suggestion" />
+								<input type="hidden" name="jobId" value={job['Job ID']} />
+								<input type="hidden" name="qbInvoiceId" value={suggestedInvoice['QB Invoice ID']} />
+								<button type="submit" class="btn-secondary">Dismiss</button>
+							</form>
+						</div>
+					</div>
+				) : (
+					<p>No QuickBooks Invoice Linked</p>
+				)}
+				{!linkedInvoice && (
+					<details class="card" open={invoiceQuery !== null}>
+						<summary>Link Existing Invoice</summary>
+						<form method="GET" class="inline-field-form">
+							<label>Search <input type="text" name="invoiceQuery" value={invoiceQuery ?? ''} placeholder="Customer, number, date, total..." /></label>
+							{client?.['QB Customer ID'] && (
+								<label>
+									<input type="checkbox" name="invoiceScope" value="all" checked={invoiceScope === 'all'} /> Search All QuickBooks Records
+								</label>
+							)}
+							<button type="submit">Search</button>
+						</form>
+						{invoiceQuery !== null && (
+							<table>
+								<thead><tr><th>Customer</th><th>Number</th><th>Total</th><th>Date</th><th>Status</th><th></th></tr></thead>
+								<tbody>
+									{invoiceCandidates.map(({ invoice, customer }) => (
+										<tr>
+											<td>{customer?.['Display Name'] || invoice['QB Customer ID']}</td>
+											<td>{invoice['Doc Number'] || invoice['QB Invoice ID']}</td>
+											<td>${Number(invoice.Total).toFixed(2)}</td>
+											<td>{invoice['Txn Date']}</td>
+											<td>{invoice.Status}</td>
+											<td>
+												<form method="POST">
+													<input type="hidden" name="_action" value="link-qb-invoice" />
+													<input type="hidden" name="jobId" value={job['Job ID']} />
+													<input type="hidden" name="qbInvoiceId" value={invoice['QB Invoice ID']} />
+													{job['QB Invoice ID'] && job['QB Invoice ID'] !== invoice['QB Invoice ID'] && (
+														<label><input type="checkbox" name="confirmRelink" /> Confirm re-link</label>
+													)}
+													<button type="submit">Link</button>
+												</form>
+											</td>
+										</tr>
+									))}
+									{invoiceCandidates.length === 0 && <tr><td colspan="6">No matching Invoices found.</td></tr>}
+								</tbody>
+							</table>
+						)}
+					</details>
+				)}
 			</div>
 		)}
 	</main>

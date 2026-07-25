@@ -215,9 +215,16 @@ Target Hourly Rate, Target Price Before Adjustments, Manual Adjustment,
 Discount, Final Quoted Price, Expected Revenue Per Labor Hour,
 Override Reason, Quote Status, Created At, Updated At, Sent At,
 Accepted At, Declined At, Expired At, Archived At, Created By, Notes,
-QB Estimate Link (URL — set once created/sent in QuickBooks; the app only
-stores the link, never talks to the QuickBooks API), Difficult Access Item
-Count, Specialty Access Item Count, Service Scope, Inventory Coverage,
+QB Estimate Link (legacy — a manually-pasted raw URL, superseded below,
+never written to again), QB Estimate ID (the real link — set only via
+`lib/qb/recordLinking.ts`'s `confirmQBEstimateLink()`, never hand-typed;
+once set, the linked `QBEstimates` row's Status/Total/Doc Number/Txn
+Date/Updated At become the authoritative display on the Quote detail
+page's read-only "QuickBooks Estimate" summary card, with a "View
+Estimate in QuickBooks ↗" deep link — see the QuickBooks section below),
+QB Match Suggestion Dismissed (a QB Estimate ID the owner dismissed from
+the "Potential QuickBooks Match Found" suggestion, so it stops
+reappearing), Difficult Access Item Count, Specialty Access Item Count, Service Scope, Inventory Coverage,
 Labor Estimate Solo Hours, Labor Estimate Crew Size, Labor Estimate
 Confidence, Labor Estimate Notes, Job High Interior Glass (Y/N), Job Steep
 Or Uneven Terrain (Y/N), Job Exterior Access Obstructed (Y/N), Job
@@ -388,10 +395,17 @@ data; the allowed-value lists only constrain what forms offer.
 **Historical Job Entry — Callback & Quality, Pricing Review, Job
 Performance Review** (Historical Entry Wizard only; free-text/blank
 columns, same non-fabrication reasoning as the classification fields
-above). Callback Reason (Quality Issue/Customer Request/Missed Windows/
-Streaking/Hard Water Rework/Equipment Failure/Weather/Scheduling Error/
-Other), Callback Root Cause, Callback Corrective Action, Callback Lessons
-Learned — only meaningful when Callback Required (Y/N) is Y; distinct
+above). Callback Category (Quality/Customer/Weather/Equipment/Scheduling/
+Other) and Callback Reason are a two-tier pair — Callback Category is the
+primary bucket, Callback Reason is the specific reason within that bucket
+(Quality → Quality Issue/Operator Error/Streaking/Hard Water Rework/
+Missed Windows; Customer → Customer Request; Weather → Weather;
+Equipment → Equipment Failure; Scheduling → Scheduling Error; Other →
+Other — see `CALLBACK_PRIMARY_CATEGORIES`/`CALLBACK_SPECIFIC_REASONS` in
+`lib/models/job.ts`), so the wizard only ever shows relevant specific
+reasons instead of one long flat list. Callback Root Cause, Callback
+Corrective Action, Callback Lessons Learned — only meaningful when
+Callback Required (Y/N) is Y; distinct
 from the pre-existing Callback Labor Minutes/Callback Cost columns (which
 capture the time/money impact, not the why). The wizard's own UI field is
 labeled "Callback Hours" (decimal) but still writes minutes into the
@@ -422,7 +436,14 @@ Completed/Invoiced/Paid — only for Quarterly/Twice Yearly/Yearly, since
 there's no global default cadence — but always manually editable and
 never re-computed afterward), Maintenance Follow-up Status (Not yet due/
 Due/Contacted/Scheduled/Declined — manual, no auto-transitions),
-QB Invoice Link (URL, link only — no QuickBooks API integration).
+QB Invoice Link (legacy — a manually-pasted raw URL, superseded below,
+never written to again), QB Invoice ID (the real link — set only via
+`lib/qb/recordLinking.ts`'s `confirmQBInvoiceLink()`; once set, the linked
+`QBInvoices` row's Status/Total/Balance/Doc Number/Updated At, plus any
+matching `QBPayments` row's Payment Date, become the authoritative display
+on the Quote detail page's read-only "QuickBooks Invoice" summary card —
+see the QuickBooks section below), QB Match Suggestion Dismissed (same
+purpose as Quotes' own column, for the Invoice-matching suggestion).
 
 Scheduled Date (set by `acceptQuote`/`createJobFromQuote` when the quote is
 accepted with a date, and editable afterward from the Quote page's Job
@@ -833,16 +854,60 @@ Jobs:
   Method, Linked Invoice IDs (comma-joined QB Invoice IDs this payment
   applied to), QB Last Updated, Created At, Updated At, Archived At.
 
-**The only connection to this app's own data** is `Clients.QB Customer
-ID` — set once a human confirms a match in the match-review queue
-(`/qb-match-review`, `lib/qb/matching.ts`), never auto-linked. Once set,
-a Client's linked QBEstimates/QBInvoices/QBPayments display together on
-that Client's detail page (`suggestQBLinksForClient`). The pre-existing
-`Quotes.QB Estimate Link`/`Jobs.QB Invoice Link` fields stay manual,
-owner-pasted URLs — QBO deep-link URLs
-(`https://qbo.intuit.com/app/estimate?txnId={id}`) are available from
-`qboEstimateWebUrl`/`qboInvoiceWebUrl` for convenience but nothing
-auto-fills those fields.
+**The connection to this app's own data** happens at two levels:
+`Clients.QB Customer ID` — set once a human confirms a match in the
+match-review queue (`/qb-match-review`, `lib/qb/matching.ts`), never
+auto-linked — and, one level down, `Quotes.QB Estimate ID`/`Jobs.QB
+Invoice ID` (`lib/qb/recordLinking.ts`). Once a Client is linked, its
+QBEstimates/QBInvoices/QBPayments display together on that Client's
+detail page (`suggestQBLinksForClient`); once a Quote/Job is linked, the
+specific matched record's financial data displays as a read-only summary
+card on the Quote detail page (`/quotes/[id]`) — never a manually-pasted
+URL, and never editable in the app. QBO deep-link URLs
+(`https://qbo.intuit.com/app/estimate?txnId={id}`) come from
+`qboEstimateWebUrl`/`qboInvoiceWebUrl`.
+
+**Quote↔QBEstimate / Job↔QBInvoice linking** (`lib/qb/recordLinking.ts`,
+surfaced on `/quotes/[id]`) mirrors `confirmQBLink`'s own re-link-guard
+pattern exactly (shared `QBRelinkConfirmationRequiredError` class, generic
+across all three link types):
+- **Linked** — the Quote/Job's `QB Estimate ID`/`QB Invoice ID` is set and
+  the mirror row exists: shows Estimate/Invoice #, Status, Total (Invoice
+  also shows Amount Paid/Balance Due/Payment Date, the latter from the
+  linked `QBPayments` row via `findPaymentsForInvoice`), Last Synced (the
+  row's own `Updated At`), and "View Estimate/Invoice in QuickBooks ↗". A
+  **mismatch warning** ("Historical amount: $X · QuickBooks estimate: $Y")
+  appears when the Quote's own `Final Quoted Price` (or Job's `Final Price
+  ($)`) differs from the linked record's Total — both values are kept,
+  never auto-overwritten; QuickBooks is just displayed as authoritative. A
+  "Refresh QuickBooks Data" button re-runs `syncSingleEntity` for that one
+  record — a plain form POST/redirect/reload, no live spinner; a failed
+  refresh leaves the last successfully synced data in place, since
+  `syncSingleEntity` only overwrites the mirror row on a successful QBO
+  fetch.
+- **Not linked, no suggestion** — "No QuickBooks Estimate/Invoice Linked"
+  plus a `<details>` "Link Existing Estimate/Invoice" search: defaults to
+  the Quote's own Client's QB Customer ID when that link exists (a
+  "Search All QuickBooks Records" checkbox widens it), searches the whole
+  mirror by customer/number/date/total when the Client isn't linked yet.
+- **Not linked, one strong suggestion** — `findStrongQuoteMatchSuggestion`/
+  `findStrongJobMatchSuggestion` surface a "Potential QuickBooks Match
+  Found" banner (Link/Dismiss) only when the Client is already QB-linked
+  and exactly one of its unlinked Estimates/Invoices falls within total
+  tolerance (larger of $5 or 2%) and ~45 days of the Quote's/Job's own
+  amount and date. Zero or multiple candidates never suggest — ambiguity
+  always falls back to manual search, never a guess. Dismissing a
+  suggestion stores its ID in `QB Match Suggestion Dismissed` so it
+  doesn't reappear. Computed lazily at page-render time (this app has no
+  push/notification system).
+- **Object missing** — the ID is set but the mirror row is gone (deleted/
+  merged in QuickBooks): shows a "could not be found" message plus the
+  same search UI to re-link.
+
+`Jobs['Payment Status']` (the existing Job-Day-mode field driving
+`completeJobDay()`'s completion transitions) is a separate, unchanged
+concept from the Invoice card's own derived Paid/Partial/Open display —
+neither overwrites the other.
 
 **Auth**: OAuth2 Authorization Code flow against Intuit's Production
 endpoints only (no Sandbox). Redirect URI is a real route on this app's

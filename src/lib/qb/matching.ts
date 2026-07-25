@@ -158,9 +158,17 @@ export async function findMatchCandidates(env: SheetsEnv, qbCustomer: QBCustomer
 	return candidates.sort((a, b) => b.breakdown.score - a.breakdown.score);
 }
 
+// Shared by every QuickBooks link-confirmation flow in this app — Client↔
+// QBCustomer here, and Quote↔QBEstimate / Job↔QBInvoice in
+// lib/qb/recordLinking.ts. `entityLabel` names what's already linked (e.g.
+// "QB Customer", "QB Estimate") so one error class serves all three
+// without duplicating this exact re-link-guard pattern three times.
 export class QBRelinkConfirmationRequiredError extends Error {
-	constructor(public readonly currentQBCustomerId: string) {
-		super(`This client is already linked to QB Customer "${currentQBCustomerId}" — confirm to overwrite that link.`);
+	constructor(
+		public readonly currentLinkedId: string,
+		entityLabel = 'QB Customer'
+	) {
+		super(`This record is already linked to ${entityLabel} "${currentLinkedId}" — confirm to overwrite that link.`);
 		this.name = 'QBRelinkConfirmationRequiredError';
 	}
 }

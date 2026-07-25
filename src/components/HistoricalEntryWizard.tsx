@@ -3,7 +3,7 @@ import { googleMapsUrl } from '../lib/mapsLink';
 import { PREFERRED_CONTACT_METHOD_OPTIONS, type Client } from '../lib/models/client';
 import type { Property } from '../lib/models/property';
 import { GLASS_CONDITION_LEVELS, type Walkthrough } from '../lib/models/walkthrough';
-import { CALLBACK_REASONS, PRICING_CONFIDENCE_LEVELS, type Job } from '../lib/models/job';
+import { CALLBACK_PRIMARY_CATEGORIES, CALLBACK_SPECIFIC_REASONS, PRICING_CONFIDENCE_LEVELS, type Job } from '../lib/models/job';
 import type { Quote } from '../lib/models/quote';
 
 const RECORD_TYPES = [
@@ -195,6 +195,7 @@ interface JobState {
 	// completion path (jobDay.ts).
 	callbackHours: string;
 	callbackCost: string;
+	callbackCategory: string;
 	callbackReason: string;
 	callbackRootCause: string;
 	callbackCorrectiveAction: string;
@@ -318,6 +319,7 @@ function emptyState(prefill?: { clientId?: string; propertyId?: string }): Wizar
 			callbackOccurred: false,
 			callbackHours: '',
 			callbackCost: '',
+			callbackCategory: '',
 			callbackReason: '',
 			callbackRootCause: '',
 			callbackCorrectiveAction: '',
@@ -454,6 +456,7 @@ function jobFieldsFromRecord(j: Job): Partial<JobState> {
 		callbackOccurred: j['Callback Required (Y/N)'] === 'Y',
 		callbackHours: Number.isFinite(callbackMinutes) && callbackMinutes > 0 ? String(callbackMinutes / 60) : '',
 		callbackCost: j['Callback Cost'],
+		callbackCategory: j['Callback Category'],
 		callbackReason: j['Callback Reason'],
 		callbackRootCause: j['Callback Root Cause'],
 		callbackCorrectiveAction: j['Callback Corrective Action'],
@@ -722,6 +725,7 @@ export default function HistoricalEntryWizard({
 			callbackOccurred: job.callbackOccurred,
 			callbackHours: job.callbackHours,
 			callbackCost: job.callbackCost,
+			callbackCategory: job.callbackCategory,
 			callbackReason: job.callbackReason,
 			callbackRootCause: job.callbackRootCause,
 			callbackCorrectiveAction: job.callbackCorrectiveAction,
@@ -1327,7 +1331,6 @@ export default function HistoricalEntryWizard({
 							</label>
 							<label>
 								Discount percentage (%)
-								<span className="field-hint">Calculates the discount amount from the quoted amount above.</span>
 								<input
 									type="text"
 									value={state.quote.discountPercentage}
@@ -1474,14 +1477,30 @@ export default function HistoricalEntryWizard({
 										<input type="text" value={state.job.callbackCost} onChange={(e) => update('job', { callbackCost: e.target.value })} />
 									</label>
 									<label>
-										Callback Reason
-										<select value={state.job.callbackReason} onChange={(e) => update('job', { callbackReason: e.target.value })}>
+										Callback Category
+										<select
+											value={state.job.callbackCategory}
+											onChange={(e) => update('job', { callbackCategory: e.target.value, callbackReason: '' })}
+										>
 											<option value="" />
-											{CALLBACK_REASONS.map((r) => (
-												<option key={r}>{r}</option>
+											{CALLBACK_PRIMARY_CATEGORIES.map((c) => (
+												<option key={c}>{c}</option>
 											))}
 										</select>
 									</label>
+									{state.job.callbackCategory && (
+										<label>
+											Specific Reason
+											<select value={state.job.callbackReason} onChange={(e) => update('job', { callbackReason: e.target.value })}>
+												<option value="" />
+												{CALLBACK_SPECIFIC_REASONS[
+													state.job.callbackCategory as (typeof CALLBACK_PRIMARY_CATEGORIES)[number]
+												]?.map((r) => (
+													<option key={r}>{r}</option>
+												))}
+											</select>
+										</label>
+									)}
 									<label>
 										Root Cause
 										<textarea

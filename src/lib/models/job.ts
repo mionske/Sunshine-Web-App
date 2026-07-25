@@ -35,17 +35,19 @@ export const REVIEW_LEFT_VALUES = ['Yes', 'No', 'Unknown'] as const;
 // enums on the schema itself — same "never fabricate legacy completeness"
 // reasoning as Record Classification etc. below; these constants only
 // constrain the <select> options offered in the wizard.
-export const CALLBACK_REASONS = [
-	'Quality Issue',
-	'Customer Request',
-	'Missed Windows',
-	'Streaking',
-	'Hard Water Rework',
-	'Equipment Failure',
-	'Weather',
-	'Scheduling Error',
-	'Other',
-] as const;
+// Two-tier so the wizard only ever shows relevant specific reasons for the
+// chosen category, instead of one long flat list. 'Operator Error' lives
+// under Quality (a human-error quality issue, not its own category).
+export const CALLBACK_PRIMARY_CATEGORIES = ['Quality', 'Customer', 'Weather', 'Equipment', 'Scheduling', 'Other'] as const;
+
+export const CALLBACK_SPECIFIC_REASONS: Record<(typeof CALLBACK_PRIMARY_CATEGORIES)[number], readonly string[]> = {
+	Quality: ['Quality Issue', 'Operator Error', 'Streaking', 'Hard Water Rework', 'Missed Windows'],
+	Customer: ['Customer Request'],
+	Weather: ['Weather'],
+	Equipment: ['Equipment Failure'],
+	Scheduling: ['Scheduling Error'],
+	Other: ['Other'],
+};
 
 export const PRICING_CONFIDENCE_LEVELS = ['Very Low', 'Low', 'Medium', 'High', 'Very High'] as const;
 
@@ -155,6 +157,11 @@ export const jobSchema = z
 		// impact. Never folded into 'Actual Time (hrs)' — see
 		// historicalEntry.ts's onSiteMinutes(), which already excludes
 		// Callback Labor Minutes from that total.
+		// 'Callback Category' is the primary category (Quality/Customer/
+		// Weather/Equipment/Scheduling/Other); 'Callback Reason' holds the
+		// more granular specific reason within that category (see
+		// CALLBACK_SPECIFIC_REASONS above).
+		'Callback Category': blank(),
 		'Callback Reason': blank(),
 		'Callback Root Cause': blank(),
 		'Callback Corrective Action': blank(),
@@ -176,7 +183,20 @@ export const jobSchema = z
 		// or locked afterward (varies per client/property/job).
 		'Next Maintenance Follow-up Date': blank(),
 		'Maintenance Follow-up Status': blank(),
+		// Legacy — superseded by 'QB Invoice ID' below. Was a manually-pasted
+		// raw QuickBooks URL; never written to again by the new QuickBooks
+		// linking UI (see lib/qb/recordLinking.ts). Kept declared so old rows
+		// still round-trip.
 		'QB Invoice Link': blank(),
+		// The real link to a synced QBInvoices row (see
+		// lib/models/qbInvoice.ts) — set only via lib/qb/recordLinking.ts's
+		// confirmQBInvoiceLink(), never hand-typed. This app never writes
+		// back to QuickBooks.
+		'QB Invoice ID': blank(),
+		// A QB Invoice ID the owner explicitly dismissed from the "Potential
+		// QuickBooks Match Found" suggestion (see findStrongJobMatchSuggestion
+		// in lib/qb/recordLinking.ts).
+		'QB Match Suggestion Dismissed': blank(),
 		// Phase 6 (Job-Day Mode) additions. Job Day State is always a plain
 		// blank()/free string here (not a strict enum) for the same reason as
 		// Record Classification etc. above: every pre-existing row lacks it,
