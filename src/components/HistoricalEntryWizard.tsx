@@ -101,6 +101,12 @@ interface QuoteState {
 	amount: string;
 	status: string;
 	discountAmount: string;
+	// Convenience input only, not persisted as its own field — entering a
+	// percentage computes and overwrites discountAmount above (rounded to
+	// the nearest cent) from the current Quoted amount, since Quote's own
+	// 'Discount' column is a dollar figure. Typing directly into
+	// discountAmount afterward doesn't update this back.
+	discountPercentage: string;
 	discountReason: string;
 	pricingConfigId: string;
 	pricingConfigUnknown: boolean;
@@ -200,6 +206,7 @@ function emptyState(prefill?: { clientId?: string; propertyId?: string }): Wizar
 			amount: '',
 			status: 'Accepted',
 			discountAmount: '',
+			discountPercentage: '',
 			discountReason: '',
 			pricingConfigId: '',
 			pricingConfigUnknown: false,
@@ -971,6 +978,24 @@ export default function HistoricalEntryWizard({
 							<label>
 								Discount amount ($)
 								<input type="text" value={state.quote.discountAmount} onChange={(e) => update('quote', { discountAmount: e.target.value })} />
+							</label>
+							<label>
+								Discount percentage (%)
+								<span className="field-hint">Calculates the discount amount from the quoted amount above.</span>
+								<input
+									type="text"
+									value={state.quote.discountPercentage}
+									onChange={(e) => {
+										const percentage = e.target.value;
+										const quoted = Number(state.quote.amount);
+										const pct = Number(percentage);
+										const computedAmount =
+											percentage && Number.isFinite(quoted) && Number.isFinite(pct)
+												? ((quoted * pct) / 100).toFixed(2)
+												: state.quote.discountAmount;
+										update('quote', { discountPercentage: percentage, discountAmount: computedAmount });
+									}}
+								/>
 							</label>
 							<label>
 								Discount reason
