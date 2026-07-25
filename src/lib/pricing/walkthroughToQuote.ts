@@ -94,12 +94,23 @@ export function countAccessDifficultyItems(items: WalkthroughItem[]): AccessDiff
 
 const EXTERIOR_CONDITION_TO_ENGINE: Record<string, Condition> = {
 	Maintenance: 'light',
+	'Light Buildup': 'light',
 	'Moderate Buildup': 'moderate',
 	'Heavy Buildup': 'heavy',
-	'Restoration Required': 'firstTime',
 };
 
-export function conditionForEngine(exteriorCondition: string): Condition {
+/**
+ * The Glass Condition level (how dirty the glass is) maps to the engine's
+ * light/moderate/heavy tiers. But if any Restoration Services Required
+ * checkbox is set, that overrides the level entirely — this preserves the
+ * exact pricing behavior the old "Restoration Required" condition level
+ * used to trigger (the First-Time Cleaning Factor surcharge), just with a
+ * more accurate trigger condition (any of the 8 restoration flags, not one
+ * blunt dropdown value) now that restoration is tracked separately from
+ * dirtiness. See the Restoration Services Required addendum for why.
+ */
+export function conditionForEngine(exteriorCondition: string, hasRestorationFlag: boolean): Condition {
+	if (hasRestorationFlag) return 'firstTime';
 	return EXTERIOR_CONDITION_TO_ENGINE[exteriorCondition] ?? 'light';
 }
 
@@ -114,6 +125,35 @@ export interface WalkthroughPricingInput {
 	hardWaterPresent: boolean;
 	constructionDebrisPresent: boolean;
 	accessDifficulty: string;
+	// Restoration Services Required — reporting only, except for their
+	// combined effect on conditionForEngine's firstTime override (see
+	// there). hardWaterPresent/constructionDebrisPresent above already
+	// double as two of the 8 restoration flags.
+	siliconeResidue?: boolean;
+	paintOverspray?: boolean;
+	razorScraping?: boolean;
+	steelWool?: boolean;
+	nonScratchPad?: boolean;
+}
+
+function hasAnyRestorationFlag(input: {
+	hardWaterPresent: boolean;
+	constructionDebrisPresent: boolean;
+	siliconeResidue?: boolean;
+	paintOverspray?: boolean;
+	razorScraping?: boolean;
+	steelWool?: boolean;
+	nonScratchPad?: boolean;
+}): boolean {
+	return Boolean(
+		input.hardWaterPresent ||
+			input.constructionDebrisPresent ||
+			input.siliconeResidue ||
+			input.paintOverspray ||
+			input.razorScraping ||
+			input.steelWool ||
+			input.nonScratchPad
+	);
 }
 
 export interface WalkthroughPricingSuggestion {
@@ -140,11 +180,16 @@ export function computeWalkthroughPricing(
 	const counts = itemsToQuoteCounts(items);
 	const result = calculateQuote(config, services, {
 		stories: storiesForEngine(input.storyCountObserved),
-		condition: conditionForEngine(input.exteriorCondition),
+		condition: conditionForEngine(input.exteriorCondition, hasAnyRestorationFlag(input)),
 		counts,
 		hardWater: input.hardWaterPresent,
 		constructionDebris: input.constructionDebrisPresent,
 		difficultAccess: DIFFICULT_ACCESS_LEVELS.has(input.accessDifficulty),
+		siliconeResidue: input.siliconeResidue,
+		paintOverspray: input.paintOverspray,
+		razorScraping: input.razorScraping,
+		steelWool: input.steelWool,
+		nonScratchPad: input.nonScratchPad,
 	});
 
 	const lowVariance = num(config['Estimate Low Variance']);
@@ -208,6 +253,16 @@ export interface SaveWalkthroughPayload {
 	exteriorAccessObstructed?: boolean;
 	furnitureMovementRequired?: boolean;
 	temporaryAccessNotes?: string;
+	// Restoration Services Required — supplements exteriorCondition/
+	// interiorCondition above, doesn't replace them. siliconeResidue above
+	// already doubles as one of the 8 restoration checkboxes (Window
+	// Stickers / Adhesive), alongside hardWaterPresent/
+	// constructionDebrisPresent.
+	paintOverspray?: boolean;
+	razorScraping?: boolean;
+	steelWool?: boolean;
+	nonScratchPad?: boolean;
+	restorationNotes?: string;
 	items: WalkthroughItemInput[];
 }
 
@@ -288,6 +343,11 @@ export async function saveWalkthrough(
 						'Exterior Access Obstructed (Y/N)': payload.exteriorAccessObstructed ? 'Y' : 'N',
 						'Furniture Or Belongings Movement Required (Y/N)': payload.furnitureMovementRequired ? 'Y' : 'N',
 						'Temporary Access Notes': payload.temporaryAccessNotes ?? '',
+						'Paint Overspray (Y/N)': payload.paintOverspray ? 'Y' : 'N',
+						'Razor Scraping Required (Y/N)': payload.razorScraping ? 'Y' : 'N',
+						'Steel Wool Required (Y/N)': payload.steelWool ? 'Y' : 'N',
+						'Non-Scratch Pad Required (Y/N)': payload.nonScratchPad ? 'Y' : 'N',
+						'Restoration Notes': payload.restorationNotes ?? '',
 					},
 				],
 			},
@@ -340,6 +400,14 @@ export async function createQuoteFromWalkthrough(
 	const overridePrice = num(walkthrough['Owner Override Price']);
 	const manualAdjustment = overridePrice > 0 ? overridePrice - suggestedTarget : 0;
 
+	const hardWater = walkthrough['Hard Water Present (Y/N)'] === 'Y';
+	const constructionDebris = walkthrough['Construction Debris Present (Y/N)'] === 'Y';
+	const siliconeResidue = walkthrough['Silicone Adhesive Or Sticker Residue (Y/N)'] === 'Y';
+	const paintOverspray = walkthrough['Paint Overspray (Y/N)'] === 'Y';
+	const razorScraping = walkthrough['Razor Scraping Required (Y/N)'] === 'Y';
+	const steelWool = walkthrough['Steel Wool Required (Y/N)'] === 'Y';
+	const nonScratchPad = walkthrough['Non-Scratch Pad Required (Y/N)'] === 'Y';
+
 	const result = await createQuote(env, {
 		clientId: walkthrough['Client ID'],
 		propertyId: walkthrough['Property ID'],
@@ -350,11 +418,19 @@ export async function createQuoteFromWalkthrough(
 		specialtyAccessItemCount,
 		input: {
 			stories: storiesForEngine(walkthrough['Story Count Observed']),
-			condition: conditionForEngine(walkthrough['Exterior Condition']),
+			condition: conditionForEngine(
+				walkthrough['Exterior Condition'],
+				hasAnyRestorationFlag({ hardWaterPresent: hardWater, constructionDebrisPresent: constructionDebris, siliconeResidue, paintOverspray, razorScraping, steelWool, nonScratchPad })
+			),
 			counts,
-			hardWater: walkthrough['Hard Water Present (Y/N)'] === 'Y',
-			constructionDebris: walkthrough['Construction Debris Present (Y/N)'] === 'Y',
+			hardWater,
+			constructionDebris,
 			difficultAccess: DIFFICULT_ACCESS_LEVELS.has(walkthrough['Access Difficulty']),
+			siliconeResidue,
+			paintOverspray,
+			razorScraping,
+			steelWool,
+			nonScratchPad,
 			manualAdjustment: manualAdjustment || undefined,
 			overrideReason: manualAdjustment ? 'Owner override from walkthrough' : undefined,
 		},

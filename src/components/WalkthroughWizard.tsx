@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { GLASS_CONDITION_LEVELS } from '../lib/models/walkthrough';
 
 const AREA_STEPS = ['Front', 'Left', 'Rear', 'Right', 'Interior'] as const;
 const ALL_AREAS = ['Front', 'Left', 'Rear', 'Right', 'Interior', 'Garage', 'Basement', 'Other'];
@@ -9,6 +10,38 @@ const ACCESS_LEVELS = ['Easy', 'Standard', 'Difficult', 'Specialty Access', 'Unk
 
 function newId(): string {
 	return crypto.randomUUID();
+}
+
+// Glass Condition (how dirty) vs. Restoration Services Required (what
+// specialized technique the job needs) are two separate concepts now —
+// this is the shared radio-pill control for the two Glass Condition
+// fields, reusing the app's existing .segmented CSS (see Property
+// Detail's Access Difficulty/Ladder Requirement controls for the same
+// visual pattern elsewhere).
+function GlassConditionRadios({
+	label,
+	name,
+	value,
+	onChange,
+}: {
+	label: string;
+	name: string;
+	value: string;
+	onChange: (value: string) => void;
+}) {
+	return (
+		<div>
+			<p className="field-label">{label}</p>
+			<div className="segmented">
+				{GLASS_CONDITION_LEVELS.map((level) => (
+					<label key={level}>
+						<input type="radio" name={name} value={level} checked={value === level} onChange={() => onChange(level)} />
+						{level}
+					</label>
+				))}
+			</div>
+		</div>
+	);
 }
 
 interface ItemState {
@@ -72,6 +105,15 @@ interface WizardState {
 	exteriorAccessObstructed: boolean;
 	furnitureMovementRequired: boolean;
 	temporaryAccessNotes: string;
+	// Restoration Services Required — supplements exteriorCondition/
+	// interiorCondition above, doesn't replace them. constructionDebrisPresent/
+	// hardWaterPresent/siliconeResidue above already double as three of the
+	// 8 restoration checkboxes.
+	paintOverspray: boolean;
+	razorScraping: boolean;
+	steelWool: boolean;
+	nonScratchPad: boolean;
+	restorationNotes: string;
 	items: ItemState[];
 }
 
@@ -98,6 +140,11 @@ function emptyState(): WizardState {
 		exteriorAccessObstructed: false,
 		furnitureMovementRequired: false,
 		temporaryAccessNotes: '',
+		paintOverspray: false,
+		razorScraping: false,
+		steelWool: false,
+		nonScratchPad: false,
+		restorationNotes: '',
 		items: [],
 	};
 }
@@ -216,6 +263,11 @@ export default function WalkthroughWizard({
 						hardWaterPresent: state.hardWaterPresent,
 						constructionDebrisPresent: state.constructionDebrisPresent,
 						accessDifficulty: state.accessDifficulty,
+						siliconeResidue: state.siliconeResidue,
+						paintOverspray: state.paintOverspray,
+						razorScraping: state.razorScraping,
+						steelWool: state.steelWool,
+						nonScratchPad: state.nonScratchPad,
 					},
 					items: state.items,
 				}),
@@ -266,6 +318,11 @@ export default function WalkthroughWizard({
 					exteriorAccessObstructed: state.exteriorAccessObstructed,
 					furnitureMovementRequired: state.furnitureMovementRequired,
 					temporaryAccessNotes: state.temporaryAccessNotes,
+					paintOverspray: state.paintOverspray,
+					razorScraping: state.razorScraping,
+					steelWool: state.steelWool,
+					nonScratchPad: state.nonScratchPad,
+					restorationNotes: state.restorationNotes,
 					items: state.items,
 				}),
 			});
@@ -382,44 +439,95 @@ export default function WalkthroughWizard({
 							</select>
 						</label>
 						<label>
-							Current condition
-							<select value={state.exteriorCondition} onChange={(e) => update({ exteriorCondition: e.target.value })}>
-								{CONDITION_LEVELS.filter((c) => c !== 'Unknown').map((c) => (
-									<option key={c}>{c}</option>
-								))}
-							</select>
-						</label>
-						<label>
 							Ladder requirement
 							<input type="text" value={state.ladderRequired} onChange={(e) => update({ ladderRequired: e.target.value })} />
 						</label>
 					</div>
 
+					<GlassConditionRadios
+						label="Interior Glass Condition"
+						name="interiorGlassCondition"
+						value={state.interiorCondition}
+						onChange={(v) => update({ interiorCondition: v })}
+					/>
+					<GlassConditionRadios
+						label="Exterior Glass Condition"
+						name="exteriorGlassCondition"
+						value={state.exteriorCondition}
+						onChange={(v) => update({ exteriorCondition: v })}
+					/>
+
+					<div className="card" style={{ background: 'var(--color-cream)' }}>
+						<h3>Restoration Services Required</h3>
+						<span className="field-hint">
+							Specialized cleaning beyond a standard window cleaning — supplements the condition rating above, doesn't
+							replace it.
+						</span>
+						<div className="checkbox-grid">
+							<label>
+								<input
+									type="checkbox"
+									checked={state.constructionDebrisPresent}
+									onChange={(e) => update({ constructionDebrisPresent: e.target.checked })}
+								/>{' '}
+								Construction Debris
+							</label>
+							<label>
+								<input
+									type="checkbox"
+									checked={state.siliconeResidue}
+									onChange={(e) => update({ siliconeResidue: e.target.checked })}
+								/>{' '}
+								Window Stickers / Adhesive
+							</label>
+							<label>
+								<input
+									type="checkbox"
+									checked={state.paintOverspray}
+									onChange={(e) => update({ paintOverspray: e.target.checked })}
+								/>{' '}
+								Paint Overspray
+							</label>
+							<label>
+								<input
+									type="checkbox"
+									checked={state.hardWaterPresent}
+									onChange={(e) => update({ hardWaterPresent: e.target.checked })}
+								/>{' '}
+								Hard Water / Mineral Deposits
+							</label>
+							<label>
+								<input
+									type="checkbox"
+									checked={state.razorScraping}
+									onChange={(e) => update({ razorScraping: e.target.checked })}
+								/>{' '}
+								Razor Scraping Required
+							</label>
+							<label>
+								<input
+									type="checkbox"
+									checked={state.steelWool}
+									onChange={(e) => update({ steelWool: e.target.checked })}
+								/>{' '}
+								Steel Wool Required
+							</label>
+							<label>
+								<input
+									type="checkbox"
+									checked={state.nonScratchPad}
+									onChange={(e) => update({ nonScratchPad: e.target.checked })}
+								/>{' '}
+								Non-Scratch Pad Required
+							</label>
+						</div>
+						<label>
+							Other
+							<textarea value={state.restorationNotes} onChange={(e) => update({ restorationNotes: e.target.value })} />
+						</label>
+					</div>
+
 					<div className="checkbox-grid">
-						<label>
-							<input
-								type="checkbox"
-								checked={state.hardWaterPresent}
-								onChange={(e) => update({ hardWaterPresent: e.target.checked })}
-							/>{' '}
-							Hard water present
-						</label>
-						<label>
-							<input
-								type="checkbox"
-								checked={state.constructionDebrisPresent}
-								onChange={(e) => update({ constructionDebrisPresent: e.target.checked })}
-							/>{' '}
-							Construction debris present
-						</label>
-						<label>
-							<input
-								type="checkbox"
-								checked={state.siliconeResidue}
-								onChange={(e) => update({ siliconeResidue: e.target.checked })}
-							/>{' '}
-							Silicone, adhesive, or sticker residue
-						</label>
 						<label>
 							<input
 								type="checkbox"

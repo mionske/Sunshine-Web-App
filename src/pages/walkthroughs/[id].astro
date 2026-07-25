@@ -56,7 +56,11 @@ const items = allItems.filter((i) => i['Walkthrough ID'] === id);
 					<div><span class="field-display-label">Construction debris present</span><span class="field-display-value">{walkthrough['Construction Debris Present (Y/N)']}</span></div>
 					<div><span class="field-display-label">Water-fed pole suitable</span><span class="field-display-value">{walkthrough['Water-Fed Pole Suitable (Y/N)']}</span></div>
 					{walkthrough['Ladder Required'] && <div><span class="field-display-label">Ladder requirement</span><span class="field-display-value">{walkthrough['Ladder Required']}</span></div>}
-					<div><span class="field-display-label">Silicone/adhesive/sticker residue</span><span class="field-display-value">{walkthrough['Silicone Adhesive Or Sticker Residue (Y/N)']}</span></div>
+					<div><span class="field-display-label">Window stickers / adhesive</span><span class="field-display-value">{walkthrough['Silicone Adhesive Or Sticker Residue (Y/N)']}</span></div>
+					<div><span class="field-display-label">Paint overspray</span><span class="field-display-value">{walkthrough['Paint Overspray (Y/N)']}</span></div>
+					<div><span class="field-display-label">Razor scraping required</span><span class="field-display-value">{walkthrough['Razor Scraping Required (Y/N)']}</span></div>
+					<div><span class="field-display-label">Steel wool required</span><span class="field-display-value">{walkthrough['Steel Wool Required (Y/N)']}</span></div>
+					<div><span class="field-display-label">Non-scratch pad required</span><span class="field-display-value">{walkthrough['Non-Scratch Pad Required (Y/N)']}</span></div>
 					<div><span class="field-display-label">Heavy interior residue</span><span class="field-display-value">{walkthrough['Heavy Interior Residue (Y/N)']}</span></div>
 					<div><span class="field-display-label">Oxidized frames or screens</span><span class="field-display-value">{walkthrough['Oxidized Frames Or Screens (Y/N)']}</span></div>
 					<div><span class="field-display-label">Condition varies by area</span><span class="field-display-value">{walkthrough['Condition Varies By Area (Y/N)']}</span></div>
@@ -64,6 +68,7 @@ const items = allItems.filter((i) => i['Walkthrough ID'] === id);
 					<div><span class="field-display-label">Furniture/belongings movement required</span><span class="field-display-value">{walkthrough['Furniture Or Belongings Movement Required (Y/N)']}</span></div>
 				</div>
 				{walkthrough['Condition Notes'] && <p>Condition notes: {walkthrough['Condition Notes']}</p>}
+				{walkthrough['Restoration Notes'] && <p>Restoration notes: {walkthrough['Restoration Notes']}</p>}
 				{walkthrough['Temporary Access Notes'] && <p>Temporary access notes: {walkthrough['Temporary Access Notes']}</p>}
 				{walkthrough.Notes && <p>{walkthrough.Notes}</p>}
 			</section>

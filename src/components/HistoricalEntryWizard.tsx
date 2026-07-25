@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { googleMapsUrl } from '../lib/mapsLink';
 import { PREFERRED_CONTACT_METHOD_OPTIONS, type Client } from '../lib/models/client';
 import type { Property } from '../lib/models/property';
+import { GLASS_CONDITION_LEVELS } from '../lib/models/walkthrough';
 
 const RECORD_TYPES = [
 	'Walkthrough Only',
@@ -15,7 +16,6 @@ const RECORD_TYPES = [
 type RecordType = (typeof RECORD_TYPES)[number];
 
 const PROPERTY_TYPES = ['Residential', 'Commercial', 'New Build-Construction'];
-const CONDITION_LEVELS = ['Maintenance', 'Moderate Buildup', 'Heavy Buildup', 'Restoration Required', 'Unknown'];
 const ACCESS_LEVELS = ['Easy', 'Standard', 'Difficult', 'Specialty Access', 'Unknown'];
 const RECORD_CLASSIFICATIONS = [
 	'Customer Job',
@@ -80,6 +80,16 @@ interface WalkthroughState {
 	accessDifficulty: string;
 	hardWaterPresent: string;
 	constructionDebrisPresent: string;
+	// Restoration Services Required — supplements exteriorCondition/
+	// interiorCondition above, doesn't replace them. hardWaterPresent/
+	// constructionDebrisPresent above already double as two of the 8
+	// restoration checkboxes.
+	siliconeResidue: string;
+	paintOverspray: string;
+	razorScraping: string;
+	steelWool: string;
+	nonScratchPad: string;
+	restorationNotes: string;
 	estimatedOnSiteLaborHours: string;
 	notes: string;
 }
@@ -174,6 +184,12 @@ function emptyState(prefill?: { clientId?: string; propertyId?: string }): Wizar
 			accessDifficulty: '',
 			hardWaterPresent: '',
 			constructionDebrisPresent: '',
+			siliconeResidue: '',
+			paintOverspray: '',
+			razorScraping: '',
+			steelWool: '',
+			nonScratchPad: '',
+			restorationNotes: '',
 			estimatedOnSiteLaborHours: '',
 			notes: '',
 		},
@@ -821,7 +837,7 @@ export default function HistoricalEntryWizard({
 								Exterior condition
 								<select value={state.walkthrough.exteriorCondition} onChange={(e) => update('walkthrough', { exteriorCondition: e.target.value })}>
 									<option value="" />
-									{CONDITION_LEVELS.map((c) => (
+									{GLASS_CONDITION_LEVELS.map((c) => (
 										<option key={c}>{c}</option>
 									))}
 								</select>
@@ -830,7 +846,7 @@ export default function HistoricalEntryWizard({
 								Interior condition
 								<select value={state.walkthrough.interiorCondition} onChange={(e) => update('walkthrough', { interiorCondition: e.target.value })}>
 									<option value="" />
-									{CONDITION_LEVELS.map((c) => (
+									{GLASS_CONDITION_LEVELS.map((c) => (
 										<option key={c}>{c}</option>
 									))}
 								</select>
@@ -844,21 +860,67 @@ export default function HistoricalEntryWizard({
 									))}
 								</select>
 							</label>
+							<div className="checkbox-grid">
+								<label>
+									<input
+										type="checkbox"
+										checked={state.walkthrough.constructionDebrisPresent === 'Y'}
+										onChange={(e) => update('walkthrough', { constructionDebrisPresent: e.target.checked ? 'Y' : 'N' })}
+									/>{' '}
+									Construction Debris
+								</label>
+								<label>
+									<input
+										type="checkbox"
+										checked={state.walkthrough.siliconeResidue === 'Y'}
+										onChange={(e) => update('walkthrough', { siliconeResidue: e.target.checked ? 'Y' : 'N' })}
+									/>{' '}
+									Window Stickers / Adhesive
+								</label>
+								<label>
+									<input
+										type="checkbox"
+										checked={state.walkthrough.paintOverspray === 'Y'}
+										onChange={(e) => update('walkthrough', { paintOverspray: e.target.checked ? 'Y' : 'N' })}
+									/>{' '}
+									Paint Overspray
+								</label>
+								<label>
+									<input
+										type="checkbox"
+										checked={state.walkthrough.hardWaterPresent === 'Y'}
+										onChange={(e) => update('walkthrough', { hardWaterPresent: e.target.checked ? 'Y' : 'N' })}
+									/>{' '}
+									Hard Water / Mineral Deposits
+								</label>
+								<label>
+									<input
+										type="checkbox"
+										checked={state.walkthrough.razorScraping === 'Y'}
+										onChange={(e) => update('walkthrough', { razorScraping: e.target.checked ? 'Y' : 'N' })}
+									/>{' '}
+									Razor Scraping Required
+								</label>
+								<label>
+									<input
+										type="checkbox"
+										checked={state.walkthrough.steelWool === 'Y'}
+										onChange={(e) => update('walkthrough', { steelWool: e.target.checked ? 'Y' : 'N' })}
+									/>{' '}
+									Steel Wool Required
+								</label>
+								<label>
+									<input
+										type="checkbox"
+										checked={state.walkthrough.nonScratchPad === 'Y'}
+										onChange={(e) => update('walkthrough', { nonScratchPad: e.target.checked ? 'Y' : 'N' })}
+									/>{' '}
+									Non-Scratch Pad Required
+								</label>
+							</div>
 							<label>
-								<input
-									type="checkbox"
-									checked={state.walkthrough.hardWaterPresent === 'Y'}
-									onChange={(e) => update('walkthrough', { hardWaterPresent: e.target.checked ? 'Y' : 'N' })}
-								/>{' '}
-								Hard water present
-							</label>
-							<label>
-								<input
-									type="checkbox"
-									checked={state.walkthrough.constructionDebrisPresent === 'Y'}
-									onChange={(e) => update('walkthrough', { constructionDebrisPresent: e.target.checked ? 'Y' : 'N' })}
-								/>{' '}
-								Construction debris present
+								Restoration notes (Other)
+								<textarea value={state.walkthrough.restorationNotes} onChange={(e) => update('walkthrough', { restorationNotes: e.target.value })} />
 							</label>
 							<label>
 								Estimated on-site labor hours

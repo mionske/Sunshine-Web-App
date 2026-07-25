@@ -24,6 +24,16 @@ export interface QuoteInput {
 	hardWater: boolean;
 	constructionDebris: boolean;
 	difficultAccess: boolean;
+	// Restoration Services Required — reporting only (none of these are
+	// read by calculateQuote; hardWater/constructionDebris above already
+	// carry the pricing-affecting duty). Stored here so they land in a
+	// Quote's Input Snapshot, the prerequisite for future calibration
+	// segmentation by restoration technique.
+	siliconeResidue?: boolean;
+	paintOverspray?: boolean;
+	razorScraping?: boolean;
+	steelWool?: boolean;
+	nonScratchPad?: boolean;
 	manualAdjustment?: number;
 	discount?: number;
 	overrideReason?: string;

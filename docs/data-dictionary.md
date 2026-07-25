@@ -571,27 +571,52 @@ The historical-entry wizard still leaves these blank for past
 walkthroughs rather than reconstructing a price recommendation after the
 fact.
 
-Condition values: Maintenance, Moderate Buildup, Heavy Buildup,
-Restoration Required, Unknown. Access values: Easy, Standard, Difficult,
-Specialty Access, Unknown.
+Condition values (`GLASS_CONDITION_LEVELS`, `lib/models/walkthrough.ts`):
+Maintenance, Light Buildup, Moderate Buildup, Heavy Buildup — a pure
+dirtiness scale, both fields rendered as segmented-radio pills in
+`WalkthroughWizard.tsx` (Interior Glass Condition + Exterior Glass
+Condition). `Light Buildup` maps to the same no-surcharge `'light'`
+pricing tier as Maintenance for now (see `conditionForEngine()` —
+revisit with its own factor once enough historical data justifies it).
+Access values: Easy, Standard, Difficult, Specialty Access, Unknown.
+
+**Restoration Services Required** — a separate concept from Glass
+Condition, added below the two condition controls in the wizard: what
+specialized technique the job needs (construction residue, adhesive,
+scraping, etc.), as opposed to how dirty the glass is. A modern home
+that's never been cleaned can need heavy restoration work without being
+"Heavy Buildup" dirty, and vice versa — this is why the two are tracked
+separately rather than as one blended value. Eight checkboxes total,
+three of them reused existing Walkthrough columns rather than
+duplicating them: **Construction Debris Present (Y/N)**, **Hard Water
+Present (Y/N)**, **Silicone Adhesive Or Sticker Residue (Y/N)** (labeled
+"Window Stickers / Adhesive" in the restoration card). Five are new:
+**Paint Overspray (Y/N)**, **Razor Scraping Required (Y/N)**, **Steel
+Wool Required (Y/N)**, **Non-Scratch Pad Required (Y/N)**,
+**Restoration Notes** (the "Other" free-text field). Checking any of the
+8 restoration flags overrides the Glass Condition-derived pricing tier
+to `'firstTime'` in `conditionForEngine()` — the same First-Time Cleaning
+Factor surcharge the old single "Restoration Required" condition level
+used to trigger, just via a more accurate trigger condition now that
+restoration is tracked separately. All 8 flags flow into a
+walkthrough-originated Quote's `'Input Snapshot'` JSON (via `QuoteInput`
+in `lib/pricing/types.ts`), the prerequisite for future calibration
+segmentation by restoration technique — no new segmentation
+dimensions/report card exist yet, this just makes that possible later.
 
 **Data-ownership separation additions** — temporary condition/access
 observations moved here from Property (see the Properties section),
-since a maintenance visit can change every one of them: **Silicone
-Adhesive Or Sticker Residue (Y/N)**, **Heavy Interior Residue (Y/N)**,
-**Oxidized Frames Or Screens (Y/N)**, **Condition Varies By Area (Y/N)**,
-**Condition Notes**, **Exterior Access Obstructed (Y/N)**, **Furniture Or
-Belongings Movement Required (Y/N)**, **Temporary Access Notes** (also
-covers any other one-off setup obstruction, rather than a dedicated
-boolean for a vague "other" case). `Exterior Condition` doubles as the
-"Current Condition" concept that used to be Property's `Window
-Condition` — reused, not duplicated, since it's the one that already
-feeds `calculateQuote` via `conditionForEngine()`. All eight are
-reporting-only; none are read by the pricing engine. `Interior Condition`
-and `Roof Access Required` exist in the schema but have no rendered
-control in the wizard today — a pre-existing gap this change didn't
-introduce and didn't fix, since only `Exterior Condition` was actually
-needed here.
+since a maintenance visit can change every one of them: **Heavy Interior
+Residue (Y/N)**, **Oxidized Frames Or Screens (Y/N)**, **Condition
+Varies By Area (Y/N)**, **Condition Notes**, **Exterior Access
+Obstructed (Y/N)**, **Furniture Or Belongings Movement Required (Y/N)**,
+**Temporary Access Notes** (also covers any other one-off setup
+obstruction, rather than a dedicated boolean for a vague "other" case).
+These, plus `Exterior Condition`, are reporting-only; none are read by
+the pricing engine directly (only `Exterior Condition`, via
+`conditionForEngine()`, and the 8 restoration flags above feed pricing).
+`Roof Access Required` exists in the schema but has no rendered control
+in the wizard today — a pre-existing gap, unrelated to this change.
 
 The Walkthrough intake step (`/walkthroughs/new`) shows a read-only
 **Property reference** block (window units, panes, stories, typical

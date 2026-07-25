@@ -59,6 +59,16 @@ export interface HistoricalEntryPayload {
 		accessDifficulty: string;
 		hardWaterPresent: string;
 		constructionDebrisPresent: string;
+		// Restoration Services Required — supplements exteriorCondition/
+		// interiorCondition above, doesn't replace them. hardWaterPresent/
+		// constructionDebrisPresent above already double as two of the 8
+		// restoration checkboxes.
+		siliconeResidue: string;
+		paintOverspray: string;
+		razorScraping: string;
+		steelWool: string;
+		nonScratchPad: string;
+		restorationNotes: string;
 		estimatedOnSiteLaborHours: string;
 		notes: string;
 	};
@@ -201,6 +211,12 @@ export async function saveHistoricalEntry(
 					'Access Difficulty': payload.walkthrough.accessDifficulty,
 					'Hard Water Present (Y/N)': payload.walkthrough.hardWaterPresent,
 					'Construction Debris Present (Y/N)': payload.walkthrough.constructionDebrisPresent,
+					'Silicone Adhesive Or Sticker Residue (Y/N)': payload.walkthrough.siliconeResidue,
+					'Paint Overspray (Y/N)': payload.walkthrough.paintOverspray,
+					'Razor Scraping Required (Y/N)': payload.walkthrough.razorScraping,
+					'Steel Wool Required (Y/N)': payload.walkthrough.steelWool,
+					'Non-Scratch Pad Required (Y/N)': payload.walkthrough.nonScratchPad,
+					'Restoration Notes': payload.walkthrough.restorationNotes,
 					'Estimated On-Site Labor Hours': payload.walkthrough.estimatedOnSiteLaborHours,
 					Notes: payload.walkthrough.notes,
 				},

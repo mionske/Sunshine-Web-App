@@ -13,6 +13,20 @@ export const CONDITION_LEVELS = [
 	'Unknown',
 ] as const;
 
+// Glass Condition vs. Restoration Services Required split: a single
+// "Condition" value used to conflate "how dirty is the glass" with
+// "what specialized restoration technique does this job need" — a
+// modern home with construction residue/adhesive isn't "Heavy Buildup",
+// it's a light/moderate-dirt job that also needs restoration methods.
+// This is the pure-dirtiness scale (no "Restoration Required" level,
+// no "Unknown" — the form layer adds its own blank/unset option where
+// needed, matching every other optional select in this app). Used only
+// for the job-wide Exterior/Interior Condition fields below — the
+// still-separate, still-5-value CONDITION_LEVELS above stays exactly as
+// is for WalkthroughItem's own per-item Condition field, a different,
+// per-window-granularity concept.
+export const GLASS_CONDITION_LEVELS = ['Maintenance', 'Light Buildup', 'Moderate Buildup', 'Heavy Buildup'] as const;
+
 export const ACCESS_LEVELS = ['Easy', 'Standard', 'Difficult', 'Specialty Access', 'Unknown'] as const;
 
 // A walkthrough-only visit (no quote, no job) is a real, standalone record
@@ -49,6 +63,19 @@ export const walkthroughSchema = z.object({
 	'Oxidized Frames Or Screens (Y/N)': blank(),
 	'Condition Varies By Area (Y/N)': blank(),
 	'Condition Notes': blank(),
+	// Restoration Services Required — supplements the Glass Condition
+	// rating, doesn't replace it (see GLASS_CONDITION_LEVELS above). Along
+	// with the reused 'Construction Debris Present (Y/N)', 'Hard Water
+	// Present (Y/N)', and 'Silicone Adhesive Or Sticker Residue (Y/N)'
+	// above, these are the 8 restoration checkboxes; checking any of them
+	// still triggers the pricing engine's First-Time Cleaning Factor (see
+	// conditionForEngine in walkthroughToQuote.ts), same as the old
+	// "Restoration Required" condition level used to.
+	'Paint Overspray (Y/N)': blank(),
+	'Razor Scraping Required (Y/N)': blank(),
+	'Steel Wool Required (Y/N)': blank(),
+	'Non-Scratch Pad Required (Y/N)': blank(),
+	'Restoration Notes': blank(),
 	// Data-ownership separation: temporary access obstructions observed at
 	// this visit — moved from Property (same field names there,
 	// 'Exterior Access Obstructed (Y/N)' / 'Furniture Or Belongings

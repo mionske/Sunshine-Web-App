@@ -116,6 +116,11 @@ export const POST: APIRoute = async ({ request }) => {
 				exteriorAccessObstructed: Boolean(body.exteriorAccessObstructed),
 				furnitureMovementRequired: Boolean(body.furnitureMovementRequired),
 				temporaryAccessNotes: body.temporaryAccessNotes ? String(body.temporaryAccessNotes) : undefined,
+				paintOverspray: Boolean(body.paintOverspray),
+				razorScraping: Boolean(body.razorScraping),
+				steelWool: Boolean(body.steelWool),
+				nonScratchPad: Boolean(body.nonScratchPad),
+				restorationNotes: body.restorationNotes ? String(body.restorationNotes) : undefined,
 				items: (body.items as Record<string, unknown>[]).map(toWalkthroughItemInput),
 			};
 			const result = await saveWalkthrough(env, config, services, payload);

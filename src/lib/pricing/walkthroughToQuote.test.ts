@@ -12,6 +12,7 @@ import { pricingConfigConfig, pricingConfigSchema, type PricingConfig } from '..
 import { serviceConfig, serviceSchema, type Service } from '../models/service';
 import {
 	computeWalkthroughPricing,
+	conditionForEngine,
 	countAccessDifficultyItems,
 	createQuoteFromWalkthrough,
 	itemsToQuoteCounts,
@@ -197,6 +198,31 @@ describe('countAccessDifficultyItems', () => {
 	});
 });
 
+describe('conditionForEngine', () => {
+	it('maps each Glass Condition level to its engine tier', () => {
+		expect(conditionForEngine('Maintenance', false)).toBe('light');
+		expect(conditionForEngine('Light Buildup', false)).toBe('light');
+		expect(conditionForEngine('Moderate Buildup', false)).toBe('moderate');
+		expect(conditionForEngine('Heavy Buildup', false)).toBe('heavy');
+	});
+
+	it('defaults an unrecognized/blank level to light', () => {
+		expect(conditionForEngine('', false)).toBe('light');
+		expect(conditionForEngine('Restoration Required', false)).toBe('light');
+	});
+
+	// Restoration Services Required checkboxes supplement the Glass
+	// Condition rating rather than replacing it — but for pricing, any
+	// restoration flag still overrides the level entirely, preserving the
+	// exact surcharge the old "Restoration Required" condition level used
+	// to trigger (the First-Time Cleaning Factor), just via a more accurate
+	// trigger condition.
+	it('forces the firstTime tier when a restoration flag is set, regardless of the Glass Condition level', () => {
+		expect(conditionForEngine('Maintenance', true)).toBe('firstTime');
+		expect(conditionForEngine('Heavy Buildup', true)).toBe('firstTime');
+	});
+});
+
 describe('computeWalkthroughPricing', () => {
 	it('derives suggested low/target/high from the PricingConfig variance', () => {
 		const items = [item({ Quantity: '20', 'Exterior Included': 'Y', 'Interior Included': 'Y' })];
@@ -230,6 +256,26 @@ describe('computeWalkthroughPricing', () => {
 			accessDifficulty: 'Standard',
 		});
 		expect(heavy.suggestedTargetPrice).toBeGreaterThan(light.suggestedTargetPrice);
+	});
+
+	it('applies the firstTime factor when a restoration flag is set even at the Maintenance level', () => {
+		const items = [item({ Quantity: '20', 'Exterior Included': 'Y' })];
+		const maintenance = computeWalkthroughPricing(config(), SERVICES, items, {
+			storyCountObserved: '1',
+			exteriorCondition: 'Maintenance',
+			hardWaterPresent: false,
+			constructionDebrisPresent: false,
+			accessDifficulty: 'Standard',
+		});
+		const maintenanceWithRestoration = computeWalkthroughPricing(config(), SERVICES, items, {
+			storyCountObserved: '1',
+			exteriorCondition: 'Maintenance',
+			hardWaterPresent: false,
+			constructionDebrisPresent: false,
+			accessDifficulty: 'Standard',
+			razorScraping: true,
+		});
+		expect(maintenanceWithRestoration.suggestedTargetPrice).toBeGreaterThan(maintenance.suggestedTargetPrice);
 	});
 });
 
@@ -371,6 +417,46 @@ describe('saveWalkthrough / createQuoteFromWalkthrough (Sheets-backed)', () => {
 		expect(result.walkthrough['Temporary Access Notes']).toBe('Dog in the backyard today.');
 	});
 
+	// Restoration Services Required — supplements exteriorCondition/
+	// interiorCondition, doesn't replace them.
+	it('saves the Restoration Services Required fields', async () => {
+		const { client, property } = await seedClientAndProperty();
+		await seedActiveConfigAndServices();
+
+		const walkthroughId = crypto.randomUUID();
+		const result = await saveWalkthrough(harness.env, config(), SERVICES, {
+			id: walkthroughId,
+			clientId: client['Client ID'],
+			propertyId: property['Property ID'],
+			walkthroughDate: '2026-07-24',
+			exteriorCondition: 'Light Buildup',
+			interiorCondition: 'Light Buildup',
+			storyCountObserved: '1',
+			accessDifficulty: 'Standard',
+			hardWaterPresent: false,
+			constructionDebrisPresent: true,
+			waterFedPoleSuitable: true,
+			ladderRequired: '',
+			roofAccessRequired: '',
+			ownerOverridePrice: '',
+			notes: '',
+			paintOverspray: true,
+			razorScraping: true,
+			steelWool: false,
+			nonScratchPad: true,
+			restorationNotes: 'Overspray on the west-facing windows only.',
+			items: [],
+		});
+
+		expect(result.walkthrough['Exterior Condition']).toBe('Light Buildup');
+		expect(result.walkthrough['Construction Debris Present (Y/N)']).toBe('Y');
+		expect(result.walkthrough['Paint Overspray (Y/N)']).toBe('Y');
+		expect(result.walkthrough['Razor Scraping Required (Y/N)']).toBe('Y');
+		expect(result.walkthrough['Steel Wool Required (Y/N)']).toBe('N');
+		expect(result.walkthrough['Non-Scratch Pad Required (Y/N)']).toBe('Y');
+		expect(result.walkthrough['Restoration Notes']).toBe('Overspray on the west-facing windows only.');
+	});
+
 	it('leaves the new temporary condition/access fields blank (never fabricated) when not provided', async () => {
 		const { client, property } = await seedClientAndProperty();
 		await seedActiveConfigAndServices();
@@ -398,6 +484,11 @@ describe('saveWalkthrough / createQuoteFromWalkthrough (Sheets-backed)', () => {
 		expect(result.walkthrough['Silicone Adhesive Or Sticker Residue (Y/N)']).toBe('N');
 		expect(result.walkthrough['Condition Notes']).toBe('');
 		expect(result.walkthrough['Temporary Access Notes']).toBe('');
+		expect(result.walkthrough['Paint Overspray (Y/N)']).toBe('N');
+		expect(result.walkthrough['Razor Scraping Required (Y/N)']).toBe('N');
+		expect(result.walkthrough['Steel Wool Required (Y/N)']).toBe('N');
+		expect(result.walkthrough['Non-Scratch Pad Required (Y/N)']).toBe('N');
+		expect(result.walkthrough['Restoration Notes']).toBe('');
 	});
 
 	it('creates a Quote from a completed walkthrough using its stored PricingConfig', async () => {
@@ -456,6 +547,64 @@ describe('saveWalkthrough / createQuoteFromWalkthrough (Sheets-backed)', () => {
 		const row = walkthroughRows.find((r) => r[headers.indexOf('Walkthrough ID')] === walkthroughId);
 		expect(row?.[headers.indexOf('Quote ID')]).toBe(quote['Quote ID']);
 		expect(row?.[headers.indexOf('Status')]).toBe('Converted to Quote');
+	});
+
+	it('carries Restoration Services Required flags into the Quote\'s Input Snapshot, and applies the firstTime factor', async () => {
+		const { client, property } = await seedClientAndProperty();
+		await seedActiveConfigAndServices();
+
+		const walkthroughId = crypto.randomUUID();
+		await saveWalkthrough(harness.env, config(), SERVICES, {
+			id: walkthroughId,
+			clientId: client['Client ID'],
+			propertyId: property['Property ID'],
+			walkthroughDate: '2026-07-24',
+			exteriorCondition: 'Maintenance',
+			interiorCondition: 'Light Buildup',
+			storyCountObserved: '1',
+			accessDifficulty: 'Standard',
+			hardWaterPresent: false,
+			constructionDebrisPresent: false,
+			waterFedPoleSuitable: false,
+			ladderRequired: '',
+			roofAccessRequired: '',
+			ownerOverridePrice: '',
+			notes: '',
+			siliconeResidue: true,
+			razorScraping: true,
+			steelWool: true,
+			items: [
+				{
+					id: crypto.randomUUID(),
+					area: 'Front',
+					itemType: 'Window',
+					quantity: '10',
+					sizeClass: 'Standard',
+					interiorIncluded: true,
+					exteriorIncluded: true,
+					screenIncluded: false,
+					trackIncluded: false,
+					condition: 'Maintenance',
+					accessDifficulty: 'Standard',
+					hardWater: false,
+					constructionDebris: false,
+					notes: '',
+				},
+			],
+		});
+
+		const { quote } = await createQuoteFromWalkthrough(harness.env, walkthroughId);
+		const snapshot = JSON.parse(quote['Input Snapshot']);
+
+		// Even though the Glass Condition level is 'Maintenance' (light), the
+		// restoration flags force the firstTime engine tier — same behavior
+		// the old "Restoration Required" condition level used to trigger.
+		expect(snapshot.condition).toBe('firstTime');
+		expect(snapshot.siliconeResidue).toBe(true);
+		expect(snapshot.razorScraping).toBe(true);
+		expect(snapshot.steelWool).toBe(true);
+		expect(snapshot.paintOverspray).toBe(false);
+		expect(snapshot.nonScratchPad).toBe(false);
 	});
 
 	it('is idempotent — converting the same walkthrough twice does not create a second quote', async () => {
