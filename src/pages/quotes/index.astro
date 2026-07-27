@@ -45,6 +45,19 @@ const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
 const propertyById = Object.fromEntries(properties.map((p) => [p['Property ID'], p]));
 
 quotes.sort((a, b) => (b['Created At'] || '').localeCompare(a['Created At'] || ''));
+
+// One color per status so the dropdown itself reads at a glance without a
+// separate badge — reuses the app's existing semantic colors (brand navy/
+// red, plus the success green and warning amber already established for
+// field-status/follow-up coloring elsewhere) rather than inventing a new
+// palette.
+const STATUS_COLORS: Record<(typeof QUOTE_STATUSES)[number], { bg: string; color: string }> = {
+	Draft: { bg: '#d8c6ac', color: '#012441' },
+	Sent: { bg: '#012441', color: '#fff8ea' },
+	Accepted: { bg: '#1a7a4c', color: '#fff8ea' },
+	Declined: { bg: '#9d1518', color: '#fff8ea' },
+	Expired: { bg: '#92400e', color: '#fff8ea' },
+};
 ---
 
 <BaseLayout title="Quotes">
@@ -76,17 +89,18 @@ quotes.sort((a, b) => (b['Created At'] || '').localeCompare(a['Created At'] || '
 						</td>
 							<td>{client ? `${client['First Name']} ${client['Last Name']}` : q['Client ID']}</td>
 							<td>
-								<form method="POST" class="quote-status-form" style="display:flex; align-items:center; gap:0.5rem; margin:0;">
+								<form method="POST" class="quote-status-form" style="margin:0;">
 									<input type="hidden" name="_action" value="update-quote-status" />
 									<input type="hidden" name="quoteId" value={q['Quote ID']} />
-									<span class="badge badge-accent" style="min-width:6.5rem; text-align:center;">{q['Quote Status']}</span>
-									<select name="status" style="display:inline-block; width:auto; margin-top:0;">
-										<option value="" disabled selected>— change —</option>
-										{QUOTE_STATUSES.filter((s) => s !== 'Accepted').map((s) => (
-											<option value={s} selected={false}>{s}</option>
+									<select
+										name="status"
+										onchange="this.form.submit()"
+										style={`display:inline-block; width:auto; min-width:8.5rem; margin-top:0; font-weight:600; text-align:center; text-align-last:center; background-color:${STATUS_COLORS[q['Quote Status']]?.bg ?? '#d8c6ac'}; color:${STATUS_COLORS[q['Quote Status']]?.color ?? '#012441'}; border-color:${STATUS_COLORS[q['Quote Status']]?.bg ?? '#d8c6ac'};`}
+									>
+										{QUOTE_STATUSES.map((s) => (
+											<option value={s} disabled={s === 'Accepted'} selected={s === q['Quote Status']}>{s}</option>
 										))}
 									</select>
-									<button type="submit" class="btn-secondary" style="flex:0 0 auto;">Update</button>
 								</form>
 							</td>
 							<td>{q['Final Quoted Price'] ? `$${Number(q['Final Quoted Price']).toFixed(2)}` : '—'}</td>
