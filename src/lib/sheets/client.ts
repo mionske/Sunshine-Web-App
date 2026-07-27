@@ -3,7 +3,18 @@ import type { SheetsEnv } from './types';
 
 const BASE_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
 
-async function sheetsFetch(env: SheetsEnv, path: string, init: RequestInit = {}): Promise<Response> {
+const MAX_RETRIES = 3;
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Retries on 429 (quota exceeded) and 5xx (transient Google-side errors)
+ * with short exponential backoff — these are the only response codes worth
+ * retrying; anything else (4xx auth/validation errors) fails immediately.
+ * Without this, a single momentary rate-limit hit surfaced as a raw 500 to
+ * the user instead of the page just loading a beat slower. */
+async function sheetsFetch(env: SheetsEnv, path: string, init: RequestInit = {}, attempt = 0): Promise<Response> {
 	const accessToken = await getAccessToken(env);
 	const response = await fetch(`${BASE_URL}/${env.SPREADSHEET_ID}${path}`, {
 		...init,
@@ -14,6 +25,10 @@ async function sheetsFetch(env: SheetsEnv, path: string, init: RequestInit = {})
 		},
 	});
 	if (!response.ok) {
+		if ((response.status === 429 || response.status >= 500) && attempt < MAX_RETRIES) {
+			await sleep(300 * 2 ** attempt);
+			return sheetsFetch(env, path, init, attempt + 1);
+		}
 		const body = await response.text();
 		throw new Error(`Sheets API error ${response.status} for ${path}: ${body}`);
 	}

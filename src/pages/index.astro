@@ -8,6 +8,7 @@ import { propertyConfig } from '../lib/models/property';
 import { jobConfig } from '../lib/models/job';
 import { walkthroughConfig } from '../lib/models/walkthrough';
 import { quoteConfig } from '../lib/models/quote';
+import { qbInvoiceConfig } from '../lib/models/qbInvoice';
 import { calibrationExclusionReasons, getLatestCalibrationSnapshot, isCalibrationEligible, mean, median } from '../lib/pricing/calibration';
 import { getActivePricingConfig } from '../lib/pricing/config';
 import { googleMapsUrl, fullAddress } from '../lib/mapsLink';
@@ -23,19 +24,32 @@ import { googleMapsUrl, fullAddress } from '../lib/mapsLink';
 const today = new Date().toISOString().slice(0, 10);
 const currentMonthPrefix = today.slice(0, 7); // YYYY-MM
 
-const [opportunities, clients, properties, jobs, walkthroughs, quotes, snapshot, pricingConfig] = await Promise.all([
+const [opportunities, clients, properties, jobs, walkthroughs, quotes, qbInvoices, snapshot, pricingConfig] = await Promise.all([
 	listActiveRows(env, pipelineConfig),
 	listActiveRows(env, clientConfig),
 	listActiveRows(env, propertyConfig),
 	listActiveRows(env, jobConfig),
 	listActiveRows(env, walkthroughConfig),
 	listActiveRows(env, quoteConfig),
+	listActiveRows(env, qbInvoiceConfig),
 	getLatestCalibrationSnapshot(env),
 	// Residential explicitly, as the primary segment — a single dashboard
 	// stat can't represent every Property Type's target rate at once; full
 	// per-segment reporting is later phase scope.
 	getActivePricingConfig(env, 'Residential'),
 ]);
+
+// Once a Job is linked to a real synced QBInvoice, QuickBooks' own Balance
+// is authoritative for "is this actually paid" — the app's own manually-set
+// 'Payment Status' (Job Day mode's own field, set at completion time,
+// often before any invoice exists yet) is only a fallback for jobs that
+// have no QuickBooks link at all.
+const qbInvoiceById = new Map(qbInvoices.map((i) => [i['QB Invoice ID'], i]));
+function isJobPaid(j: (typeof jobs)[number]): boolean {
+	const linkedInvoice = j['QB Invoice ID'] ? qbInvoiceById.get(j['QB Invoice ID']) : undefined;
+	if (linkedInvoice) return Number(linkedInvoice.Balance) <= 0;
+	return j['Payment Status'] === 'Paid in Full';
+}
 
 const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
 const propertyById = Object.fromEntries(properties.map((p) => [p['Property ID'], p]));
@@ -67,7 +81,7 @@ const walkthroughFollowUps = walkthroughs.filter((w) => w.Status === 'Completed'
 
 // Collect payment: work is done but payment isn't confirmed in full yet.
 const unpaidJobs = jobs.filter(
-	(j) => (j['Job Status'] === 'Completed' || j['Job Status'] === 'Invoiced') && j['Payment Status'] !== 'Paid in Full'
+	(j) => (j['Job Status'] === 'Completed' || j['Job Status'] === 'Invoiced') && !isJobPaid(j)
 );
 
 // Request review: completed work with no review requested yet, or
@@ -187,11 +201,17 @@ const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted
 				<>
 					<h3>Unpaid jobs ({unpaidJobs.length})</h3>
 					<ul>
-						{unpaidJobs.map((j) => (
-							<li>
-								{j['Property Address']} — <span class="badge">{j['Payment Status'] || 'unknown'}</span> · <a href={`/quotes/${j['Quote ID']}`}>view</a>
-							</li>
-						))}
+						{unpaidJobs.map((j) => {
+							const linkedInvoice = j['QB Invoice ID'] ? qbInvoiceById.get(j['QB Invoice ID']) : undefined;
+							const label = linkedInvoice
+								? `QuickBooks: ${linkedInvoice.Status || 'Open'} · balance $${Number(linkedInvoice.Balance).toFixed(2)}`
+								: j['Payment Status'] || 'unknown';
+							return (
+								<li>
+									{j['Property Address']} — <span class="badge">{label}</span> · <a href={`/quotes/${j['Quote ID']}`}>view</a>
+								</li>
+							);
+						})}
 					</ul>
 				</>
 			) : (
