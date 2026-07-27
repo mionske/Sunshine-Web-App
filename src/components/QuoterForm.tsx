@@ -119,11 +119,18 @@ interface QuoterFormProps {
 	services: Service[];
 	preselectedClientId: string;
 	preselectedPropertyId: string;
-	/** Present only when editing an existing Quote (see quoter.astro) —
-	 * pre-fills every field from it and locks Client/Property (an edit
-	 * corrects scope/pricing, it never reassigns the quote to a different
-	 * property) instead of running the usual property-change auto-defaults. */
+	/** Present when editing an existing Quote OR duplicating one as a
+	 * starting point for a new Quote (see quoter.astro) — pre-fills every
+	 * field from it either way. */
 	initialQuote?: InitialQuoteData;
+	/** Only meaningful when initialQuote is set. 'edit' (the default) locks
+	 * Client/Property and submits back to the same Quote ID — an edit
+	 * corrects scope/pricing, it never reassigns the quote to a different
+	 * property. 'duplicate' pre-fills the same fields but leaves
+	 * Client/Property editable and submits as a brand new Quote — the
+	 * common case is duplicating onto a different property entirely (e.g.
+	 * a multi-unit building's near-identical next unit). */
+	quoterMode?: 'edit' | 'duplicate';
 }
 
 function Segmented<T extends string>({
@@ -176,7 +183,15 @@ export default function QuoterForm(props: QuoterFormProps) {
 		preselectedClientId,
 		preselectedPropertyId,
 		initialQuote,
+		quoterMode = 'edit',
 	} = props;
+	const isEditing = Boolean(initialQuote) && quoterMode === 'edit';
+	const isDuplicating = Boolean(initialQuote) && quoterMode === 'duplicate';
+	// Duplicate mode keeps Client/Property editable — if the user actually
+	// moves off the duplicated-from property, the usual property-change
+	// auto-defaults below should kick in just like a fresh quote; staying on
+	// it (including on mount) keeps the duplicated values intact.
+	const duplicateSourcePropertyId = isDuplicating ? initialQuote?.propertyId : undefined;
 
 	const [clientId, setClientId] = useState(initialQuote?.clientId || preselectedClientId || clients[0]?.id || '');
 	const [propertyId, setPropertyId] = useState(initialQuote?.propertyId || preselectedPropertyId || '');
@@ -256,7 +271,11 @@ export default function QuoterForm(props: QuoterFormProps) {
 		// Editing an existing Quote: Client/Property are fixed (see the
 		// read-only display below) and every field already comes from the
 		// Quote itself — this auto-defaulting only applies to a fresh quote.
-		if (initialQuote) return;
+		if (isEditing) return;
+		// Duplicating: still sitting on the property duplicated from — keep
+		// the duplicated values instead of overwriting them with that same
+		// property's auto-defaults.
+		if (isDuplicating && propertyId === duplicateSourcePropertyId) return;
 		if (!propertyId) return;
 		const matchingConfig = pricingConfigs.find((c) => c['Property Type'] === property?.propertyType);
 		setPricingConfigId(matchingConfig?.['Pricing Config ID'] ?? '');
@@ -383,12 +402,14 @@ export default function QuoterForm(props: QuoterFormProps) {
 
 	return (
 		<form method="POST" className="quoter-layout">
-			{initialQuote && <input type="hidden" name="quoteId" value={initialQuote.quoteId} />}
+			{isEditing && <input type="hidden" name="quoteId" value={initialQuote!.quoteId} />}
 			<div className="quoter-main">
 				<section className="card">
-					<span className="badge">{initialQuote ? 'Editing Quote' : 'In-Field Quote · Not an Official Estimate'}</span>
+					<span className="badge">
+						{isEditing ? 'Editing Quote' : isDuplicating ? 'Duplicating Quote — Saves as New' : 'In-Field Quote · Not an Official Estimate'}
+					</span>
 					<h2>Quote Header</h2>
-					{initialQuote ? (
+					{isEditing ? (
 						<>
 							<input type="hidden" name="clientId" value={clientId} />
 							<input type="hidden" name="propertyId" value={propertyId} />
@@ -734,7 +755,7 @@ export default function QuoterForm(props: QuoterFormProps) {
 					</p>
 				)}
 				<button type="submit" disabled={!propertyId || !clientId || adjustmentReasonMissing}>
-					{initialQuote ? 'Update Quote' : 'Save Quote'}
+					{isEditing ? 'Update Quote' : 'Save Quote'}
 				</button>
 			</aside>
 		</form>

@@ -7,7 +7,7 @@ import { quoteItemConfig } from '../../lib/models/quoteItem';
 import { clientConfig } from '../../lib/models/client';
 import { propertyConfig } from '../../lib/models/property';
 import { acceptQuote, findJobByQuoteId, updateJobStatus, JOB_STATUSES } from '../../lib/pricing/jobLifecycle';
-import { deleteQuote } from '../../lib/pricing/quotes';
+import { deleteQuote, restoreQuote } from '../../lib/pricing/quotes';
 import { updateRow } from '../../lib/sheets';
 import { REVIEW_LEFT_VALUES, MAINTENANCE_FOLLOW_UP_STATUSES, jobConfig } from '../../lib/models/job';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
@@ -91,6 +91,8 @@ if (Astro.request.method === 'POST') {
 		} else if (action === 'delete-quote') {
 			await deleteQuote(env, id!);
 			return Astro.redirect('/quotes');
+		} else if (action === 'restore-quote') {
+			await restoreQuote(env, id!);
 		}
 		return Astro.redirect(`/quotes/${id}`);
 	} catch (e) {
@@ -172,34 +174,48 @@ const invoiceMismatch = linkedInvoice && job?.['Final Price ($)'] && Number(job[
 		<p>
 			Client: {client ? `${client['First Name']} ${client['Last Name']}` : quote['Client ID']}<br />
 			Status: <span class="badge badge-accent">{quote['Quote Status']}</span>
-			{quote['Quote Status'] !== 'Accepted' && (
+			{quote['Quote Status'] !== 'Accepted' && !quote['Archived At'] && (
 				<>
 					{' · '}
 					<a href={`/quoter?quoteId=${quote['Quote ID']}`}>Edit this quote</a>
 				</>
 			)}
+			{' · '}
+			<a href={`/quoter?duplicateFrom=${quote['Quote ID']}`}>Duplicate this quote</a>
 			</p>
-			<form method="POST" class="inline-field-form">
-				<input type="hidden" name="_action" value="update-quote-status" />
-				<label>
-					Change status
-					<select name="status">
-						<option value="" disabled selected>— choose —</option>
-						{QUOTE_STATUSES.filter((s) => s !== 'Accepted').map((s) => (
-							<option value={s} selected={s === quote['Quote Status']}>{s}</option>
-						))}
-					</select>
-				</label>
-				<button type="submit" class="btn-secondary">Update status</button>
-			</form>
-			{quote['Quote Status'] !== 'Accepted' && (
-				<form
-					method="POST"
-					onsubmit="return confirm('Delete this quote? It will be archived and removed from view everywhere in the app.')"
-				>
-					<input type="hidden" name="_action" value="delete-quote" />
-					<button type="submit" class="btn-secondary">Delete this quote</button>
-				</form>
+			{quote['Archived At'] ? (
+				<div class="card">
+					<p role="alert">This quote was deleted {formatTimestamp(quote['Archived At'])}. It's hidden from lists but still reachable by direct link.</p>
+					<form method="POST" onsubmit="return confirm('Restore this quote? It will reappear everywhere in the app.')">
+						<input type="hidden" name="_action" value="restore-quote" />
+						<button type="submit" class="btn-secondary">Restore this quote</button>
+					</form>
+				</div>
+			) : (
+				<>
+					<form method="POST" class="inline-field-form">
+						<input type="hidden" name="_action" value="update-quote-status" />
+						<label>
+							Change status
+							<select name="status">
+								<option value="" disabled selected>— choose —</option>
+								{QUOTE_STATUSES.filter((s) => s !== 'Accepted').map((s) => (
+									<option value={s} selected={s === quote['Quote Status']}>{s}</option>
+								))}
+							</select>
+						</label>
+						<button type="submit" class="btn-secondary">Update status</button>
+					</form>
+					{quote['Quote Status'] !== 'Accepted' && (
+						<form
+							method="POST"
+							onsubmit="return confirm('Delete this quote? It will be archived and removed from view everywhere in the app.')"
+						>
+							<input type="hidden" name="_action" value="delete-quote" />
+							<button type="submit" class="btn-secondary">Delete this quote</button>
+						</form>
+					)}
+				</>
 			)}
 			{error && <p role="alert">{error}</p>}
 

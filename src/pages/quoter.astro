@@ -9,7 +9,7 @@ import { walkthroughItemConfig } from '../lib/models/walkthroughItem';
 import { seedInitialServices } from '../lib/pricing/services';
 import { serviceConfig } from '../lib/models/service';
 import { createQuote, updateQuote } from '../lib/pricing/quotes';
-import { quoteConfig } from '../lib/models/quote';
+import { quoteConfig, type Quote } from '../lib/models/quote';
 import { itemsToQuoteCounts, conditionForEngine } from '../lib/pricing/walkthroughToQuote';
 import { listPricingConfigs } from '../lib/pricing/config';
 import QuoterForm, { type InitialQuoteData } from '../components/QuoterForm';
@@ -17,6 +17,7 @@ import type { QuoteCounts, QuoteInput } from '../lib/pricing/types';
 
 let error: string | null = null;
 const editQuoteId = Astro.url.searchParams.get('quoteId') ?? '';
+const duplicateFromId = Astro.url.searchParams.get('duplicateFrom') ?? '';
 
 function num(form: FormData, key: string): number {
 	const value = Number(form.get(key));
@@ -130,13 +131,61 @@ const activeConfigs = pricingConfigs.filter((c) => c.Status === 'Active');
 const preselectedPropertyId = Astro.url.searchParams.get('propertyId') ?? '';
 const preselectedClientId = Astro.url.searchParams.get('clientId') ?? '';
 
-// Edit mode (?quoteId=X) — everything the form needs to re-populate comes
-// straight from the Quote itself: the stored Input Snapshot is already the
-// exact QuoteInput shape, and the rest (serviceScope, labor estimate, job
-// condition flags) are plain Quote columns. An Accepted quote can't be
-// edited here — see quotes/[id].astro's own "Change status" dropdown and
-// the POST handler's guard above.
+// Shared by edit mode (?quoteId=X) and duplicate mode (?duplicateFrom=X) —
+// everything the form needs to re-populate comes straight from the source
+// Quote: the stored Input Snapshot is already the exact QuoteInput shape,
+// and the rest (serviceScope, labor estimate, job condition flags) are plain
+// Quote columns. Edit mode keeps this quoteId (submits back in place);
+// duplicate mode discards it (see quoter.astro's POST handler / QuoterForm's
+// quoterMode prop) so the submission creates a brand new Quote instead.
+function buildInitialQuoteData(sourceQuote: Quote): InitialQuoteData {
+	const snapshot = JSON.parse(sourceQuote['Input Snapshot'] || '{}') as Partial<QuoteInput>;
+	return {
+		quoteId: sourceQuote['Quote ID'],
+		clientId: sourceQuote['Client ID'],
+		propertyId: sourceQuote['Property ID'],
+		pricingConfigId: sourceQuote['Pricing Config ID'],
+		serviceScope: sourceQuote['Service Scope'],
+		inventoryCoverage: sourceQuote['Inventory Coverage'],
+		counts: snapshot.counts ?? {
+			windowExtStandard: 0,
+			windowIntStandard: 0,
+			windowExtOversized: 0,
+			windowIntOversized: 0,
+			windowExtFrenchPane: 0,
+			windowIntFrenchPane: 0,
+			slidingDoorExt: 0,
+			slidingDoorInt: 0,
+			screenClean: 0,
+			trackBasic: 0,
+			trackDeep: 0,
+			skylightExt: 0,
+			skylightInt: 0,
+		},
+		stories: snapshot.stories ?? 1,
+		condition: snapshot.condition ?? 'light',
+		hardWater: snapshot.hardWater ?? false,
+		constructionDebris: snapshot.constructionDebris ?? false,
+		jobHighInteriorGlass: sourceQuote['Job High Interior Glass (Y/N)'] === 'Y',
+		jobSteepOrUnevenTerrain: sourceQuote['Job Steep Or Uneven Terrain (Y/N)'] === 'Y',
+		jobExteriorAccessObstructed: sourceQuote['Job Exterior Access Obstructed (Y/N)'] === 'Y',
+		jobFurnitureMovementRequired: sourceQuote['Job Furniture Movement Required (Y/N)'] === 'Y',
+		jobWaterAccessDifficult: sourceQuote['Job Water Access Difficult (Y/N)'] === 'Y',
+		jobSiliconeOrStickerResidue: sourceQuote['Job Silicone Or Sticker Residue (Y/N)'] === 'Y',
+		jobHeavyInteriorResidue: sourceQuote['Job Heavy Interior Residue (Y/N)'] === 'Y',
+		otherConditionNotes: sourceQuote['Job Other Condition Notes'],
+		laborSoloHours: sourceQuote['Labor Estimate Solo Hours'],
+		laborCrewSize: sourceQuote['Labor Estimate Crew Size'],
+		laborConfidence: sourceQuote['Labor Estimate Confidence'],
+		laborNotes: sourceQuote['Labor Estimate Notes'],
+		manualAdjustment: String(snapshot.manualAdjustment ?? 0),
+		discount: String(snapshot.discount ?? 0),
+		overrideReason: snapshot.overrideReason ?? sourceQuote['Override Reason'],
+	};
+}
+
 let initialQuoteData: InitialQuoteData | null = null;
+let quoterMode: 'edit' | 'duplicate' = 'edit';
 if (editQuoteId && !error) {
 	const editingQuote = await findById(env, quoteConfig, editQuoteId);
 	if (!editingQuote) {
@@ -144,49 +193,15 @@ if (editQuoteId && !error) {
 	} else if (editingQuote['Quote Status'] === 'Accepted') {
 		error = 'This quote is Accepted — change its status away from Accepted first (see the Quote page) if it needs correcting.';
 	} else {
-		const snapshot = JSON.parse(editingQuote['Input Snapshot'] || '{}') as Partial<QuoteInput>;
-		initialQuoteData = {
-			quoteId: editingQuote['Quote ID'],
-			clientId: editingQuote['Client ID'],
-			propertyId: editingQuote['Property ID'],
-			pricingConfigId: editingQuote['Pricing Config ID'],
-			serviceScope: editingQuote['Service Scope'],
-			inventoryCoverage: editingQuote['Inventory Coverage'],
-			counts: snapshot.counts ?? {
-				windowExtStandard: 0,
-				windowIntStandard: 0,
-				windowExtOversized: 0,
-				windowIntOversized: 0,
-				windowExtFrenchPane: 0,
-				windowIntFrenchPane: 0,
-				slidingDoorExt: 0,
-				slidingDoorInt: 0,
-				screenClean: 0,
-				trackBasic: 0,
-				trackDeep: 0,
-				skylightExt: 0,
-				skylightInt: 0,
-			},
-			stories: snapshot.stories ?? 1,
-			condition: snapshot.condition ?? 'light',
-			hardWater: snapshot.hardWater ?? false,
-			constructionDebris: snapshot.constructionDebris ?? false,
-			jobHighInteriorGlass: editingQuote['Job High Interior Glass (Y/N)'] === 'Y',
-			jobSteepOrUnevenTerrain: editingQuote['Job Steep Or Uneven Terrain (Y/N)'] === 'Y',
-			jobExteriorAccessObstructed: editingQuote['Job Exterior Access Obstructed (Y/N)'] === 'Y',
-			jobFurnitureMovementRequired: editingQuote['Job Furniture Movement Required (Y/N)'] === 'Y',
-			jobWaterAccessDifficult: editingQuote['Job Water Access Difficult (Y/N)'] === 'Y',
-			jobSiliconeOrStickerResidue: editingQuote['Job Silicone Or Sticker Residue (Y/N)'] === 'Y',
-			jobHeavyInteriorResidue: editingQuote['Job Heavy Interior Residue (Y/N)'] === 'Y',
-			otherConditionNotes: editingQuote['Job Other Condition Notes'],
-			laborSoloHours: editingQuote['Labor Estimate Solo Hours'],
-			laborCrewSize: editingQuote['Labor Estimate Crew Size'],
-			laborConfidence: editingQuote['Labor Estimate Confidence'],
-			laborNotes: editingQuote['Labor Estimate Notes'],
-			manualAdjustment: String(snapshot.manualAdjustment ?? 0),
-			discount: String(snapshot.discount ?? 0),
-			overrideReason: snapshot.overrideReason ?? editingQuote['Override Reason'],
-		};
+		initialQuoteData = buildInitialQuoteData(editingQuote);
+	}
+} else if (duplicateFromId && !error) {
+	quoterMode = 'duplicate';
+	const sourceQuote = await findById(env, quoteConfig, duplicateFromId);
+	if (!sourceQuote) {
+		error = `Quote "${duplicateFromId}" not found.`;
+	} else {
+		initialQuoteData = buildInitialQuoteData(sourceQuote);
 	}
 }
 
@@ -249,12 +264,12 @@ const propertySummaryById = Object.fromEntries(
 );
 ---
 
-<BaseLayout title={editQuoteId ? 'Edit quote' : 'In-field quoter'}>
+<BaseLayout title={editQuoteId ? 'Edit quote' : duplicateFromId ? 'Duplicate quote' : 'In-field quoter'}>
 	<main>
-		<h1>{editQuoteId ? 'Edit quote' : 'In-field quoter'}</h1>
+		<h1>{editQuoteId ? 'Edit quote' : duplicateFromId ? 'Duplicate quote' : 'In-field quoter'}</h1>
 		{error && <p role="alert">{error}</p>}
 
-		{(!editQuoteId || initialQuoteData) && (
+		{(!(editQuoteId || duplicateFromId) || initialQuoteData) && (
 			<QuoterForm
 				client:load
 				clients={clients.map((c) => ({ id: c['Client ID'], firstName: c['First Name'], lastName: c['Last Name'] }))}
@@ -272,6 +287,7 @@ const propertySummaryById = Object.fromEntries(
 				preselectedClientId={preselectedClientId}
 				preselectedPropertyId={preselectedPropertyId}
 				initialQuote={initialQuoteData ?? undefined}
+				quoterMode={quoterMode}
 			/>
 		)}
 	</main>

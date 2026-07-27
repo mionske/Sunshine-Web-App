@@ -163,6 +163,17 @@ export async function listActiveRows<T extends Record<string, CellValue>>(
 	return rows.filter((r) => !r.data['Archived At']).map((r) => r.data as T);
 }
 
+/** All archived (soft-deleted) rows for a tab, as typed objects — the
+ * complement of listActiveRows(), for the occasional "view what was
+ * deleted" surface. */
+export async function listArchivedRows<T extends Record<string, CellValue>>(
+	env: SheetsEnv,
+	config: TabConfig<T>
+): Promise<T[]> {
+	const { rows } = await findRowById(env, config);
+	return rows.filter((r) => Boolean(r.data['Archived At'])).map((r) => r.data as T);
+}
+
 export async function findById<T extends Record<string, CellValue>>(
 	env: SheetsEnv,
 	config: TabConfig<T>,
