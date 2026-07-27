@@ -47,7 +47,7 @@ const initialState = buildEditState({
 		<h1>Edit historical record</h1>
 		<p>
 			Editing the property/job/quote/walkthrough entered for
-			{' '}{property['Street Address']}, {property.City}. See <a href="/historical-records">all Historical Records</a>.
+			{' '}{property['Street Address']}, {property.City}{property['Unit Identifier'] && <> — Unit {property['Unit Identifier']}</>}. See <a href="/historical-records">all Historical Records</a>.
 		</p>
 		<HistoricalEntryWizard client:load mode="edit" initialState={initialState} clients={clients} properties={properties} />
 	</main>

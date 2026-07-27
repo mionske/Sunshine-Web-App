@@ -344,7 +344,7 @@ function emptyState(prefill?: { clientId?: string; propertyId?: string }): Wizar
 
 interface DuplicateCandidate {
 	client?: { 'Client ID': string; 'First Name': string; 'Last Name': string };
-	property?: { 'Property ID': string; 'Street Address': string; City: string };
+	property?: { 'Property ID': string; 'Street Address': string; City: string; 'Unit Identifier'?: string };
 	matchedOn: string[];
 }
 
@@ -869,6 +869,7 @@ export default function HistoricalEntryWizard({
 													rel="noopener noreferrer"
 												>
 													{d.property['Street Address']}, {d.property.City}
+													{d.property['Unit Identifier'] && <> — Unit {d.property['Unit Identifier']}</>}
 												</a>
 											</>
 										)}
@@ -962,6 +963,7 @@ export default function HistoricalEntryWizard({
 											{clientProperties.map((p) => (
 												<option key={p['Property ID']} value={p['Property ID']}>
 													{p['Street Address']}, {p.City}
+													{p['Unit Identifier'] ? ` — Unit ${p['Unit Identifier']}` : ''}
 												</option>
 											))}
 										</select>

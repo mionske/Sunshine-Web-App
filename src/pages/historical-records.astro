@@ -51,7 +51,11 @@ const historicalJobs = jobs
 					const client = property ? clientById[property['Client ID']] : undefined;
 					return (
 						<tr>
-							<td>{property ? `${property['Street Address']}, ${property.City}` : j['Property ID'] || '—'}</td>
+							<td>
+								{property
+									? `${property['Street Address']}, ${property.City}${property['Unit Identifier'] ? ` — Unit ${property['Unit Identifier']}` : ''}`
+									: j['Property ID'] || '—'}
+							</td>
 							<td>{client ? `${client['First Name']} ${client['Last Name']}` : '—'}</td>
 							<td>{j['Date Completed'] || '—'}</td>
 							<td><span class="badge">{j['Record Classification']}</span></td>

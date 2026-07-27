@@ -2,7 +2,7 @@
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { findById, listActiveRows } from '../../lib/sheets';
-import { quoteConfig } from '../../lib/models/quote';
+import { quoteConfig, QUOTE_STATUSES } from '../../lib/models/quote';
 import { quoteItemConfig } from '../../lib/models/quoteItem';
 import { clientConfig } from '../../lib/models/client';
 import { propertyConfig } from '../../lib/models/property';
@@ -37,6 +37,25 @@ if (Astro.request.method === 'POST') {
 		if (action === 'accept') {
 			const scheduledDate = String(form.get('scheduledDate') ?? '');
 			await acceptQuote(env, id!, { scheduledDate: scheduledDate || undefined });
+		} else if (action === 'update-quote-status') {
+			// A plain status correction — never the "Accepted" path, which has
+			// its own dedicated Accept-quote form below (it also creates the
+			// linked Job; letting this generic dropdown set "Accepted" would
+			// leave a Quote in that state with no Job, breaking every other
+			// page's "an Accepted quote always has a Job" assumption).
+			const status = String(form.get('status') ?? '') as (typeof QUOTE_STATUSES)[number];
+			if (status === 'Accepted') {
+				throw new Error('Use "Accept quote" below to mark a quote Accepted — it also creates the linked Job.');
+			}
+			const timestampFieldByStatus: Partial<Record<(typeof QUOTE_STATUSES)[number], string>> = {
+				Sent: 'Sent At',
+				Declined: 'Declined At',
+				Expired: 'Expired At',
+			};
+			const patch: Record<string, string> = { 'Quote Status': status };
+			const timestampField = timestampFieldByStatus[status];
+			if (timestampField) patch[timestampField] = new Date().toISOString();
+			await updateRow(env, quoteConfig, id!, patch);
 		} else if (action === 'update-job-status') {
 			const jobId = String(form.get('jobId') ?? '');
 			const status = String(form.get('status') ?? '') as (typeof JOB_STATUSES)[number];
@@ -140,7 +159,7 @@ const invoiceMismatch = linkedInvoice && job?.['Final Price ($)'] && Number(job[
 		<h1>
 			Quote for {property ? (
 				<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
-					{property['Street Address']}, {property.City}
+					{property['Street Address']}, {property.City}{property['Unit Identifier'] && <> — Unit {property['Unit Identifier']}</>}
 				</a>
 			) : (
 				quote['Property ID']
@@ -149,8 +168,21 @@ const invoiceMismatch = linkedInvoice && job?.['Final Price ($)'] && Number(job[
 		<p>
 			Client: {client ? `${client['First Name']} ${client['Last Name']}` : quote['Client ID']}<br />
 			Status: <span class="badge badge-accent">{quote['Quote Status']}</span>
-		</p>
-		{error && <p role="alert">{error}</p>}
+			</p>
+			<form method="POST" class="inline-field-form">
+				<input type="hidden" name="_action" value="update-quote-status" />
+				<label>
+					Change status
+					<select name="status">
+						<option value="" disabled selected>— choose —</option>
+						{QUOTE_STATUSES.filter((s) => s !== 'Accepted').map((s) => (
+							<option value={s} selected={s === quote['Quote Status']}>{s}</option>
+						))}
+					</select>
+				</label>
+				<button type="submit" class="btn-secondary">Update status</button>
+			</form>
+			{error && <p role="alert">{error}</p>}
 
 		<div class="card">
 			<table>

@@ -96,7 +96,7 @@ const jobDayState = job['Job Day State'] || 'Not Started';
 		<h1>
 			Job Day — {property ? (
 				<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
-					{property['Street Address']}, {property.City}
+					{property['Street Address']}, {property.City}{property['Unit Identifier'] && <> — Unit {property['Unit Identifier']}</>}
 				</a>
 			) : (
 				job['Property Address'] || job['Property ID']

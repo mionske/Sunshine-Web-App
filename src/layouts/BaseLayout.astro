@@ -11,13 +11,18 @@ interface Props {
 }
 const { title, nav = true } = Astro.props;
 
+// Ordered to match the real lifecycle a record moves through: overview,
+// then who/where (Clients/Properties), then the sales funnel (Pipeline),
+// then quoting (create via Quoter, review via Quotes), then execution
+// (Jobs), then reporting/admin (Calibration, Pricing Config, QuickBooks).
 const NAV_LINKS = [
 	{ href: '/', label: 'Dashboard' },
 	{ href: '/clients', label: 'Clients' },
 	{ href: '/properties', label: 'Properties' },
 	{ href: '/pipeline', label: 'Pipeline' },
-	{ href: '/quotes', label: 'Quotes' },
 	{ href: '/quoter', label: 'Quoter' },
+	{ href: '/quotes', label: 'Quotes' },
+	{ href: '/jobs', label: 'Jobs' },
 	{ href: '/calibration', label: 'Calibration' },
 	{ href: '/pricing-config', label: 'Pricing Config' },
 	{ href: '/qb-settings', label: 'QuickBooks' },

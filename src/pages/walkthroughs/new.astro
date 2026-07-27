@@ -33,7 +33,7 @@ const propertyReference = {
 <BaseLayout title="Walkthrough">
 	<main>
 		<p><a href={`/properties/${propertyId}`}>← Property</a></p>
-		<h1>Walkthrough — {property['Street Address']}, {property.City}</h1>
+		<h1>Walkthrough — {property['Street Address']}, {property.City}{property['Unit Identifier'] && <> — Unit {property['Unit Identifier']}</>}</h1>
 		{client && <p>{client['First Name']} {client['Last Name']}</p>}
 		<WalkthroughWizard
 			client:load

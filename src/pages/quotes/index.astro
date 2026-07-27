@@ -1,10 +1,40 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
-import { listActiveRows } from '../../lib/sheets';
-import { quoteConfig } from '../../lib/models/quote';
+import { listActiveRows, updateRow } from '../../lib/sheets';
+import { quoteConfig, QUOTE_STATUSES } from '../../lib/models/quote';
 import { clientConfig } from '../../lib/models/client';
 import { propertyConfig } from '../../lib/models/property';
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	try {
+		if (action === 'update-quote-status') {
+			// Same restriction as quotes/[id].astro's own dropdown — "Accepted"
+			// stays exclusive to the dedicated Accept-quote flow, which also
+			// creates the linked Job.
+			const quoteId = String(form.get('quoteId') ?? '');
+			const status = String(form.get('status') ?? '') as (typeof QUOTE_STATUSES)[number];
+			if (status === 'Accepted') {
+				throw new Error('Use the quote\'s own "Accept quote" action to mark it Accepted — it also creates the linked Job.');
+			}
+			const timestampFieldByStatus: Partial<Record<(typeof QUOTE_STATUSES)[number], string>> = {
+				Sent: 'Sent At',
+				Declined: 'Declined At',
+				Expired: 'Expired At',
+			};
+			const patch: Record<string, string> = { 'Quote Status': status };
+			const timestampField = timestampFieldByStatus[status];
+			if (timestampField) patch[timestampField] = new Date().toISOString();
+			await updateRow(env, quoteConfig, quoteId, patch);
+		}
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
 
 const [quotes, clients, properties] = await Promise.all([
 	listActiveRows(env, quoteConfig),
@@ -21,6 +51,7 @@ quotes.sort((a, b) => (b['Created At'] || '').localeCompare(a['Created At'] || '
 	<main>
 		<h1>Quotes</h1>
 		<p>Every quote created — from the in-field <a href="/quoter">Quoter</a> or a walkthrough.</p>
+		{error && <p role="alert">{error}</p>}
 
 		<table>
 			<thead>
@@ -28,6 +59,7 @@ quotes.sort((a, b) => (b['Created At'] || '').localeCompare(a['Created At'] || '
 					<th>Property</th>
 					<th>Client</th>
 					<th>Status</th>
+					<th>Change status</th>
 					<th>Final Quoted Price</th>
 					<th></th>
 				</tr>
@@ -38,15 +70,32 @@ quotes.sort((a, b) => (b['Created At'] || '').localeCompare(a['Created At'] || '
 					const property = propertyById[q['Property ID']];
 					return (
 						<tr>
-							<td>{property ? `${property['Street Address']}, ${property.City}` : q['Property ID']}</td>
+							<td>
+							{property
+								? `${property['Street Address']}, ${property.City}${property['Unit Identifier'] ? ` — Unit ${property['Unit Identifier']}` : ''}`
+								: q['Property ID']}
+						</td>
 							<td>{client ? `${client['First Name']} ${client['Last Name']}` : q['Client ID']}</td>
 							<td><span class="badge badge-accent">{q['Quote Status']}</span></td>
+							<td>
+								<form method="POST" class="inline-field-form">
+									<input type="hidden" name="_action" value="update-quote-status" />
+									<input type="hidden" name="quoteId" value={q['Quote ID']} />
+									<select name="status">
+										<option value="" disabled selected>— choose —</option>
+										{QUOTE_STATUSES.filter((s) => s !== 'Accepted').map((s) => (
+											<option value={s} selected={s === q['Quote Status']}>{s}</option>
+										))}
+									</select>
+									<button type="submit" class="btn-secondary">Update</button>
+								</form>
+							</td>
 							<td>{q['Final Quoted Price'] ? `$${Number(q['Final Quoted Price']).toFixed(2)}` : '—'}</td>
 							<td><a href={`/quotes/${q['Quote ID']}`}>view</a></td>
 						</tr>
 					);
 				})}
-				{quotes.length === 0 && <tr><td colspan="5">No quotes yet.</td></tr>}
+				{quotes.length === 0 && <tr><td colspan="6">No quotes yet.</td></tr>}
 			</tbody>
 		</table>
 	</main>

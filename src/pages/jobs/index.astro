@@ -1,0 +1,57 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { listActiveRows } from '../../lib/sheets';
+import { jobConfig } from '../../lib/models/job';
+import { clientConfig } from '../../lib/models/client';
+import { propertyConfig } from '../../lib/models/property';
+
+const [jobs, clients, properties] = await Promise.all([
+	listActiveRows(env, jobConfig),
+	listActiveRows(env, clientConfig),
+	listActiveRows(env, propertyConfig),
+]);
+const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
+const propertyById = Object.fromEntries(properties.map((p) => [p['Property ID'], p]));
+
+// Soonest-scheduled/oldest-unscheduled first — the same "what needs
+// attention" ordering the Dashboard's own job lists already use.
+jobs.sort((a, b) => (a['Scheduled Date'] || '9999').localeCompare(b['Scheduled Date'] || '9999'));
+---
+
+<BaseLayout title="Jobs">
+	<main>
+		<h1>Jobs</h1>
+		<p>Every job created from an accepted quote — from Unscheduled through Paid.</p>
+
+		<table>
+			<thead>
+				<tr>
+					<th>Property</th>
+					<th>Client</th>
+					<th>Status</th>
+					<th>Scheduled Date</th>
+					<th>Final Price</th>
+					<th></th>
+				</tr>
+			</thead>
+			<tbody>
+				{jobs.map((j) => {
+					const property = j['Property ID'] ? propertyById[j['Property ID']] : undefined;
+					const client = property?.['Client ID'] ? clientById[property['Client ID']] : undefined;
+					return (
+						<tr>
+							<td>{j['Property Address'] || j['Property ID'] || '—'}</td>
+							<td>{client ? `${client['First Name']} ${client['Last Name']}` : '—'}</td>
+							<td><span class="badge badge-accent">{j['Job Status']}</span></td>
+							<td>{j['Scheduled Date'] || '—'}</td>
+							<td>{j['Final Price ($)'] ? `$${Number(j['Final Price ($)']).toFixed(2)}` : '—'}</td>
+							<td><a href={`/jobs/${j['Job ID']}`}>view</a></td>
+						</tr>
+					);
+				})}
+				{jobs.length === 0 && <tr><td colspan="6">No jobs yet.</td></tr>}
+			</tbody>
+		</table>
+	</main>
+</BaseLayout>

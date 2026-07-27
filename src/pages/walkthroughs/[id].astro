@@ -35,7 +35,9 @@ const items = allItems.filter((i) => i['Walkthrough ID'] === id);
 	<main>
 		{property && <p><a href={`/properties/${property['Property ID']}`}>← Property</a></p>}
 		<h1>
-			Walkthrough — {property ? `${property['Street Address']}, ${property.City}` : walkthrough['Property ID']}
+			Walkthrough — {property
+				? `${property['Street Address']}, ${property.City}${property['Unit Identifier'] ? ` — Unit ${property['Unit Identifier']}` : ''}`
+				: walkthrough['Property ID']}
 		</h1>
 		<p>
 			<span class="badge badge-accent">{walkthrough.Status}</span>
