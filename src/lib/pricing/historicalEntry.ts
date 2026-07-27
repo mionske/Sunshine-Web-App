@@ -213,7 +213,13 @@ function buildWalkthroughRecord(payload: HistoricalEntryPayload) {
 		'Client ID': payload.client.id,
 		'Property ID': payload.property.id,
 		'Walkthrough Date': payload.walkthrough.date,
-		Status: (payload.walkthrough.status || 'Completed') as never,
+		// Mirrors createQuoteFromWalkthrough()'s own convention (see
+		// walkthroughToQuote.ts) — a Walkthrough that produced a Quote in
+		// this same submission is marked converted and linked back, so the
+		// Dashboard's "needs follow-up" reminder (which keys off a blank
+		// 'Quote ID') doesn't keep flagging it forever.
+		Status: (payload.quote.include ? 'Converted to Quote' : payload.walkthrough.status || 'Completed') as never,
+		'Quote ID': payload.quote.include ? payload.quote.id : '',
 		'Exterior Condition': payload.walkthrough.exteriorCondition,
 		'Interior Condition': payload.walkthrough.interiorCondition,
 		'Access Difficulty': payload.walkthrough.accessDifficulty,

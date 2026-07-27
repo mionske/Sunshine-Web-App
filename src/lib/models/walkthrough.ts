@@ -108,6 +108,12 @@ export const walkthroughSchema = z.object({
 	'Traditional Exterior Cleaning Used (Y/N)': blank(),
 	'Other Access Issue (Y/N)': blank(),
 	'Other Access Notes': blank(),
+	// Manual override for the Dashboard's "Walkthroughs needing follow-up"
+	// reminder — set when the owner marks one as handled directly (e.g. a
+	// quote was actually sent/agreed outside the normal Quote-creation flow,
+	// or a historical walkthrough predates the fix that links 'Quote ID'
+	// back automatically). Never auto-set; purely a manual dismiss.
+	'Follow-up Dismissed (Y/N)': blank(),
 	'Estimated On-Site Labor Hours': blank(),
 	'Suggested Low Price': blank(),
 	'Suggested Target Price': blank(),

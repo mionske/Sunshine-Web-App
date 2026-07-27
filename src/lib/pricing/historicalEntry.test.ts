@@ -247,6 +247,21 @@ describe('saveHistoricalEntry', () => {
 		expect(Number(jobRow[jobHeaders.indexOf('Actual Time (hrs)')])).toBeCloseTo(125 / 60, 2);
 	});
 
+	it('links the walkthrough back to its quote (never a false-positive Dashboard follow-up reminder)', async () => {
+		const payload = basePayload({
+			walkthrough: { ...basePayload().walkthrough, include: true },
+			quote: { ...basePayload().quote, include: true, amount: '400', status: 'Accepted' },
+		});
+
+		await saveHistoricalEntry(harness.env, payload);
+
+		const rows = harness.spreadsheet.getTab('Walkthroughs');
+		const headers = rows[0];
+		const row = rows[1];
+		expect(row[headers.indexOf('Quote ID')]).toBe('quote-1');
+		expect(row[headers.indexOf('Status')]).toBe('Converted to Quote');
+	});
+
 	it('uses the direct total when no breakdown minutes are given', async () => {
 		const payload = basePayload({
 			job: {

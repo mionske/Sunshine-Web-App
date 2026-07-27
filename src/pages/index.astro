@@ -1,7 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
-import { listActiveRows } from '../lib/sheets';
+import { listActiveRows, updateRow } from '../lib/sheets';
 import { pipelineConfig } from '../lib/models/pipeline';
 import { clientConfig } from '../lib/models/client';
 import { propertyConfig } from '../lib/models/property';
@@ -21,8 +21,17 @@ import { googleMapsUrl, fullAddress } from '../lib/mapsLink';
 // separate Tasks tab was needed — this only ever surfaces reminders in
 // the app, never sends anything automatically.
 
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	if (action === 'dismiss-walkthrough-followup') {
+		const walkthroughId = String(form.get('walkthroughId') ?? '');
+		await updateRow(env, walkthroughConfig, walkthroughId, { 'Follow-up Dismissed (Y/N)': 'Y' });
+	}
+	return Astro.redirect('/');
+}
+
 const today = new Date().toISOString().slice(0, 10);
-const currentMonthPrefix = today.slice(0, 7); // YYYY-MM
 
 const [opportunities, clients, properties, jobs, walkthroughs, quotes, qbInvoices, snapshot, pricingConfig] = await Promise.all([
 	listActiveRows(env, pipelineConfig),
@@ -77,7 +86,9 @@ const scheduledJobsToday = jobs.filter((j) => j['Job Status'] === 'Scheduled' &&
 
 // Walkthrough follow-up: a walkthrough that happened but never became a
 // quote — no arbitrary "days since" threshold, purely status-derived.
-const walkthroughFollowUps = walkthroughs.filter((w) => w.Status === 'Completed' && !w['Quote ID']);
+const walkthroughFollowUps = walkthroughs.filter(
+	(w) => w.Status === 'Completed' && !w['Quote ID'] && w['Follow-up Dismissed (Y/N)'] !== 'Y'
+);
 
 // Collect payment: work is done but payment isn't confirmed in full yet.
 const unpaidJobs = jobs.filter(
@@ -110,13 +121,114 @@ const walkthroughScheduledCount = opportunities.filter((o) => o.Stage === 'Walkt
 const quotesAwaitingResponse = quotes.filter((q) => q['Quote Status'] === 'Sent').length;
 const acceptedJobsAwaitingScheduling = jobs.filter((j) => j['Job Status'] === 'Unscheduled');
 
-// --- Recent performance (this calendar month) -------------------------------
+// --- Recent performance (revenue line chart, toggleable time frame) --------
 
-const thisMonthJobs = completedJobs.filter((j) => (j['Date Completed'] || '').startsWith(currentMonthPrefix));
-const thisMonthRevenue = thisMonthJobs.reduce((sum, j) => sum + (Number(j['Final Price ($)']) || Number((j as Record<string, string>)['Total Revenue ($)']) || 0), 0);
-const thisMonthOnSiteHours = thisMonthJobs.reduce((sum, j) => sum + (Number(j['Actual Time (hrs)']) || 0), 0);
-const thisMonthRevenuePerHour = thisMonthOnSiteHours > 0 ? thisMonthRevenue / thisMonthOnSiteHours : 0;
-const thisMonthCallbacks = thisMonthJobs.filter((j) => j['Callback Required (Y/N)']?.toUpperCase() === 'Y').length;
+const RANGE_OPTIONS = ['week', 'month', 'quarter', 'ytd'] as const;
+type RangeOption = (typeof RANGE_OPTIONS)[number];
+const RANGE_LABELS: Record<RangeOption, string> = { week: 'Last Week', month: 'Last Month', quarter: 'Last Quarter', ytd: 'YTD' };
+const requestedRange = Astro.url.searchParams.get('range');
+const selectedRange: RangeOption = (RANGE_OPTIONS as readonly string[]).includes(requestedRange ?? '')
+	? (requestedRange as RangeOption)
+	: 'month';
+
+const todayDate = new Date(`${today}T00:00:00.000Z`);
+function daysAgo(n: number): Date {
+	const d = new Date(todayDate);
+	d.setUTCDate(d.getUTCDate() - n);
+	return d;
+}
+// Rolling windows for week/month/quarter (matches how most small-business
+// dashboards frame "recent" — not calendar-aligned); YTD is the one
+// unambiguous calendar-aligned option.
+const RANGE_START: Record<RangeOption, Date> = {
+	week: daysAgo(6),
+	month: daysAgo(29),
+	quarter: daysAgo(89),
+	ytd: new Date(`${today.slice(0, 4)}-01-01T00:00:00.000Z`),
+};
+const rangeStart = RANGE_START[selectedRange];
+const rangeStartStr = rangeStart.toISOString().slice(0, 10);
+
+const rangeJobs = completedJobs.filter((j) => (j['Date Completed'] || '') >= rangeStartStr && (j['Date Completed'] || '') <= today);
+const rangeRevenue = rangeJobs.reduce((sum, j) => sum + (Number(j['Final Price ($)']) || Number((j as Record<string, string>)['Total Revenue ($)']) || 0), 0);
+const rangeOnSiteHours = rangeJobs.reduce((sum, j) => sum + (Number(j['Actual Time (hrs)']) || 0), 0);
+const rangeRevenuePerHour = rangeOnSiteHours > 0 ? rangeRevenue / rangeOnSiteHours : 0;
+const rangeCallbacks = rangeJobs.filter((j) => j['Callback Required (Y/N)']?.toUpperCase() === 'Y').length;
+
+// Bucketing for the chart: daily for week/month (few enough points to read),
+// weekly for quarter (~13 points instead of ~90 daily ones), monthly for YTD
+// (up to 12). Buckets are built across the whole range up front — including
+// zero-revenue days — so the line reflects real gaps instead of skipping them.
+const BUCKET_UNIT: Record<RangeOption, 'day' | 'week' | 'month'> = { week: 'day', month: 'day', quarter: 'week', ytd: 'month' };
+const bucketUnit = BUCKET_UNIT[selectedRange];
+
+interface RevenueBucket {
+	key: string;
+	label: string;
+	revenue: number;
+}
+const buckets: RevenueBucket[] = [];
+if (bucketUnit === 'day') {
+	const numDays = Math.round((todayDate.getTime() - rangeStart.getTime()) / 86400000) + 1;
+	for (let i = 0; i < numDays; i++) {
+		const d = daysAgo(numDays - 1 - i);
+		buckets.push({ key: d.toISOString().slice(0, 10), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), revenue: 0 });
+	}
+} else if (bucketUnit === 'week') {
+	const numDays = Math.round((todayDate.getTime() - rangeStart.getTime()) / 86400000) + 1;
+	const numWeeks = Math.ceil(numDays / 7);
+	for (let i = 0; i < numWeeks; i++) {
+		const weekStart = new Date(rangeStart);
+		weekStart.setUTCDate(weekStart.getUTCDate() + i * 7);
+		buckets.push({ key: `w${i}`, label: weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), revenue: 0 });
+	}
+} else {
+	const startYear = rangeStart.getUTCFullYear();
+	const startMonth = rangeStart.getUTCMonth();
+	const numMonths = (todayDate.getUTCFullYear() - startYear) * 12 + (todayDate.getUTCMonth() - startMonth) + 1;
+	for (let i = 0; i < numMonths; i++) {
+		const d = new Date(Date.UTC(startYear, startMonth + i, 1));
+		buckets.push({ key: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`, label: d.toLocaleDateString('en-US', { month: 'short' }), revenue: 0 });
+	}
+}
+const bucketByKey = new Map(buckets.map((b) => [b.key, b]));
+function bucketKeyFor(dateStr: string): string {
+	if (bucketUnit === 'month') return dateStr.slice(0, 7);
+	if (bucketUnit === 'day') return dateStr;
+	const d = new Date(`${dateStr}T00:00:00.000Z`);
+	const daysSinceStart = Math.floor((d.getTime() - rangeStart.getTime()) / 86400000);
+	return `w${Math.floor(daysSinceStart / 7)}`;
+}
+for (const j of rangeJobs) {
+	const dateStr = j['Date Completed'] || '';
+	if (!dateStr) continue;
+	const bucket = bucketByKey.get(bucketKeyFor(dateStr));
+	if (bucket) bucket.revenue += Number(j['Final Price ($)']) || Number((j as Record<string, string>)['Total Revenue ($)']) || 0;
+}
+
+// Plain inline SVG (no charting library, matching this app's zero-JS
+// convention) — a single-series line needs no legend per the dataviz
+// house style, just a title naming what's plotted.
+const chartWidth = 640;
+const chartHeight = 200;
+const chartPad = { top: 16, right: 16, bottom: 8, left: 52 };
+const plotWidth = chartWidth - chartPad.left - chartPad.right;
+const plotHeight = chartHeight - chartPad.top - chartPad.bottom;
+function niceMax(value: number): number {
+	if (value <= 0) return 100;
+	const magnitude = 10 ** Math.floor(Math.log10(value));
+	const normalized = value / magnitude;
+	const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+	return step * magnitude;
+}
+const chartAxisMax = niceMax(Math.max(...buckets.map((b) => b.revenue), 0));
+const chartPoints = buckets.map((b, i) => ({
+	...b,
+	x: chartPad.left + (buckets.length > 1 ? (i / (buckets.length - 1)) * plotWidth : plotWidth / 2),
+	y: chartPad.top + plotHeight - (b.revenue / chartAxisMax) * plotHeight,
+}));
+const chartPolyline = chartPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
+const chartYTicks = [0, 0.5, 1].map((f) => ({ value: chartAxisMax * f, y: chartPad.top + plotHeight - f * plotHeight }));
 
 const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
 
@@ -168,7 +280,15 @@ const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted
 					<h3>Walkthroughs needing follow-up ({walkthroughFollowUps.length})</h3>
 					<ul>
 						{walkthroughFollowUps.map((w) => (
-							<li>{clientNameFor(w['Client ID'])} — {addressFor(w['Property ID'])} · <a href={`/walkthroughs/${w['Walkthrough ID']}`}>view</a></li>
+							<li>
+								{clientNameFor(w['Client ID'])} — {addressFor(w['Property ID'])} · <a href={`/walkthroughs/${w['Walkthrough ID']}`}>view</a>
+								{' · '}
+								<form method="POST" class="inline-field-form" style="display: inline">
+									<input type="hidden" name="_action" value="dismiss-walkthrough-followup" />
+									<input type="hidden" name="walkthroughId" value={w['Walkthrough ID']} />
+									<button type="submit" class="btn-secondary">Mark quote sent</button>
+								</form>
+							</li>
 						))}
 					</ul>
 				</>
@@ -238,13 +358,51 @@ const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted
 			</section>
 
 			<section class="card">
-				<h2>Recent performance (this month)</h2>
+				<h2>Recent performance</h2>
+				<div class="button-row" role="tablist" aria-label="Time frame">
+					{RANGE_OPTIONS.map((r) => (
+						<a
+							href={`/?range=${r}`}
+							class={selectedRange === r ? 'badge badge-accent' : 'badge'}
+							style="text-decoration: none;"
+							aria-current={selectedRange === r ? 'true' : undefined}
+						>
+							{RANGE_LABELS[r]}
+						</a>
+					))}
+				</div>
+				<svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} width="100%" role="img" aria-label={`Revenue by ${bucketUnit}, ${RANGE_LABELS[selectedRange]}`}>
+					{chartYTicks.map((t) => (
+						<>
+							<line x1={chartPad.left} y1={t.y} x2={chartWidth - chartPad.right} y2={t.y} stroke="#d8c6ac" stroke-width="1" />
+							<text x={chartPad.left - 8} y={t.y + 4} text-anchor="end" font-size="11" fill="#4c545b">${Math.round(t.value).toLocaleString()}</text>
+						</>
+					))}
+					<polyline points={chartPolyline} fill="none" stroke="#012441" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
+					{chartPoints.map((p, i) => (
+						<circle cx={p.x} cy={p.y} r={i === chartPoints.length - 1 ? 5 : 3} fill="#012441" stroke="#faf5eb" stroke-width="2">
+							<title>{p.label}: ${p.revenue.toFixed(0)}</title>
+						</circle>
+					))}
+					{chartPoints.length > 0 && (
+						<text
+							x={chartPoints[chartPoints.length - 1].x}
+							y={Math.max(12, chartPoints[chartPoints.length - 1].y - 10)}
+							text-anchor="end"
+							font-size="12"
+							font-weight="600"
+							fill="#012441"
+						>
+							${chartPoints[chartPoints.length - 1].revenue.toFixed(0)}
+						</text>
+					)}
+				</svg>
 				<div class="stats-grid" style="margin-bottom: 0;">
-					<div class="card"><span class="stat">{thisMonthJobs.length}</span><span class="stat-label">Completed jobs</span></div>
-					<div class="card"><span class="stat">${thisMonthRevenue.toFixed(0)}</span><span class="stat-label">Revenue</span></div>
-					<div class="card"><span class="stat">{thisMonthOnSiteHours.toFixed(1)}</span><span class="stat-label">On-site hours</span></div>
-					<div class="card"><span class="stat">${thisMonthRevenuePerHour.toFixed(2)}</span><span class="stat-label">Revenue/on-site hr</span></div>
-					<div class="card"><span class="stat">{thisMonthCallbacks}</span><span class="stat-label">Callbacks</span></div>
+					<div class="card"><span class="stat">{rangeJobs.length}</span><span class="stat-label">Completed jobs</span></div>
+					<div class="card"><span class="stat">${rangeRevenue.toFixed(0)}</span><span class="stat-label">Revenue</span></div>
+					<div class="card"><span class="stat">{rangeOnSiteHours.toFixed(1)}</span><span class="stat-label">On-site hours</span></div>
+					<div class="card"><span class="stat">${rangeRevenuePerHour.toFixed(2)}</span><span class="stat-label">Revenue/on-site hr</span></div>
+					<div class="card"><span class="stat">{rangeCallbacks}</span><span class="stat-label">Callbacks</span></div>
 				</div>
 			</section>
 		</div>
