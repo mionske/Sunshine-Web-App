@@ -610,43 +610,47 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 				>
 					<form className="drawer" onClick={(e) => e.stopPropagation()} onSubmit={saveEdit}>
 						<div className="drawer-header">
-							<h2 style={{ margin: 0 }}>Edit Opportunity</h2>
+							<div>
+								<h2 style={{ margin: 0 }}>Edit Opportunity</h2>
+								<p className="drawer-subtitle">{editingCard.clientName}</p>
+							</div>
 							<button type="button" className="drawer-close" aria-label="Close" onClick={closeEditor}>
 								×
 							</button>
 						</div>
 
-						<p className="field-hint">{editingCard.clientName}</p>
-
-						<label>
-							Stage
-							<select value={editStage} onChange={(e) => setEditStage(e.target.value)}>
-								{stages.map((s) => (
-									<option key={s} value={s}>
-										{s}
-									</option>
-								))}
-							</select>
-						</label>
+						<div style={{ display: 'flex', gap: '0.75rem' }}>
+							<label style={{ flex: 1 }}>
+								Stage
+								<select value={editStage} onChange={(e) => setEditStage(e.target.value)}>
+									{stages.map((s) => (
+										<option key={s} value={s}>
+											{s}
+										</option>
+									))}
+								</select>
+							</label>
+							<label style={{ flex: 1 }}>
+								Property
+								<select value={editPropertyId} onChange={(e) => setEditPropertyId(e.target.value)}>
+									<option value="">— none yet —</option>
+									{properties.map((p) => (
+										<option key={p.id} value={p.id}>
+											{p.label}
+										</option>
+									))}
+								</select>
+							</label>
+						</div>
 
 						{editStage === 'Lost' && editingCard.stage !== 'Lost' && (
-							<label>
-								Lost reason
-								<input type="text" value={editLostReason} onChange={(e) => setEditLostReason(e.target.value)} required />
-							</label>
+							<div className="diff-notice">
+								<label style={{ marginBottom: 0 }}>
+									Lost reason (required)
+									<input type="text" value={editLostReason} onChange={(e) => setEditLostReason(e.target.value)} required />
+								</label>
+							</div>
 						)}
-
-						<label>
-							Property
-							<select value={editPropertyId} onChange={(e) => setEditPropertyId(e.target.value)}>
-								<option value="">— none yet —</option>
-								{properties.map((p) => (
-									<option key={p.id} value={p.id}>
-										{p.label}
-									</option>
-								))}
-							</select>
-						</label>
 
 						<div style={{ display: 'flex', gap: '0.75rem' }}>
 							<label style={{ flex: 1 }}>
