@@ -27,6 +27,13 @@ function parseRange(range: string): RangeSpec {
 	};
 }
 
+/** 'A' -> 0, 'B' -> 1, ... matching the real Sheets API's column ordering. */
+function columnLetterToIndex(letter: string): number {
+	let index = 0;
+	for (const char of letter) index = index * 26 + (char.charCodeAt(0) - 64);
+	return index - 1;
+}
+
 export class FakeSpreadsheet {
 	tabs = new Map<string, CellValue[][]>();
 	private sheetIds = new Map<string, number>();
@@ -58,14 +65,31 @@ export class FakeSpreadsheet {
 		while (data.length < length) data.push([]);
 	}
 
-	/** Overwrites rows at an explicit position (PUT update, or batchUpdate). */
+	/** Overwrites rows at an explicit position (PUT update, or batchUpdate).
+	 * Only the columns actually covered by the range are touched — matching
+	 * the real Sheets API, which never clobbers cells outside the given
+	 * range (e.g. a single-column patch like 'Tab'!O2:O2 must not wipe out
+	 * the rest of row 2). Falls back to a full-row overwrite when no start
+	 * column is given (the plain A1:Z1-style ranges every other call site
+	 * already uses). */
 	writeRangeValues(range: string, values: CellValue[][]): void {
-		const { tab, startRow } = parseRange(range);
+		const { tab, startCol, startRow } = parseRange(range);
 		if (startRow === null) throw new Error(`testHarness: writeRangeValues needs an explicit row in "${range}"`);
 		const data = this.tabs.get(tab) ?? [];
 		this.ensureLength(data, startRow - 1 + values.length);
+		const startColIndex = startCol ? columnLetterToIndex(startCol) : 0;
 		values.forEach((rowValues, i) => {
-			data[startRow - 1 + i] = [...rowValues];
+			const rowIndex = startRow - 1 + i;
+			if (!startCol || startColIndex === 0) {
+				data[rowIndex] = [...rowValues];
+				return;
+			}
+			const existingRow = data[rowIndex] ? [...data[rowIndex]] : [];
+			while (existingRow.length < startColIndex) existingRow.push(null);
+			rowValues.forEach((cell, colOffset) => {
+				existingRow[startColIndex + colOffset] = cell;
+			});
+			data[rowIndex] = existingRow;
 		});
 		this.tabs.set(tab, data);
 	}

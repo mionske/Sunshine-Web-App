@@ -1,4 +1,13 @@
-import { findById, createRelatedRows, listActiveRows, softDeleteRow, updateRow, type SheetsEnv } from '../sheets';
+import {
+	findById,
+	createRelatedRows,
+	readRows,
+	readHeaders,
+	batchUpdateValues,
+	columnLetterAt,
+	updateRow,
+	type SheetsEnv,
+} from '../sheets';
 import { quoteConfig, type Quote } from '../models/quote';
 import { quoteItemConfig, type QuoteItem } from '../models/quoteItem';
 import { propertyConfig } from '../models/property';
@@ -258,9 +267,27 @@ export async function updateQuote(env: SheetsEnv, quoteId: string, params: Updat
 		{ action: 'Quote edited' }
 	);
 
-	const existingItems = (await listActiveRows(env, quoteItemConfig)).filter((i) => i['Quote ID'] === quoteId);
-	for (const item of existingItems) {
-		await softDeleteRow(env, quoteItemConfig, item['Quote Item ID']);
+	// Archive every existing (non-archived) QuoteItem for this Quote in a
+	// single batched write, rather than one updateRow() per row — each
+	// updateRow does its own header read + full-tab read + write + activity
+	// log, and Cloudflare Workers caps the number of subrequests a single
+	// incoming request may make. A Quote with even a handful of line items
+	// could push the sequential version over that cap and fail the whole
+	// edit with an opaque 500. One read + one batched write scales to any
+	// item count at roughly constant request cost.
+	const itemHeaders = await readHeaders(env, quoteItemConfig.tab);
+	const archivedAtColumn = columnLetterAt(itemHeaders.indexOf('Archived At') + 1);
+	const allItemRows = await readRows(env, quoteItemConfig.tab, { idColumn: quoteItemConfig.idColumn });
+	const rowsToArchive = allItemRows.filter((r) => r.data['Quote ID'] === quoteId && !r.data['Archived At']);
+	if (rowsToArchive.length > 0) {
+		const now = new Date().toISOString();
+		await batchUpdateValues(
+			env,
+			rowsToArchive.map((r) => ({
+				range: `'${quoteItemConfig.tab}'!${archivedAtColumn}${r.rowNumber}:${archivedAtColumn}${r.rowNumber}`,
+				values: [[now]],
+			}))
+		);
 	}
 	const { created } = await createRelatedRows(env, [
 		{
