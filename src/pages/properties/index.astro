@@ -32,7 +32,9 @@ properties.sort((a, b) => (a['Street Address'] || '').localeCompare(b['Street Ad
 					return (
 						<tr>
 							<td>
-								<a href={`/properties/${p['Property ID']}`}>{p['Street Address']}, {p.City}</a>
+								<a href={`/properties/${p['Property ID']}`}>
+									{p['Street Address']}, {p.City}{p['Unit Identifier'] && <> — Unit {p['Unit Identifier']}</>}
+								</a>
 							</td>
 							<td>{client ? `${client['First Name']} ${client['Last Name']}` : p['Client ID']}</td>
 							<td><span class="badge">{p['Property Type']}</span></td>

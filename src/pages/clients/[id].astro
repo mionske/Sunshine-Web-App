@@ -224,8 +224,14 @@ const editing = Astro.url.searchParams.get('edit') === '1';
 			{properties.map((p) => (
 				<div class="property-row">
 					<div>
-						<a class="property-row-address" href={`/properties/${p['Property ID']}`}>{p['Street Address']}, {p.City}</a>
-						<div class="property-row-meta">{p['Property Type']}{p.Stories && <> · {p.Stories} {p.Stories === '1' ? 'story' : 'stories'}</>}</div>
+						<a class="property-row-address" href={`/properties/${p['Property ID']}`}>
+							{p['Street Address']}, {p.City}{p['Unit Identifier'] && <> — Unit {p['Unit Identifier']}</>}
+						</a>
+						<div class="property-row-meta">
+							{p['Property Type']}
+							{p.Stories && <> · {p.Stories} {p.Stories === '1' ? 'story' : 'stories'}</>}
+							{p['Building/Complex Name'] && <> · {p['Building/Complex Name']}</>}
+						</div>
 					</div>
 					<a href={googleMapsUrl(fullAddress(p))} target="_blank" rel="noopener noreferrer">View map →</a>
 				</div>

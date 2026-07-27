@@ -261,16 +261,17 @@ const timeline = activityRows
 	.sort((a, b) => String(b.Timestamp ?? '').localeCompare(String(a.Timestamp ?? '')));
 ---
 
-<BaseLayout title={property['Street Address']}>
+<BaseLayout title={property['Unit Identifier'] ? `${property['Street Address']} — Unit ${property['Unit Identifier']}` : property['Street Address']}>
 	<main>
 		<p><a href={`/clients/${property['Client ID']}`}>← Client</a></p>
 		<div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
 			<h1 style="margin: 0; white-space: nowrap;">
 				<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
-					{property['Street Address']}, {property.City}
+					{property['Street Address']}, {property.City}{property['Unit Identifier'] && <> — Unit {property['Unit Identifier']}</>}
 				</a>
 			</h1>
 			<span class="badge badge-accent">{propertyStatus}</span>
+			{property['Building/Complex Name'] && <span class="badge">{property['Building/Complex Name']}</span>}
 		</div>
 		{error && <p role="alert">{error}</p>}
 

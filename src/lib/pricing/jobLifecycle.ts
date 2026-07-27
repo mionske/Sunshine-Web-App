@@ -38,8 +38,12 @@ export async function findJobByQuoteId(env: SheetsEnv, quoteId: string): Promise
 async function createJobFromQuote(env: SheetsEnv, quote: Quote, scheduledDate?: string): Promise<Job> {
 	const property = await findById(env, propertyConfig, quote['Property ID']);
 
+	const propertyAddress = property
+		? `${property['Street Address']}, ${property.City}${property['Unit Identifier'] ? ` — Unit ${property['Unit Identifier']}` : ''}`
+		: '';
+
 	return createRow(env, jobConfig, {
-		'Property Address': property ? `${property['Street Address']}, ${property.City}` : '',
+		'Property Address': propertyAddress,
 		'Property ID': quote['Property ID'],
 		'Quoted Price ($)': quote['Final Quoted Price'],
 		'Estimated Time (hrs)': quote['Estimated Labor Hours'],
