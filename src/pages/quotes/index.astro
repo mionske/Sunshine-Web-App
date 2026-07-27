@@ -79,7 +79,7 @@ quotes.sort((a, b) => (b['Created At'] || '').localeCompare(a['Created At'] || '
 								<form method="POST" class="quote-status-form" style="display:flex; align-items:center; gap:0.5rem; margin:0;">
 									<input type="hidden" name="_action" value="update-quote-status" />
 									<input type="hidden" name="quoteId" value={q['Quote ID']} />
-									<span class="badge badge-accent">{q['Quote Status']}</span>
+									<span class="badge badge-accent" style="min-width:6.5rem; text-align:center;">{q['Quote Status']}</span>
 									<select name="status" style="display:inline-block; width:auto; margin-top:0;">
 										<option value="" disabled selected>— change —</option>
 										{QUOTE_STATUSES.filter((s) => s !== 'Accepted').map((s) => (
