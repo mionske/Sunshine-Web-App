@@ -104,7 +104,15 @@ const STATUS_COLORS: Record<(typeof QUOTE_STATUSES)[number], { bg: string; color
 								</form>
 							</td>
 							<td>{q['Final Quoted Price'] ? `$${Number(q['Final Quoted Price']).toFixed(2)}` : '—'}</td>
-							<td><a href={`/quotes/${q['Quote ID']}`}>view</a></td>
+							<td>
+								<a href={`/quotes/${q['Quote ID']}`}>view</a>
+								{q['Quote Status'] !== 'Accepted' && (
+									<>
+										{' · '}
+										<a href={`/quoter?quoteId=${q['Quote ID']}`}>edit</a>
+									</>
+								)}
+							</td>
 						</tr>
 					);
 				})}

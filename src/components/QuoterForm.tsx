@@ -75,6 +75,40 @@ interface WalkthroughDefault {
 	counts: QuoteCounts;
 }
 
+/** Everything needed to re-populate the form from an existing Quote — see
+ * quoter.astro's `?quoteId=` edit-mode loading. Counts/stories/condition/
+ * hardWater/constructionDebris/manualAdjustment/discount/overrideReason
+ * come straight from the Quote's own stored Input Snapshot (already this
+ * exact shape); the rest are plain Quote columns. */
+export interface InitialQuoteData {
+	quoteId: string;
+	clientId: string;
+	propertyId: string;
+	pricingConfigId: string;
+	serviceScope: string;
+	inventoryCoverage: string;
+	counts: QuoteCounts;
+	stories: Stories;
+	condition: Condition;
+	hardWater: boolean;
+	constructionDebris: boolean;
+	jobHighInteriorGlass: boolean;
+	jobSteepOrUnevenTerrain: boolean;
+	jobExteriorAccessObstructed: boolean;
+	jobFurnitureMovementRequired: boolean;
+	jobWaterAccessDifficult: boolean;
+	jobSiliconeOrStickerResidue: boolean;
+	jobHeavyInteriorResidue: boolean;
+	otherConditionNotes: string;
+	laborSoloHours: string;
+	laborCrewSize: string;
+	laborConfidence: string;
+	laborNotes: string;
+	manualAdjustment: string;
+	discount: string;
+	overrideReason: string;
+}
+
 interface QuoterFormProps {
 	clients: ClientOption[];
 	properties: PropertyOption[];
@@ -85,6 +119,11 @@ interface QuoterFormProps {
 	services: Service[];
 	preselectedClientId: string;
 	preselectedPropertyId: string;
+	/** Present only when editing an existing Quote (see quoter.astro) —
+	 * pre-fills every field from it and locks Client/Property (an edit
+	 * corrects scope/pricing, it never reassigns the quote to a different
+	 * property) instead of running the usual property-change auto-defaults. */
+	initialQuote?: InitialQuoteData;
 }
 
 function Segmented<T extends string>({
@@ -136,45 +175,72 @@ export default function QuoterForm(props: QuoterFormProps) {
 		services,
 		preselectedClientId,
 		preselectedPropertyId,
+		initialQuote,
 	} = props;
 
-	const [clientId, setClientId] = useState(preselectedClientId || clients[0]?.id || '');
-	const [propertyId, setPropertyId] = useState(preselectedPropertyId || '');
-	const [pricingConfigId, setPricingConfigId] = useState('');
+	const [clientId, setClientId] = useState(initialQuote?.clientId || preselectedClientId || clients[0]?.id || '');
+	const [propertyId, setPropertyId] = useState(initialQuote?.propertyId || preselectedPropertyId || '');
+	const [pricingConfigId, setPricingConfigId] = useState(initialQuote?.pricingConfigId ?? '');
 
-	const [serviceScope, setServiceScope] = useState<ServiceScope>('Interior & Exterior');
-	const [inventoryCoverage, setInventoryCoverage] = useState<InventoryCoverage>('Selected Windows Only');
-	const [counts, setCounts] = useState<QuoteCounts>(EMPTY_COUNTS);
-	const [stories, setStories] = useState<Stories>(1);
-	const [condition, setCondition] = useState<Condition>('light');
+	const [serviceScope, setServiceScope] = useState<ServiceScope>((initialQuote?.serviceScope as ServiceScope) || 'Interior & Exterior');
+	const [inventoryCoverage, setInventoryCoverage] = useState<InventoryCoverage>(
+		(initialQuote?.inventoryCoverage as InventoryCoverage) || 'Selected Windows Only'
+	);
+	const [counts, setCounts] = useState<QuoteCounts>(initialQuote?.counts ?? EMPTY_COUNTS);
+	const [stories, setStories] = useState<Stories>(initialQuote?.stories ?? 1);
+	const [condition, setCondition] = useState<Condition>(initialQuote?.condition ?? 'light');
 
-	const [screensMode, setScreensMode] = useState<ScreensMode>('Not Included');
-	const [screensCustomQty, setScreensCustomQty] = useState('0');
-	const [trackMode, setTrackMode] = useState<TrackMode>('Not Included');
-	const [trackQty, setTrackQty] = useState('0');
-	const [skylightsIncluded, setSkylightsIncluded] = useState(false);
-	const [hardWater, setHardWater] = useState(false);
-	const [constructionDebris, setConstructionDebris] = useState(false);
+	const [screensMode, setScreensMode] = useState<ScreensMode>(
+		initialQuote ? (initialQuote.counts.screenClean > 0 ? 'Include All' : 'Not Included') : 'Not Included'
+	);
+	const [screensCustomQty, setScreensCustomQty] = useState(initialQuote ? String(initialQuote.counts.screenClean || 0) : '0');
+	const [trackMode, setTrackMode] = useState<TrackMode>(
+		initialQuote
+			? initialQuote.counts.trackDeep > 0
+				? 'Deep Cleaning'
+				: initialQuote.counts.trackBasic > 0
+					? 'Basic Wipe'
+					: 'Not Included'
+			: 'Not Included'
+	);
+	const [trackQty, setTrackQty] = useState(
+		initialQuote ? String(initialQuote.counts.trackDeep || initialQuote.counts.trackBasic || 0) : '0'
+	);
+	const [skylightsIncluded, setSkylightsIncluded] = useState(
+		initialQuote ? initialQuote.counts.skylightExt + initialQuote.counts.skylightInt > 0 : false
+	);
+	const [hardWater, setHardWater] = useState(initialQuote?.hardWater ?? false);
+	const [constructionDebris, setConstructionDebris] = useState(initialQuote?.constructionDebris ?? false);
 	const [otherSpecialtyTreatment, setOtherSpecialtyTreatment] = useState(false);
 
-	const [jobHighInteriorGlass, setJobHighInteriorGlass] = useState(false);
-	const [jobSteepOrUnevenTerrain, setJobSteepOrUnevenTerrain] = useState(false);
-	const [jobExteriorAccessObstructed, setJobExteriorAccessObstructed] = useState(false);
-	const [jobFurnitureMovementRequired, setJobFurnitureMovementRequired] = useState(false);
-	const [jobWaterAccessDifficult, setJobWaterAccessDifficult] = useState(false);
-	const [jobSiliconeOrStickerResidue, setJobSiliconeOrStickerResidue] = useState(false);
-	const [jobHeavyInteriorResidue, setJobHeavyInteriorResidue] = useState(false);
-	const [otherConditionNotes, setOtherConditionNotes] = useState('');
+	const [jobHighInteriorGlass, setJobHighInteriorGlass] = useState(initialQuote?.jobHighInteriorGlass ?? false);
+	const [jobSteepOrUnevenTerrain, setJobSteepOrUnevenTerrain] = useState(initialQuote?.jobSteepOrUnevenTerrain ?? false);
+	const [jobExteriorAccessObstructed, setJobExteriorAccessObstructed] = useState(initialQuote?.jobExteriorAccessObstructed ?? false);
+	const [jobFurnitureMovementRequired, setJobFurnitureMovementRequired] = useState(initialQuote?.jobFurnitureMovementRequired ?? false);
+	const [jobWaterAccessDifficult, setJobWaterAccessDifficult] = useState(initialQuote?.jobWaterAccessDifficult ?? false);
+	const [jobSiliconeOrStickerResidue, setJobSiliconeOrStickerResidue] = useState(initialQuote?.jobSiliconeOrStickerResidue ?? false);
+	const [jobHeavyInteriorResidue, setJobHeavyInteriorResidue] = useState(initialQuote?.jobHeavyInteriorResidue ?? false);
+	const [otherConditionNotes, setOtherConditionNotes] = useState(initialQuote?.otherConditionNotes ?? '');
 
-	const [laborSoloHours, setLaborSoloHours] = useState('');
-	const [laborCrewSize, setLaborCrewSize] = useState<(typeof LABOR_ESTIMATE_CREW_SIZE_OPTIONS)[number]>('1');
-	const [laborConfidence, setLaborConfidence] = useState<(typeof LABOR_ESTIMATE_CONFIDENCE_OPTIONS)[number]>('Medium');
-	const [laborNotes, setLaborNotes] = useState('');
+	const [laborSoloHours, setLaborSoloHours] = useState(initialQuote?.laborSoloHours ?? '');
+	const [laborCrewSize, setLaborCrewSize] = useState<(typeof LABOR_ESTIMATE_CREW_SIZE_OPTIONS)[number]>(
+		(initialQuote?.laborCrewSize as (typeof LABOR_ESTIMATE_CREW_SIZE_OPTIONS)[number]) || '1'
+	);
+	const [laborConfidence, setLaborConfidence] = useState<(typeof LABOR_ESTIMATE_CONFIDENCE_OPTIONS)[number]>(
+		(initialQuote?.laborConfidence as (typeof LABOR_ESTIMATE_CONFIDENCE_OPTIONS)[number]) || 'Medium'
+	);
+	const [laborNotes, setLaborNotes] = useState(initialQuote?.laborNotes ?? '');
 
-	const [manualAdjustment, setManualAdjustment] = useState('0');
-	const [discount, setDiscount] = useState('0');
-	const [adjustmentReason, setAdjustmentReason] = useState('');
-	const [adjustmentReasonOther, setAdjustmentReasonOther] = useState('');
+	const [manualAdjustment, setManualAdjustment] = useState(initialQuote?.manualAdjustment ?? '0');
+	const [discount, setDiscount] = useState(initialQuote?.discount ?? '0');
+	const [adjustmentReason, setAdjustmentReason] = useState(() => {
+		if (!initialQuote?.overrideReason) return '';
+		return (ADJUSTMENT_REASON_OPTIONS as readonly string[]).includes(initialQuote.overrideReason) ? initialQuote.overrideReason : 'Other';
+	});
+	const [adjustmentReasonOther, setAdjustmentReasonOther] = useState(() => {
+		if (!initialQuote?.overrideReason) return '';
+		return (ADJUSTMENT_REASON_OPTIONS as readonly string[]).includes(initialQuote.overrideReason) ? '' : initialQuote.overrideReason;
+	});
 
 	const property = propertyId ? properties.find((p) => p.id === propertyId) : undefined;
 	const summary = propertyId ? propertySummaryById[propertyId] : undefined;
@@ -187,6 +253,10 @@ export default function QuoterForm(props: QuoterFormProps) {
 	// Conditions), so the diff notice below has a real baseline to compare
 	// against rather than always firing.
 	useEffect(() => {
+		// Editing an existing Quote: Client/Property are fixed (see the
+		// read-only display below) and every field already comes from the
+		// Quote itself — this auto-defaulting only applies to a fresh quote.
+		if (initialQuote) return;
 		if (!propertyId) return;
 		const matchingConfig = pricingConfigs.find((c) => c['Property Type'] === property?.propertyType);
 		setPricingConfigId(matchingConfig?.['Pricing Config ID'] ?? '');
@@ -308,35 +378,55 @@ export default function QuoterForm(props: QuoterFormProps) {
 
 	const laborTotalHours = (Number(laborSoloHours) || 0) * (laborCrewSize === '3+' ? 3 : Number(laborCrewSize));
 
+	const editingClient = clients.find((c) => c.id === clientId);
+	const editingProperty = properties.find((p) => p.id === propertyId);
+
 	return (
 		<form method="POST" className="quoter-layout">
+			{initialQuote && <input type="hidden" name="quoteId" value={initialQuote.quoteId} />}
 			<div className="quoter-main">
 				<section className="card">
-					<span className="badge">In-Field Quote · Not an Official Estimate</span>
+					<span className="badge">{initialQuote ? 'Editing Quote' : 'In-Field Quote · Not an Official Estimate'}</span>
 					<h2>Quote Header</h2>
-					<label>
-						Client
-						<select name="clientId" required value={clientId} onChange={(e) => { setClientId(e.target.value); setPropertyId(''); }}>
-							{clients.map((c) => (
-								<option key={c.id} value={c.id}>
-									{c.firstName} {c.lastName}
-								</option>
-							))}
-						</select>
-					</label>
-					<label>
-						Property
-						<select name="propertyId" required value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
-							<option value="" disabled>
-								— select a property —
-							</option>
-							{propertiesForClient.map((p) => (
-								<option key={p.id} value={p.id}>
-									{p.address} ({clientLastNameById[p.clientId] ?? '?'})
-								</option>
-							))}
-						</select>
-					</label>
+					{initialQuote ? (
+						<>
+							<input type="hidden" name="clientId" value={clientId} />
+							<input type="hidden" name="propertyId" value={propertyId} />
+							<p className="field-hint">
+								Client: {editingClient ? `${editingClient.firstName} ${editingClient.lastName}` : clientId}
+								<br />
+								Property: {editingProperty ? editingProperty.address : propertyId}
+								<br />
+								An edit corrects this quote's scope/pricing — to move it to a different client or property, create a new quote instead.
+							</p>
+						</>
+					) : (
+						<>
+							<label>
+								Client
+								<select name="clientId" required value={clientId} onChange={(e) => { setClientId(e.target.value); setPropertyId(''); }}>
+									{clients.map((c) => (
+										<option key={c.id} value={c.id}>
+											{c.firstName} {c.lastName}
+										</option>
+									))}
+								</select>
+							</label>
+							<label>
+								Property
+								<select name="propertyId" required value={propertyId} onChange={(e) => setPropertyId(e.target.value)}>
+									<option value="" disabled>
+										— select a property —
+									</option>
+									{propertiesForClient.map((p) => (
+										<option key={p.id} value={p.id}>
+											{p.address} ({clientLastNameById[p.clientId] ?? '?'})
+										</option>
+									))}
+								</select>
+							</label>
+						</>
+					)}
 					<label>
 						Pricing config (pre-selected from the property's type — change anytime)
 						<select name="pricingConfigId" value={pricingConfigId} onChange={(e) => setPricingConfigId(e.target.value)}>
@@ -644,7 +734,7 @@ export default function QuoterForm(props: QuoterFormProps) {
 					</p>
 				)}
 				<button type="submit" disabled={!propertyId || !clientId || adjustmentReasonMissing}>
-					Save Quote
+					{initialQuote ? 'Update Quote' : 'Save Quote'}
 				</button>
 			</aside>
 		</form>

@@ -9,7 +9,7 @@ import { propertyConfig, propertySchema } from '../models/property';
 import { createRow } from '../sheets';
 import { seedInitialPricingConfig } from './config';
 import { seedInitialServices } from './services';
-import { createQuote } from './quotes';
+import { createQuote, updateQuote } from './quotes';
 import type { QuoteCounts } from './types';
 
 const ZERO_COUNTS: QuoteCounts = {
@@ -284,5 +284,147 @@ describe('createQuote', () => {
 		expect(quote['Inventory Coverage']).toBe('');
 		expect(quote['Labor Estimate Solo Hours']).toBe('');
 		expect(quote['Job High Interior Glass (Y/N)']).toBe('');
+	});
+});
+
+describe('updateQuote', () => {
+	let harness: FakeFetchHandle;
+
+	beforeEach(async () => {
+		harness = installFakeFetch();
+		_clearHeaderCacheForTests();
+		harness.spreadsheet.setTab('PricingConfig', [Object.keys(pricingConfigSchema.shape)]);
+		harness.spreadsheet.setTab('Services', [Object.keys(serviceSchema.shape)]);
+		harness.spreadsheet.setTab('Quotes', [Object.keys(quoteSchema.shape)]);
+		harness.spreadsheet.setTab('QuoteItems', [Object.keys(quoteItemSchema.shape)]);
+		harness.spreadsheet.setTab('Properties', [Object.keys(propertySchema.shape)]);
+		harness.spreadsheet.setTab('ActivityLog', [ACTIVITY_LOG_HEADERS]);
+
+		await seedInitialPricingConfig(harness.env);
+		await seedInitialServices(harness.env);
+		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Property Type': 'Residential', 'Street Address': '123 Main St' });
+	});
+
+	afterEach(() => {
+		harness.restore();
+	});
+
+	it('recalculates in place — same Quote ID, updated price, replaced QuoteItems', async () => {
+		const { quote } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 10, windowIntStandard: 10 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+		const originalPrice = Number(quote['Final Quoted Price']);
+		const originalItemCount = harness.spreadsheet.getTab('QuoteItems').length - 1;
+
+		const { quote: updated, items } = await updateQuote(harness.env, quote['Quote ID'], {
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 30, windowIntStandard: 30 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+
+		expect(updated['Quote ID']).toBe(quote['Quote ID']);
+		expect(Number(updated['Final Quoted Price'])).toBeGreaterThan(originalPrice);
+		expect(items.every((i) => i['Quote ID'] === quote['Quote ID'])).toBe(true);
+
+		// Old QuoteItems soft-deleted (Archived At set), never hard-deleted.
+		const quoteRows = harness.spreadsheet.getTab('Quotes');
+		expect(quoteRows).toHaveLength(2); // still just header + the one Quote row, updated not duplicated
+
+		const itemHeaders = harness.spreadsheet.getTab('QuoteItems')[0];
+		const archivedAtIdx = itemHeaders.indexOf('Archived At');
+		const quoteIdIdx = itemHeaders.indexOf('Quote ID');
+		const allItemRows = harness.spreadsheet.getTab('QuoteItems').slice(1);
+		const archivedForThisQuote = allItemRows.filter((r) => r[quoteIdIdx] === quote['Quote ID'] && r[archivedAtIdx]);
+		const activeForThisQuote = allItemRows.filter((r) => r[quoteIdIdx] === quote['Quote ID'] && !r[archivedAtIdx]);
+		expect(archivedForThisQuote).toHaveLength(originalItemCount);
+		expect(activeForThisQuote).toHaveLength(items.length);
+	});
+
+	it('never overwrites Client ID/Property ID/Quote Status', async () => {
+		const { quote } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 5 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+
+		const { quote: updated } = await updateQuote(harness.env, quote['Quote ID'], {
+			input: {
+				stories: 2,
+				condition: 'moderate',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 12 },
+				hardWater: true,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+
+		expect(updated['Client ID']).toBe('client-1');
+		expect(updated['Property ID']).toBe('property-1');
+		expect(updated['Quote Status']).toBe('Draft');
+	});
+
+	it('throws a clear error when the Quote does not exist', async () => {
+		await expect(
+			updateQuote(harness.env, 'missing-quote-id', {
+				input: {
+					stories: 1,
+					condition: 'light',
+					counts: { ...ZERO_COUNTS, windowExtStandard: 5 },
+					hardWater: false,
+					constructionDebris: false,
+					difficultAccess: false,
+				},
+			})
+		).rejects.toThrow(/not found/);
+	});
+
+	it('requires an Adjustment Reason when a Manual Adjustment or Discount is applied', async () => {
+		const { quote } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 5 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+
+		await expect(
+			updateQuote(harness.env, quote['Quote ID'], {
+				input: {
+					stories: 1,
+					condition: 'light',
+					counts: { ...ZERO_COUNTS, windowExtStandard: 5 },
+					hardWater: false,
+					constructionDebris: false,
+					difficultAccess: false,
+					manualAdjustment: 50,
+				},
+			})
+		).rejects.toThrow(/Adjustment Reason is required/);
 	});
 });

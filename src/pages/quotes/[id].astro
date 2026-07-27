@@ -168,6 +168,12 @@ const invoiceMismatch = linkedInvoice && job?.['Final Price ($)'] && Number(job[
 		<p>
 			Client: {client ? `${client['First Name']} ${client['Last Name']}` : quote['Client ID']}<br />
 			Status: <span class="badge badge-accent">{quote['Quote Status']}</span>
+			{quote['Quote Status'] !== 'Accepted' && (
+				<>
+					{' · '}
+					<a href={`/quoter?quoteId=${quote['Quote ID']}`}>Edit this quote</a>
+				</>
+			)}
 			</p>
 			<form method="POST" class="inline-field-form">
 				<input type="hidden" name="_action" value="update-quote-status" />
