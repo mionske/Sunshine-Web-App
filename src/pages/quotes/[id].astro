@@ -7,6 +7,7 @@ import { quoteItemConfig } from '../../lib/models/quoteItem';
 import { clientConfig } from '../../lib/models/client';
 import { propertyConfig } from '../../lib/models/property';
 import { acceptQuote, findJobByQuoteId, updateJobStatus, JOB_STATUSES } from '../../lib/pricing/jobLifecycle';
+import { deleteQuote } from '../../lib/pricing/quotes';
 import { updateRow } from '../../lib/sheets';
 import { REVIEW_LEFT_VALUES, MAINTENANCE_FOLLOW_UP_STATUSES, jobConfig } from '../../lib/models/job';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
@@ -87,6 +88,9 @@ if (Astro.request.method === 'POST') {
 			});
 		} else if (action === 'refresh-qb-invoice') {
 			await syncSingleEntity(env, 'Invoice', String(form.get('qbInvoiceId') ?? ''));
+		} else if (action === 'delete-quote') {
+			await deleteQuote(env, id!);
+			return Astro.redirect('/quotes');
 		}
 		return Astro.redirect(`/quotes/${id}`);
 	} catch (e) {
@@ -188,6 +192,15 @@ const invoiceMismatch = linkedInvoice && job?.['Final Price ($)'] && Number(job[
 				</label>
 				<button type="submit" class="btn-secondary">Update status</button>
 			</form>
+			{quote['Quote Status'] !== 'Accepted' && (
+				<form
+					method="POST"
+					onsubmit="return confirm('Delete this quote? It will be archived and removed from view everywhere in the app.')"
+				>
+					<input type="hidden" name="_action" value="delete-quote" />
+					<button type="submit" class="btn-secondary">Delete this quote</button>
+				</form>
+			)}
 			{error && <p role="alert">{error}</p>}
 
 		<div class="card">

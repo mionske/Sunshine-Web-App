@@ -920,6 +920,28 @@ tr:last-child td {
 	color: var(--color-navy);
 }
 
+/* A <button> that must live inside a <form> (for a POST-based destructive
+ * action like delete) but should read like the plain text links next to it
+ * (e.g. "view · edit · delete" in a table row) rather than a boxed button. */
+.link-button {
+	display: inline;
+	background: none;
+	border: none;
+	padding: 0;
+	margin: 0;
+	font: inherit;
+	text-transform: none;
+	letter-spacing: normal;
+	color: var(--color-red);
+	text-decoration: underline;
+	cursor: pointer;
+}
+
+.link-button:hover {
+	background: none;
+	color: var(--color-red);
+}
+
 /* Property Detail redesign ---------------------------------------------- */
 
 .property-layout,

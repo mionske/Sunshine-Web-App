@@ -5,6 +5,7 @@ import { listActiveRows, updateRow } from '../../lib/sheets';
 import { quoteConfig, QUOTE_STATUSES } from '../../lib/models/quote';
 import { clientConfig } from '../../lib/models/client';
 import { propertyConfig } from '../../lib/models/property';
+import { deleteQuote } from '../../lib/pricing/quotes';
 
 let error: string | null = null;
 
@@ -30,6 +31,8 @@ if (Astro.request.method === 'POST') {
 			const timestampField = timestampFieldByStatus[status];
 			if (timestampField) patch[timestampField] = new Date().toISOString();
 			await updateRow(env, quoteConfig, quoteId, patch);
+		} else if (action === 'delete-quote') {
+			await deleteQuote(env, String(form.get('quoteId') ?? ''));
 		}
 	} catch (e) {
 		error = (e as Error).message;
@@ -110,6 +113,16 @@ const STATUS_COLORS: Record<(typeof QUOTE_STATUSES)[number], { bg: string; color
 									<>
 										{' · '}
 										<a href={`/quoter?quoteId=${q['Quote ID']}`}>edit</a>
+										{' · '}
+										<form
+											method="POST"
+											style="display:inline"
+											onsubmit="return confirm('Delete this quote? It will be archived and removed from view everywhere in the app.')"
+										>
+											<input type="hidden" name="_action" value="delete-quote" />
+											<input type="hidden" name="quoteId" value={q['Quote ID']} />
+											<button type="submit" class="link-button">delete</button>
+										</form>
 									</>
 								)}
 							</td>

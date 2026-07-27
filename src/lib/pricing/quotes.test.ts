@@ -9,7 +9,7 @@ import { propertyConfig, propertySchema } from '../models/property';
 import { createRow } from '../sheets';
 import { seedInitialPricingConfig } from './config';
 import { seedInitialServices } from './services';
-import { createQuote, updateQuote } from './quotes';
+import { createQuote, updateQuote, deleteQuote } from './quotes';
 import type { QuoteCounts } from './types';
 
 const ZERO_COUNTS: QuoteCounts = {
@@ -426,5 +426,127 @@ describe('updateQuote', () => {
 				},
 			})
 		).rejects.toThrow(/Adjustment Reason is required/);
+	});
+});
+
+describe('deleteQuote', () => {
+	let harness: FakeFetchHandle;
+
+	beforeEach(async () => {
+		harness = installFakeFetch();
+		_clearHeaderCacheForTests();
+		harness.spreadsheet.setTab('PricingConfig', [Object.keys(pricingConfigSchema.shape)]);
+		harness.spreadsheet.setTab('Services', [Object.keys(serviceSchema.shape)]);
+		harness.spreadsheet.setTab('Quotes', [Object.keys(quoteSchema.shape)]);
+		harness.spreadsheet.setTab('QuoteItems', [Object.keys(quoteItemSchema.shape)]);
+		harness.spreadsheet.setTab('Properties', [Object.keys(propertySchema.shape)]);
+		harness.spreadsheet.setTab('ActivityLog', [ACTIVITY_LOG_HEADERS]);
+
+		await seedInitialPricingConfig(harness.env);
+		await seedInitialServices(harness.env);
+		await createRow(harness.env, propertyConfig, { id: 'property-1', 'Property Type': 'Residential', 'Street Address': '123 Main St' });
+	});
+
+	afterEach(() => {
+		harness.restore();
+	});
+
+	it('archives the Quote and all of its QuoteItems, never hard-deleting either', async () => {
+		const { quote } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 10, windowIntStandard: 10 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+
+		await deleteQuote(harness.env, quote['Quote ID']);
+
+		const quoteHeaders = harness.spreadsheet.getTab('Quotes')[0];
+		const quoteIdIdx = quoteHeaders.indexOf('Quote ID');
+		const archivedAtIdx = quoteHeaders.indexOf('Archived At');
+		const quoteRows = harness.spreadsheet.getTab('Quotes').slice(1);
+		expect(quoteRows).toHaveLength(1); // still just the one row — never hard-deleted
+		expect(quoteRows[0][archivedAtIdx]).toBeTruthy();
+		expect(quoteRows[0][quoteIdIdx]).toBe(quote['Quote ID']);
+
+		const itemHeaders = harness.spreadsheet.getTab('QuoteItems')[0];
+		const itemQuoteIdIdx = itemHeaders.indexOf('Quote ID');
+		const itemArchivedAtIdx = itemHeaders.indexOf('Archived At');
+		const itemRows = harness.spreadsheet.getTab('QuoteItems').slice(1).filter((r) => r[itemQuoteIdIdx] === quote['Quote ID']);
+		expect(itemRows.length).toBeGreaterThan(0);
+		expect(itemRows.every((r) => r[itemArchivedAtIdx])).toBe(true);
+	});
+
+	it("does not affect another Quote's QuoteItems", async () => {
+		const { quote: quoteA } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 5 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+		const { quote: quoteB } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 7 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+
+		await deleteQuote(harness.env, quoteA['Quote ID']);
+
+		const itemHeaders = harness.spreadsheet.getTab('QuoteItems')[0];
+		const itemQuoteIdIdx = itemHeaders.indexOf('Quote ID');
+		const itemArchivedAtIdx = itemHeaders.indexOf('Archived At');
+		const itemRowsForB = harness.spreadsheet
+			.getTab('QuoteItems')
+			.slice(1)
+			.filter((r) => r[itemQuoteIdIdx] === quoteB['Quote ID']);
+		expect(itemRowsForB.length).toBeGreaterThan(0);
+		expect(itemRowsForB.every((r) => !r[itemArchivedAtIdx])).toBe(true);
+	});
+
+	it('refuses to delete an Accepted quote', async () => {
+		const { quote } = await createQuote(harness.env, {
+			clientId: 'client-1',
+			propertyId: 'property-1',
+			input: {
+				stories: 1,
+				condition: 'light',
+				counts: { ...ZERO_COUNTS, windowExtStandard: 5 },
+				hardWater: false,
+				constructionDebris: false,
+				difficultAccess: false,
+			},
+		});
+		const quoteHeaders = harness.spreadsheet.getTab('Quotes')[0];
+		const quoteIdIdx = quoteHeaders.indexOf('Quote ID');
+		const statusIdx = quoteHeaders.indexOf('Quote Status');
+		const rows = harness.spreadsheet.getTab('Quotes');
+		const rowIndex = rows.findIndex((r, i) => i > 0 && r[quoteIdIdx] === quote['Quote ID']);
+		rows[rowIndex][statusIdx] = 'Accepted';
+		harness.spreadsheet.setTab('Quotes', rows);
+
+		await expect(deleteQuote(harness.env, quote['Quote ID'])).rejects.toThrow(/Accepted/);
+	});
+
+	it('throws a clear error when the Quote does not exist', async () => {
+		await expect(deleteQuote(harness.env, 'missing-quote-id')).rejects.toThrow(/not found/);
 	});
 });

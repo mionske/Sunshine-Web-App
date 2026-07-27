@@ -6,6 +6,7 @@ import {
 	batchUpdateValues,
 	columnLetterAt,
 	updateRow,
+	softDeleteRow,
 	type SheetsEnv,
 } from '../sheets';
 import { quoteConfig, type Quote } from '../models/quote';
@@ -194,6 +195,50 @@ export interface UpdateQuoteParams {
 	};
 }
 
+/** Archives every existing (non-archived) QuoteItem for a Quote in a single
+ * batched write, rather than one updateRow() per row — each updateRow does
+ * its own header read + full-tab read + write + activity log, and
+ * Cloudflare Workers caps the number of subrequests a single incoming
+ * request may make. A Quote with even a handful of line items could push
+ * the sequential version over that cap and fail the whole request with an
+ * opaque 500. One read + one batched write scales to any item count at
+ * roughly constant request cost. Shared by updateQuote() (replacing items)
+ * and deleteQuote() (removing them along with the Quote itself). */
+async function archiveQuoteItems(env: SheetsEnv, quoteId: string): Promise<void> {
+	const itemHeaders = await readHeaders(env, quoteItemConfig.tab);
+	const archivedAtColumn = columnLetterAt(itemHeaders.indexOf('Archived At') + 1);
+	const allItemRows = await readRows(env, quoteItemConfig.tab, { idColumn: quoteItemConfig.idColumn });
+	const rowsToArchive = allItemRows.filter((r) => r.data['Quote ID'] === quoteId && !r.data['Archived At']);
+	if (rowsToArchive.length === 0) return;
+	const now = new Date().toISOString();
+	await batchUpdateValues(
+		env,
+		rowsToArchive.map((r) => ({
+			range: `'${quoteItemConfig.tab}'!${archivedAtColumn}${r.rowNumber}:${archivedAtColumn}${r.rowNumber}`,
+			values: [[now]],
+		}))
+	);
+}
+
+/**
+ * Soft-deletes a Quote and all of its QuoteItems (Archived At set, never
+ * hard-deleted, matching this app's convention everywhere else). Refused for
+ * an Accepted quote — it always has a linked Job, and deleting the Quote out
+ * from under a real Job would leave that Job referencing a Quote that no
+ * longer appears anywhere in the app. Change the status away from Accepted
+ * first (its own dedicated action, see quotes/[id].astro's status dropdown)
+ * if the quote genuinely needs to go away.
+ */
+export async function deleteQuote(env: SheetsEnv, quoteId: string): Promise<void> {
+	const quote = await findById(env, quoteConfig, quoteId);
+	if (!quote) throw new Error(`Quote "${quoteId}" not found`);
+	if (quote['Quote Status'] === 'Accepted') {
+		throw new Error('This quote is Accepted and has a linked Job — change its status away from Accepted before deleting it.');
+	}
+	await archiveQuoteItems(env, quoteId);
+	await softDeleteRow(env, quoteConfig, quoteId);
+}
+
 /**
  * Recalculates an existing Quote in place — same engine call as
  * createQuote(), but updates the existing row (never touches Client ID/
@@ -267,28 +312,7 @@ export async function updateQuote(env: SheetsEnv, quoteId: string, params: Updat
 		{ action: 'Quote edited' }
 	);
 
-	// Archive every existing (non-archived) QuoteItem for this Quote in a
-	// single batched write, rather than one updateRow() per row — each
-	// updateRow does its own header read + full-tab read + write + activity
-	// log, and Cloudflare Workers caps the number of subrequests a single
-	// incoming request may make. A Quote with even a handful of line items
-	// could push the sequential version over that cap and fail the whole
-	// edit with an opaque 500. One read + one batched write scales to any
-	// item count at roughly constant request cost.
-	const itemHeaders = await readHeaders(env, quoteItemConfig.tab);
-	const archivedAtColumn = columnLetterAt(itemHeaders.indexOf('Archived At') + 1);
-	const allItemRows = await readRows(env, quoteItemConfig.tab, { idColumn: quoteItemConfig.idColumn });
-	const rowsToArchive = allItemRows.filter((r) => r.data['Quote ID'] === quoteId && !r.data['Archived At']);
-	if (rowsToArchive.length > 0) {
-		const now = new Date().toISOString();
-		await batchUpdateValues(
-			env,
-			rowsToArchive.map((r) => ({
-				range: `'${quoteItemConfig.tab}'!${archivedAtColumn}${r.rowNumber}:${archivedAtColumn}${r.rowNumber}`,
-				values: [[now]],
-			}))
-		);
-	}
+	await archiveQuoteItems(env, quoteId);
 	const { created } = await createRelatedRows(env, [
 		{
 			config: quoteItemConfig,
