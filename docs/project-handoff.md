@@ -2,8 +2,8 @@
 
 Paste this file into a Claude.ai (or ChatGPT) Project's "Project knowledge"
 to discuss this app's workflow and code without re-explaining the whole
-thing from scratch. It's a snapshot as of **2026-07-27** — check the live
-repo for anything time-sensitive.
+thing from scratch. It's a snapshot as of **2026-07-27 (evening)** — check
+the live repo for anything time-sensitive.
 
 ## What this is
 
@@ -125,7 +125,7 @@ labor-hour estimates, margins, or PricingConfig internals.
 | **Clients** | List + detail. Contact info, referral source, service preferences (maintenance frequency/season — moved here from Property), "Add property" drawer. |
 | **Properties** | List + detail. Detail page **is** the edit form (no separate edit mode). Recently added: delete (soft, blocked if the property has an in-flight Job), restore, duplicate (copies every field to a new row, e.g. for a multi-unit building's next unit), and a "view deleted/archived" toggle. |
 | **Pipeline** | Kanban board of sales opportunities, drag-and-drop stage changes. |
-| **Quoter** | The in-field pricing form. Three modes: plain new quote, **edit** (`?quoteId=`, locks Client/Property, recalculates in place), **duplicate** (`?duplicateFrom=`, pre-fills everything but leaves Client/Property editable and saves as a new quote — works even off an Accepted quote). Auto-defaults inventory/condition from a property's latest Walkthrough when available. |
+| **Quoter** | The in-field pricing form. Three modes: plain new quote, **edit** (`?quoteId=`, locks Client/Property, recalculates in place), **duplicate** (`?duplicateFrom=`, pre-fills everything but leaves Client/Property editable and saves as a new quote — works even off an Accepted quote). Auto-defaults Quote Inventory *and* the "Job Assessment" section (Glass Condition, Overall Access Difficulty, Access & Equipment Modifiers, Restoration Services Required — same model as Walkthrough/Historical Entry, see Recent Work) from a property's latest Walkthrough when available. |
 | **Quotes** | List + detail. Status changes via a colored dropdown (both list and detail) — "Accepted" is only settable via the dedicated Accept action. Recently added: edit, delete/restore (with a bulk-select checkbox toolbar on the list — bulk status change, bulk delete), duplicate, and a "view deleted/archived" toggle. |
 | **Jobs** | List + detail ("Job Day" mode — mobile timer/checklist for the actual on-site visit, completion form capturing actual time/costs/callback/review). |
 | **Calibration** | Filterable comparison of quoted vs. actual performance across completed jobs, segmented by many dimensions (scope, access difficulty, oversized/french-pane windows, restoration flags, etc.), confidence-gated. |
@@ -141,7 +141,8 @@ labor-hour estimates, margins, or PricingConfig internals.
 - **Real-world data entry**: a 4-unit condo building (601 Canyon Blvd) was entered by hand via the Quoter's Manual Adjustment/Override Reason mechanism to force exact pre-negotiated per-unit prices — this is the scenario that motivated most of the "duplicate" and "bulk actions" work described next, since doing 4 near-identical quotes by hand was tedious.
 - **Production bug fix**: `updateQuote()`'s QuoteItem-replacement step was doing one Sheets API round-trip per line item, which could exceed Cloudflare Workers' per-request subrequest cap on a quote with several items and 500 in production. Fixed to a single batched write.
 - **Quote lifecycle CRUD parity**: edit, delete/restore (soft-delete, archived-view toggle), duplicate, and bulk multi-select actions (status change, delete) — all added to both the Quotes list and Quote Detail page.
-- **Property CRUD parity**: same pattern applied to Properties — delete/restore/duplicate, archived-view toggle (Property Detail already served as its own edit form, so no separate edit UI was needed there).
+- **Property CRUD parity**: same pattern applied to Properties — delete/restore/duplicate, archived-view toggle (Property Detail already served as its own edit form, so no separate edit UI was needed there). One real bug found and fixed the same day: the delete guard originally blocked on *any* linked Job, including a merely "Unscheduled" one — since nearly every real property had picked up an Unscheduled Job at some point, this made delete look completely broken. Narrowed to only block on Scheduled/In Progress Jobs (genuinely committed-to work).
+- **Quoter rebuilt to match Walkthrough/Historical Entry's field model.** The Quoter's condition/access UI had never been updated after Walkthrough and Historical Entry both adopted a segmented Glass Condition + Restoration Services Required + Access & Equipment Modifiers model — it was still a flat, ad-hoc 7-checkbox list using raw pricing-engine terms (light/moderate/heavy/firstTime) instead of the same human vocabulary used everywhere else. This is exactly the kind of inconsistency worth watching for elsewhere: a shared concept (job assessment) evolved in one place (Walkthrough/Historical) without the older surface (Quoter) being brought along. Now: Overall Access Difficulty (Easy/Standard/Difficult, the sole difficult-access pricing trigger), Exterior/Interior Glass Condition (segmented), a 10-item Access & Equipment Modifiers set, and an 8-item Restoration Services Required set are all identical across Quoter/Walkthrough/Historical Entry. Quoter now auto-fills this section from a property's latest Walkthrough instead of Property's own stale legacy fields. Quote Detail's reporting card was simplified to match (parses the same data out of the Quote's Input Snapshot, displayed like the Walkthrough Detail page). New fields ride inside Input Snapshot rather than new dedicated Quote columns — no schema migration needed; old quotes predating this simply show a blank/hidden section rather than crashing.
 
 ## Known workflow friction / things worth a fresh look
 
@@ -191,6 +192,26 @@ using the app, not hypotheticals:
    nothing auto-cascades in this app), which is safe but means an
    archived parent can leave dependent records pointing at something
    that's now hidden from normal list views.
+9. **Shared concepts drift when only some surfaces get updated.** The
+   Quoter/Historical Entry field-model mismatch (see Recent Work) is a
+   concrete example: Walkthrough and Historical Entry both moved to a
+   segmented Glass Condition/Restoration Services/Access Modifiers model,
+   but Quoter was never brought along and sat stale for a while before
+   anyone noticed the inconsistency. Worth an occasional pass comparing
+   the four "describe this job" surfaces (Quoter, WalkthroughWizard,
+   HistoricalEntryWizard, Job Day completion) for the same kind of drift.
+10. **`tsc --noEmit` does not actually type-check `.astro` file frontmatter**
+    (a real gap found this session — a stale function call with a missing
+    argument sat undetected in `quoter.astro` for a while). `.astro` files
+    are technically included in `tsconfig.json`'s glob, but plain `tsc`
+    doesn't understand the extension and silently skips their content —
+    only genuine `.ts`/`.tsx` files get checked. `npm run build`
+    (`astro build`) does catch structural/syntax errors in `.astro` files,
+    but not the same level of type-checking `tsc` gives `.ts`/`.tsx`.
+    `@astrojs/check` would close this gap but isn't installed — it
+    currently conflicts with this repo's TypeScript version (`^7.0.2`,
+    which is very new; `@astrojs/check` wants `^5`/`^6`). Worth revisiting
+    once either side's version compatibility catches up.
 
 ## Where to look in the repo
 
@@ -203,6 +224,9 @@ using the app, not hypotheticals:
 - `src/lib/sheets/` — the Sheets API client, row/column helpers, CRUD,
   activity logging, schema bootstrap.
 - `src/lib/pricing/` — pricing engine, quote-to-job lifecycle, calibration.
+  `condition.ts` holds the dependency-free condition/restoration logic
+  shared by the server (`walkthroughToQuote.ts`) and the Quoter's
+  client-side live price preview.
 - `src/lib/properties.ts` — Property delete/restore/duplicate.
 - `src/lib/qb/` — QuickBooks OAuth, sync, matching, webhook.
 - `src/pages/` — one Astro page per surface; `src/pages/api/` for API
