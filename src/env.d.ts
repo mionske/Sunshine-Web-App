@@ -9,6 +9,10 @@ declare namespace Cloudflare {
 	interface Env {
 		GOOGLE_SERVICE_ACCOUNT_JSON: string;
 		SPREADSHEET_ID: string;
+		// Dashboard "Today"/"This Week" calendar view — the calendar the
+		// service account was shared with (view-only), e.g.
+		// "info@sunshinewindowworks.com". See lib/calendar/client.ts.
+		CALENDAR_ID: string;
 		AUTH_PASSWORD: string;
 		SESSION_SIGNING_SECRET: string;
 		// Phase 14: QuickBooks one-way sync. QB_TOKENS is a dedicated KV

@@ -782,15 +782,51 @@ email or text automatically.
   a property with zero completed-job history, so that fallback is gone
   rather than faked.
 
-Dashboard sections: Today (the six reminder buckets above, condensed),
-Pipeline (stage counts + accepted-jobs-awaiting-scheduling), Recent
-Performance (this calendar month's completed jobs/revenue/on-site hours/
-revenue-per-hour/callbacks), Calibration (last snapshot's confidence/
-target/observed average+median/excluded count, linking to `/calibration`
-for the full filtered view — never an automatic pricing change), and Data
-Quality (jobs missing labor time/direct costs/callback info/final
-revenue, properties missing window counts, walkthroughs not converted or
-closed — each with direct links to the record).
+Dashboard sections: Today (the six reminder buckets above, condensed,
+plus "Appointments today" from Google Calendar — see below), This Week
+(a 7-day-at-a-glance calendar strip), Pipeline (stage counts +
+accepted-jobs-awaiting-scheduling), Recent Performance (a revenue line
+chart with Last Week/Month/Quarter/YTD toggle pills, plus completed
+jobs/revenue/on-site hours/revenue-per-hour/callbacks for the selected
+range), Calibration (last snapshot's confidence/target/observed
+average+median/excluded count, linking to `/calibration` for the full
+filtered view — never an automatic pricing change), and Data Quality
+(jobs missing labor time/direct costs/callback info/final revenue,
+properties missing window counts, walkthroughs not converted or closed
+— each with direct links to the record).
+
+## Google Calendar integration (`lib/calendar/client.ts`) — Dashboard "Today"/"This Week"
+
+Google Calendar, not this app, is the actual source of truth for
+scheduled walkthroughs/appointments — the app has no in-app
+walkthrough-scheduling concept of its own (a Walkthrough record only
+ever gets created the moment a field visit starts). Rather than build a
+second OAuth login flow, the Dashboard reads the business's calendar
+**read-only** using the same Google service account already used for
+Sheets (`GOOGLE_SERVICE_ACCOUNT_JSON`) — just with the Calendar readonly
+scope instead of the Sheets scope (`lib/sheets/googleAuth.ts`'s
+`getAccessToken(env, scope)` now caches a token per scope, one call
+site per scope in use). One-time setup, no code changes needed to
+change which calendar it reads:
+
+1. Enable the Google Calendar API on the same Cloud project as the
+   Sheets service account.
+2. Share the target calendar with the service account's own email
+   (e.g. `ww-app-sheets@sunshine-window-works.iam.gserviceaccount.com`),
+   permission "See all event details" (view-only — this app never
+   writes to the calendar).
+3. Set the `CALENDAR_ID` secret to that calendar's own address (e.g.
+   `info@sunshinewindowworks.com`).
+
+The Dashboard computes "today" and the Monday–Sunday week using the
+`America/Denver` timezone (the business's own — hardcoded, since this
+app has no other timezone concept anywhere), fetches a padded window
+via `listEventsInRange()`, then buckets each event into its real
+America/Denver calendar date (all-day events use Calendar's own bare
+date string directly; timed events convert via `Intl.DateTimeFormat`).
+A failure here (API not yet enabled, calendar unshared, transient
+error) never breaks the Dashboard — both sections just show a quiet
+one-line "Calendar unavailable" note instead of the reminder content.
 
 ## Historical-entry wizard
 `/historical-entry` (linked from the Dashboard and each Property detail

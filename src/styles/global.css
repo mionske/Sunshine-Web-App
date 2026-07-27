@@ -698,6 +698,62 @@ tr:last-child td {
 	font-size: 1.5rem;
 }
 
+/* Recent Performance's 5-tile row sits in a half-width card-grid column,
+ * narrower than Pipeline's/Client Detail's own .stats-grid usage — a lower
+ * minmax floor lets all 5 fit on one row there instead of wrapping a lonely
+ * 5th tile onto its own line. */
+.stats-grid-compact {
+	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+	gap: 0.75rem;
+}
+
+.stats-grid-compact .card {
+	padding: 0.65rem 0.75rem;
+}
+
+.stats-grid-compact .stat {
+	font-size: 1.25rem;
+}
+
+/* Dashboard "This week" glance — one column per weekday; auto-fit collapses
+ * to fewer columns (down to one on mobile) rather than squeezing all 7 into
+ * an unreadable width. */
+.week-glance {
+	display: grid;
+	grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+	gap: 0.75rem;
+}
+
+.week-glance-day {
+	border: 2px solid var(--color-tan);
+	border-radius: var(--radius-field);
+	padding: 0.65rem 0.75rem;
+}
+
+.week-glance-day-today {
+	border-color: var(--color-navy);
+}
+
+.week-glance-day-label {
+	font-family: var(--font-heading);
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	color: var(--color-navy);
+	margin-bottom: 0.4rem;
+	font-size: 0.85rem;
+}
+
+.week-glance-day ul {
+	margin: 0;
+	padding-left: 1.1rem;
+	font-size: 0.85rem;
+}
+
+.week-glance-day li {
+	margin-bottom: 0.25rem;
+}
+
 /* Client Detail: read-display state (Contact Info card outside edit mode) --- */
 
 .field-display-grid {

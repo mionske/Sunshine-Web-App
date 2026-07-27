@@ -12,6 +12,7 @@ import { qbInvoiceConfig } from '../lib/models/qbInvoice';
 import { calibrationExclusionReasons, getLatestCalibrationSnapshot, isCalibrationEligible, mean, median } from '../lib/pricing/calibration';
 import { getActivePricingConfig } from '../lib/pricing/config';
 import { googleMapsUrl, fullAddress } from '../lib/mapsLink';
+import { listEventsInRange, type CalendarEvent } from '../lib/calendar/client';
 
 // Phase 8 (follow-up reminders) and the dashboard redesign are the same
 // page: every reminder type the spec asks for (Quote follow-up,
@@ -47,6 +48,54 @@ const [opportunities, clients, properties, jobs, walkthroughs, quotes, qbInvoice
 	// per-segment reporting is later phase scope.
 	getActivePricingConfig(env, 'Residential'),
 ]);
+
+// --- Calendar (Today / This Week) -------------------------------------------
+// Google Calendar is the actual source of truth for scheduled walkthroughs/
+// appointments today — this app has no in-app walkthrough-scheduling concept
+// of its own (Walkthroughs only ever get created the moment the field visit
+// starts). Reads via the same service account already used for Sheets (see
+// lib/calendar/client.ts) — the business shares its calendar with that
+// account, view-only, no separate OAuth login. A failure here (API not
+// enabled, calendar unshared, transient error) never breaks the Dashboard —
+// it just quietly omits the calendar sections with a one-line note.
+const CALENDAR_TZ = 'America/Denver';
+function denverDateStr(date: Date): string {
+	return new Intl.DateTimeFormat('en-CA', { timeZone: CALENDAR_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+}
+const todayInCalendarTz = denverDateStr(new Date());
+// Weekday math on the plain date string is timezone-safe (a calendar date's
+// day-of-week doesn't depend on what offset it's parsed with) — only actual
+// event times need the explicit America/Denver conversion above.
+const todayWeekday = new Date(`${todayInCalendarTz}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
+const daysSinceMonday = (todayWeekday + 6) % 7;
+const weekDates: string[] = Array.from({ length: 7 }, (_, i) => {
+	const d = new Date(`${todayInCalendarTz}T00:00:00Z`);
+	d.setUTCDate(d.getUTCDate() - daysSinceMonday + i);
+	return d.toISOString().slice(0, 10);
+});
+const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+const calendarEventsByDate = new Map<string, CalendarEvent[]>(weekDates.map((d) => [d, []]));
+let calendarError = '';
+try {
+	// Padded a day on each side of the week so no DST/offset edge case can
+	// clip an event out of the fetch window before it's bucketed by its real
+	// America/Denver calendar date below.
+	const timeMin = `${weekDates[0]}T00:00:00Z`;
+	const timeMax = new Date(new Date(`${weekDates[6]}T00:00:00Z`).getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
+	const events = await listEventsInRange(env, timeMin, timeMax);
+	for (const e of events) {
+		const eventDate = e.allDay ? e.start.slice(0, 10) : denverDateStr(new Date(e.start));
+		calendarEventsByDate.get(eventDate)?.push(e);
+	}
+} catch (error) {
+	calendarError = (error as Error).message;
+}
+const todayCalendarEvents = calendarEventsByDate.get(todayInCalendarTz) ?? [];
+function eventTimeLabel(e: CalendarEvent): string {
+	if (e.allDay) return 'All day';
+	return new Date(e.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: CALENDAR_TZ });
+}
 
 // Once a Job is linked to a real synced QBInvoice, QuickBooks' own Balance
 // is authoritative for "is this actually paid" — the app's own manually-set
@@ -259,6 +308,29 @@ const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted
 		<section class="card">
 			<h2>Today</h2>
 
+			{calendarError ? (
+				<p class="field-hint">Calendar unavailable — check today's appointments directly in Google Calendar.</p>
+			) : todayCalendarEvents.length > 0 ? (
+				<>
+					<h3>Appointments today ({todayCalendarEvents.length})</h3>
+					<ul>
+						{todayCalendarEvents.map((e) => (
+							<li>
+								<strong>{eventTimeLabel(e)}</strong> —{' '}
+								{e.htmlLink ? (
+									<a href={e.htmlLink} target="_blank" rel="noopener noreferrer">{e.summary}</a>
+								) : (
+									e.summary
+								)}
+								{e.location && <> · {e.location}</>}
+							</li>
+						))}
+					</ul>
+				</>
+			) : (
+				<p class="field-hint">Appointments today: nothing on the calendar.</p>
+			)}
+
 			{scheduledJobsToday.length > 0 ? (
 				<>
 					<h3>Scheduled jobs ({scheduledJobsToday.length})</h3>
@@ -339,6 +411,43 @@ const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted
 			)}
 		</section>
 
+		<section class="card">
+			<h2>This week</h2>
+			{calendarError ? (
+				<p class="field-hint">Calendar unavailable: could not load this week's appointments.</p>
+			) : (
+				<div class="week-glance">
+					{weekDates.map((date, i) => {
+						const dayEvents = calendarEventsByDate.get(date) ?? [];
+						const isToday = date === todayInCalendarTz;
+						return (
+							<div class={`week-glance-day${isToday ? ' week-glance-day-today' : ''}`}>
+								<div class="week-glance-day-label">
+									{WEEKDAY_LABELS[i]} {date.slice(5).replace('-', '/')}
+								</div>
+								{dayEvents.length > 0 ? (
+									<ul>
+										{dayEvents.map((e) => (
+											<li>
+												<strong>{eventTimeLabel(e)}</strong>{' '}
+												{e.htmlLink ? (
+													<a href={e.htmlLink} target="_blank" rel="noopener noreferrer">{e.summary}</a>
+												) : (
+													e.summary
+												)}
+											</li>
+										))}
+									</ul>
+								) : (
+									<p class="field-hint">Nothing scheduled.</p>
+								)}
+							</div>
+						);
+					})}
+				</div>
+			)}
+		</section>
+
 		<div class="card-grid">
 			<section class="card">
 				<h2>Pipeline</h2>
@@ -397,7 +506,7 @@ const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted
 						</text>
 					)}
 				</svg>
-				<div class="stats-grid" style="margin-bottom: 0;">
+				<div class="stats-grid stats-grid-compact" style="margin-bottom: 0;">
 					<div class="card"><span class="stat">{rangeJobs.length}</span><span class="stat-label">Completed jobs</span></div>
 					<div class="card"><span class="stat">${rangeRevenue.toFixed(0)}</span><span class="stat-label">Revenue</span></div>
 					<div class="card"><span class="stat">{rangeOnSiteHours.toFixed(1)}</span><span class="stat-label">On-site hours</span></div>

@@ -2,7 +2,7 @@ import { SignJWT, importPKCS8 } from 'jose';
 import type { SheetsEnv } from './types';
 
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
-const SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+const SHEETS_SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
 
 interface ServiceAccountCredentials {
 	client_email: string;
@@ -14,10 +14,13 @@ interface CachedToken {
 	expiresAt: number; // epoch ms
 }
 
-// Per-isolate cache. Workers isolates are short-lived and never shared
-// across requests from different customers here (single internal app), so a
+// Per-isolate cache, keyed by scope — the same service account signs a
+// separate JWT (and gets a separate access token) per OAuth scope it's
+// asked for (Sheets, Calendar readonly, etc.), so one token can't stand in
+// for another. Workers isolates are short-lived and never shared across
+// requests from different customers here (single internal app), so a
 // module-level cache is safe and avoids a token exchange on every request.
-let cachedToken: CachedToken | null = null;
+const cachedTokensByScope = new Map<string, CachedToken>();
 
 function parseCredentials(json: string): ServiceAccountCredentials {
 	let parsed: unknown;
@@ -33,12 +36,12 @@ function parseCredentials(json: string): ServiceAccountCredentials {
 	return creds as ServiceAccountCredentials;
 }
 
-async function requestAccessToken(env: SheetsEnv): Promise<CachedToken> {
+async function requestAccessToken(env: SheetsEnv, scope: string): Promise<CachedToken> {
 	const credentials = parseCredentials(env.GOOGLE_SERVICE_ACCOUNT_JSON);
 	const privateKey = await importPKCS8(credentials.private_key, 'RS256');
 
 	const now = Math.floor(Date.now() / 1000);
-	const assertion = await new SignJWT({ scope: SCOPE })
+	const assertion = await new SignJWT({ scope })
 		.setProtectedHeader({ alg: 'RS256' })
 		.setIssuer(credentials.client_email)
 		.setSubject(credentials.client_email)
@@ -69,15 +72,20 @@ async function requestAccessToken(env: SheetsEnv): Promise<CachedToken> {
 
 const TOKEN_REFRESH_MARGIN_MS = 60_000;
 
-export async function getAccessToken(env: SheetsEnv): Promise<string> {
-	if (cachedToken && cachedToken.expiresAt - TOKEN_REFRESH_MARGIN_MS > Date.now()) {
-		return cachedToken.accessToken;
+/** Defaults to the Sheets scope (every existing call site) — pass an
+ * explicit `scope` for anything else reading via this same service account
+ * (e.g. Calendar readonly). */
+export async function getAccessToken(env: SheetsEnv, scope: string = SHEETS_SCOPE): Promise<string> {
+	const cached = cachedTokensByScope.get(scope);
+	if (cached && cached.expiresAt - TOKEN_REFRESH_MARGIN_MS > Date.now()) {
+		return cached.accessToken;
 	}
-	cachedToken = await requestAccessToken(env);
-	return cachedToken.accessToken;
+	const token = await requestAccessToken(env, scope);
+	cachedTokensByScope.set(scope, token);
+	return token.accessToken;
 }
 
 /** Test-only: force the next call to re-request a token. */
 export function _resetTokenCacheForTests(): void {
-	cachedToken = null;
+	cachedTokensByScope.clear();
 }
