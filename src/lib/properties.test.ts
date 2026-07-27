@@ -95,11 +95,18 @@ describe('deleteProperty / restoreProperty / duplicateProperty', () => {
 		expect(rows[0][archivedAtIdx]).toBeTruthy();
 	});
 
-	it('refuses to delete a property with an active (Unscheduled/Scheduled/In Progress) Job', async () => {
+	it('refuses to delete a property with a Scheduled or In Progress Job', async () => {
 		const property = await makeProperty();
 		await createRow(harness.env, jobConfig, { 'Property ID': property['Property ID'], 'Job Status': 'Scheduled' });
 
-		await expect(deleteProperty(harness.env, property['Property ID'])).rejects.toThrow(/in progress/);
+		await expect(deleteProperty(harness.env, property['Property ID'])).rejects.toThrow(/Scheduled or In Progress/);
+	});
+
+	it('allows deleting a property whose only Job is merely Unscheduled — not real committed work yet', async () => {
+		const property = await makeProperty();
+		await createRow(harness.env, jobConfig, { 'Property ID': property['Property ID'], 'Job Status': 'Unscheduled' });
+
+		await expect(deleteProperty(harness.env, property['Property ID'])).resolves.not.toThrow();
 	});
 
 	it('allows deleting a property whose Jobs are all completed/cancelled', async () => {

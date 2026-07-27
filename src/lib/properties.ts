@@ -2,13 +2,20 @@ import { findById, createRow, updateRow, softDeleteRow, listActiveRows, type She
 import { propertyConfig, type Property } from './models/property';
 import { jobConfig, JOB_STATUSES } from './models/job';
 
-const ACTIVE_JOB_STATUSES: ReadonlySet<(typeof JOB_STATUSES)[number]> = new Set(['Unscheduled', 'Scheduled', 'In Progress']);
+// Deliberately excludes 'Unscheduled' — that just means a Job row exists
+// with no date set yet, not that real work is actually underway (and in
+// practice a lot of properties accumulate an Unscheduled Job that never
+// gets acted on, which made this guard block nearly every delete when it
+// included that status). Only a Job that's genuinely committed to
+// (Scheduled) or already happening (In Progress) blocks a delete.
+const ACTIVE_JOB_STATUSES: ReadonlySet<(typeof JOB_STATUSES)[number]> = new Set(['Scheduled', 'In Progress']);
 
 /**
  * Soft-deletes a Property (Archived At set, never hard-deleted, matching
- * this app's convention everywhere else). Refused when the property has any
- * Job still actively in flight (Unscheduled/Scheduled/In Progress) — real
- * physical work is tied to this address; finish or cancel that Job first.
+ * this app's convention everywhere else). Refused when the property has a
+ * Job that's Scheduled or In Progress — real physical work is committed to
+ * this address; finish, cancel, or reschedule that Job first. An
+ * Unscheduled Job never blocks a delete (see ACTIVE_JOB_STATUSES above).
  * Does not cascade to the property's Walkthroughs/Quotes/Jobs/Pipeline
  * rows — same "leave dependents referencing the archived record" precedent
  * already established elsewhere in this app (e.g. deleting a Quote never
@@ -21,7 +28,7 @@ export async function deleteProperty(env: SheetsEnv, propertyId: string): Promis
 	const jobs = await listActiveRows(env, jobConfig);
 	const hasActiveJob = jobs.some((j) => j['Property ID'] === propertyId && ACTIVE_JOB_STATUSES.has(j['Job Status']));
 	if (hasActiveJob) {
-		throw new Error('This property has a Job still in progress (Unscheduled/Scheduled/In Progress) — complete or cancel it before deleting the property.');
+		throw new Error('This property has a Job that is Scheduled or In Progress — complete, cancel, or reschedule it before deleting the property.');
 	}
 
 	await softDeleteRow(env, propertyConfig, propertyId);
