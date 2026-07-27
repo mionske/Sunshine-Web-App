@@ -1165,6 +1165,27 @@ details.card[open] > summary {
 	flex: 0 0 auto;
 }
 
+/* A single select + button, both compact and on one line — for a
+ * per-table-row status change (e.g. Quotes list), where .inline-field-form's
+ * own label-based sizing doesn't apply (no visible label per row) and the
+ * global select { width: 100% } rule would otherwise force the button onto
+ * its own line. */
+.quote-status-form {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+}
+
+.quote-status-form select {
+	display: inline-block;
+	width: auto;
+	margin-top: 0;
+}
+
+.quote-status-form button {
+	flex: 0 0 auto;
+}
+
 /* Caps a short form's width so it settles at a sane 2-3 columns on a wide
  * viewport instead of spreading its fields across 5+ skinny auto-fill
  * columns (e.g. Clients' "Add client" form). */
