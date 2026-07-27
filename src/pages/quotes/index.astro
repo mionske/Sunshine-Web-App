@@ -95,7 +95,7 @@ const STATUS_COLORS: Record<(typeof QUOTE_STATUSES)[number], { bg: string; color
 									<select
 										name="status"
 										onchange="this.form.submit()"
-										style={`display:inline-block; width:auto; min-width:8.5rem; margin-top:0; font-weight:600; text-align:center; text-align-last:center; background-color:${STATUS_COLORS[q['Quote Status']]?.bg ?? '#d8c6ac'}; color:${STATUS_COLORS[q['Quote Status']]?.color ?? '#012441'}; border-color:${STATUS_COLORS[q['Quote Status']]?.bg ?? '#d8c6ac'};`}
+										style={`display:inline-block; width:8rem; max-width:8rem; margin-top:0; font-size:0.85rem; padding:0.35rem 0.5rem; font-weight:600; text-align:center; text-align-last:center; background-color:${STATUS_COLORS[q['Quote Status']]?.bg ?? '#d8c6ac'}; color:${STATUS_COLORS[q['Quote Status']]?.color ?? '#012441'}; border-color:${STATUS_COLORS[q['Quote Status']]?.bg ?? '#d8c6ac'};`}
 									>
 										{QUOTE_STATUSES.map((s) => (
 											<option value={s} disabled={s === 'Accepted'} selected={s === q['Quote Status']}>{s}</option>
