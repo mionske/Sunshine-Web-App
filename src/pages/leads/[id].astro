@@ -1,0 +1,180 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { findById, updateRow } from '../../lib/sheets';
+import { leadConfig, LEAD_STAGES } from '../../lib/models/lead';
+import { convertLeadToClient, deleteLead, restoreLead, markLeadLost, duplicateLead } from '../../lib/leads';
+import { formatTimestamp } from '../../lib/format';
+
+const { id } = Astro.params;
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	try {
+		if (action === 'update-lead') {
+			await updateRow(env, leadConfig, id!, {
+				'First Name': String(form.get('firstName') ?? ''),
+				'Last Name': String(form.get('lastName') ?? ''),
+				Phone: String(form.get('phone') ?? ''),
+				Email: String(form.get('email') ?? ''),
+				'Street Address': String(form.get('streetAddress') ?? ''),
+				City: String(form.get('city') ?? ''),
+				State: String(form.get('state') ?? ''),
+				Zip: String(form.get('zip') ?? ''),
+				Source: String(form.get('source') ?? ''),
+				Stage: form.get('stage') as (typeof LEAD_STAGES)[number],
+				'Next Follow-up Date': String(form.get('nextFollowUpDate') ?? ''),
+				'Quote Link': String(form.get('quoteLink') ?? ''),
+				Notes: String(form.get('notes') ?? ''),
+			});
+			return Astro.redirect(`/leads/${id}`);
+		} else if (action === 'convert-to-client') {
+			const result = await convertLeadToClient(env, id!);
+			return Astro.redirect(`/clients/${result.client['Client ID']}`);
+		} else if (action === 'mark-lost') {
+			await markLeadLost(env, id!, String(form.get('lostReason') ?? ''));
+			return Astro.redirect('/leads');
+		} else if (action === 'delete-lead') {
+			await deleteLead(env, id!);
+			return Astro.redirect('/leads');
+		} else if (action === 'restore-lead') {
+			await restoreLead(env, id!);
+		} else if (action === 'duplicate-lead') {
+			const duplicate = await duplicateLead(env, id!);
+			return Astro.redirect(`/leads/${duplicate['Lead ID']}`);
+		}
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const lead = await findById(env, leadConfig, id!);
+if (!lead) {
+	return new Response('Lead not found', { status: 404 });
+}
+
+const editing = Astro.url.searchParams.get('edit') === '1';
+const canConvert = !lead['Archived At'] && !lead['Converted Client ID'] && (lead.Stage === 'Quoted' || lead.Stage === 'Won');
+---
+
+<BaseLayout title={`${lead['First Name']} ${lead['Last Name']}`}>
+	<main>
+		<p><a href="/leads">← Leads</a></p>
+
+		<div class="card-header-row" style="margin-bottom: 1.5rem;">
+			<h1 style="margin: 0;">{lead['First Name']} {lead['Last Name']} <span class="badge">{lead.Stage}</span></h1>
+			{!editing && !lead['Archived At'] && <a class="btn" href={`/leads/${id}?edit=1`}>Edit</a>}
+		</div>
+
+		{error && <p role="alert">{error}</p>}
+
+		{lead['Archived At'] && (
+			<p class="field-hint">
+				This lead is archived{lead.Outcome && <> — outcome: <strong>{lead.Outcome}</strong></>}
+				{lead['Closed At'] && <> on {formatTimestamp(lead['Closed At'])}</>}.
+				{' '}
+				<form method="POST" style="display:inline" onsubmit="return confirm('Restore this lead to the active Leads list?')">
+					<input type="hidden" name="_action" value="restore-lead" />
+					<button type="submit" class="link-button">restore</button>
+				</form>
+			</p>
+		)}
+
+		{lead['Converted Client ID'] && (
+			<p class="field-hint">
+				Converted to <a href={`/clients/${lead['Converted Client ID']}`}>Client</a>
+				{lead['Converted Property ID'] && <> / <a href={`/properties/${lead['Converted Property ID']}`}>Property</a></>}.
+			</p>
+		)}
+
+		<section class="card">
+			<h2>Lead details</h2>
+			{editing ? (
+				<form method="POST">
+					<input type="hidden" name="_action" value="update-lead" />
+					<label>First name <input type="text" name="firstName" value={lead['First Name']} required /></label>
+					<label>Last name <input type="text" name="lastName" value={lead['Last Name']} required /></label>
+					<label>Phone <input type="tel" name="phone" value={lead.Phone} /></label>
+					<label>Email <input type="email" name="email" value={lead.Email} /></label>
+					<label>Street address <input type="text" name="streetAddress" value={lead['Street Address']} /></label>
+					<label>City <input type="text" name="city" value={lead.City} /></label>
+					<label>State <input type="text" name="state" maxlength="2" value={lead.State} /></label>
+					<label>Zip <input type="text" name="zip" value={lead.Zip} /></label>
+					<label>Source <input type="text" name="source" value={lead.Source} /></label>
+					<label>
+						Stage
+						<select name="stage">
+							{LEAD_STAGES.map((s) => <option value={s} selected={s === lead.Stage}>{s}</option>)}
+						</select>
+					</label>
+					<label>Next follow-up date <input type="date" name="nextFollowUpDate" value={lead['Next Follow-up Date']} /></label>
+					<label>
+						Quote link <span class="field-hint">(reference only — a QuickBooks estimate link/number, never an authoritative dollar amount)</span>
+						<input type="text" name="quoteLink" value={lead['Quote Link']} />
+					</label>
+					<label>Notes <textarea name="notes">{lead.Notes}</textarea></label>
+					<button type="submit">Save</button>
+					<a class="btn btn-secondary" href={`/leads/${id}`}>Cancel</a>
+				</form>
+			) : (
+				<div class="field-display-grid">
+					<div><span class="field-display-label">Phone</span><span class={`field-display-value${lead.Phone ? '' : ' muted'}`}>{lead.Phone || '— not set'}</span></div>
+					<div><span class="field-display-label">Email</span><span class={`field-display-value${lead.Email ? '' : ' muted'}`}>{lead.Email || '— not set'}</span></div>
+					<div>
+						<span class="field-display-label">Rough address</span>
+						<span class={`field-display-value${lead['Street Address'] ? '' : ' muted'}`}>
+							{lead['Street Address'] ? `${lead['Street Address']}, ${lead.City} ${lead.State} ${lead.Zip}` : '— not set'}
+						</span>
+					</div>
+					<div><span class="field-display-label">Source</span><span class={`field-display-value${lead.Source ? '' : ' muted'}`}>{lead.Source || '— not set'}</span></div>
+					<div><span class="field-display-label">Next follow-up</span><span class={`field-display-value${lead['Next Follow-up Date'] ? '' : ' muted'}`}>{lead['Next Follow-up Date'] || '— not set'}</span></div>
+					<div>
+						<span class="field-display-label">Quote link</span>
+						<span class={`field-display-value${lead['Quote Link'] ? '' : ' muted'}`}>{lead['Quote Link'] || '— not set'}</span>
+					</div>
+				</div>
+			)}
+			{!editing && (
+				<>
+					<span class="field-display-label">Notes</span>
+					{lead.Notes ? <div class="notes-display">{lead.Notes}</div> : <div class="notes-display field-display-value muted">— not set</div>}
+				</>
+			)}
+		</section>
+
+		{!lead['Archived At'] && (
+			<section class="card">
+				<h2>Actions</h2>
+				<div class="button-row">
+					<form
+						method="POST"
+						class="inline-field-form"
+						onsubmit="return confirm('Convert this lead to a Client? This creates a new Client and Property from the lead\\'s details and archives the lead out of the active Leads list.')"
+					>
+						<input type="hidden" name="_action" value="convert-to-client" />
+						<button type="submit" disabled={!canConvert}>Convert to Client</button>
+					</form>
+					{!canConvert && <p class="field-hint">Enabled once Stage is "Quoted" or "Won".</p>}
+				</div>
+
+				<form method="POST" class="inline-field-form">
+					<input type="hidden" name="_action" value="mark-lost" />
+					<label>Lost reason <input type="text" name="lostReason" placeholder="Declined, went with another company, ..." /></label>
+					<button type="submit" class="btn-secondary">Mark Lost</button>
+				</form>
+
+				<form method="POST" style="display:inline">
+					<input type="hidden" name="_action" value="duplicate-lead" />
+					<button type="submit" class="link-button">duplicate</button>
+				</form>
+				{' · '}
+				<form method="POST" style="display:inline" onsubmit="return confirm('Delete this lead? It will be archived and removed from the active list.')">
+					<input type="hidden" name="_action" value="delete-lead" />
+					<button type="submit" class="link-button">delete</button>
+				</form>
+			</section>
+		)}
+	</main>
+</BaseLayout>

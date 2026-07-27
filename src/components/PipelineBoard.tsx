@@ -6,10 +6,12 @@ export interface PipelineCard {
 	stage: string;
 	clientId: string;
 	clientName: string;
+	propertyId: string;
 	propertyAddress: string;
 	estimatedValue: string;
 	referralSource: string;
 	nextFollowUpDate: string;
+	notes: string;
 }
 
 export interface PropertyOption {
@@ -133,7 +135,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 	async function attachProperty(id: string, propertyId: string, propertyAddress: string) {
 		if (!propertyId) return;
 		const previous = cards;
-		setCards((current) => current.map((c) => (c.id === id ? { ...c, propertyAddress } : c)));
+		setCards((current) => current.map((c) => (c.id === id ? { ...c, propertyId, propertyAddress } : c)));
 		setError(null);
 		setAttachingId(null);
 
@@ -147,6 +149,91 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 			const body = (await res.json().catch(() => ({}))) as { error?: string };
 			setError(body.error ?? 'Failed to attach property');
 			setCards(previous);
+		}
+	}
+
+	// Double-click a card (board or list view) to open a full edit drawer —
+	// the drag/drop + inline "add property" affordances only cover Stage and
+	// a not-yet-attached Property; this covers every other field without
+	// leaving the Pipeline page.
+	const [editingCard, setEditingCard] = useState<PipelineCard | null>(null);
+	const [editStage, setEditStage] = useState('');
+	const [editPropertyId, setEditPropertyId] = useState('');
+	const [editValue, setEditValue] = useState('');
+	const [editDate, setEditDate] = useState('');
+	const [editReferral, setEditReferral] = useState('');
+	const [editNotes, setEditNotes] = useState('');
+	const [editLostReason, setEditLostReason] = useState('');
+	const [savingEdit, setSavingEdit] = useState(false);
+
+	function openEditor(c: PipelineCard) {
+		setEditingCard(c);
+		setEditStage(c.stage);
+		setEditPropertyId(c.propertyId);
+		setEditValue(c.estimatedValue);
+		setEditDate(c.nextFollowUpDate);
+		setEditReferral(c.referralSource);
+		setEditNotes(c.notes);
+		setEditLostReason('');
+		setError(null);
+	}
+
+	function closeEditor() {
+		setEditingCard(null);
+	}
+
+	async function saveEdit(e: FormEvent) {
+		e.preventDefault();
+		if (!editingCard || savingEdit) return;
+		if (editStage === 'Lost' && editingCard.stage !== 'Lost' && !editLostReason.trim()) {
+			setError('Lost Reason is required when marking an opportunity Lost.');
+			return;
+		}
+		setSavingEdit(true);
+		setError(null);
+		const patch: Record<string, string> = {
+			Stage: editStage,
+			'Property ID': editPropertyId,
+			'Estimated Value': editValue,
+			'Next Follow-up Date': editDate,
+			'Referral Source': editReferral,
+			Notes: editNotes,
+		};
+		if (editStage === 'Lost' && editLostReason.trim()) patch['Lost Reason'] = editLostReason.trim();
+
+		try {
+			const res = await fetch(`/api/pipeline/${editingCard.id}`, {
+				method: 'PATCH',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ patch }),
+			});
+			if (!res.ok) {
+				const body = (await res.json().catch(() => ({}))) as { error?: string };
+				throw new Error(body.error ?? 'Failed to update opportunity');
+			}
+			const property = properties.find((p) => p.id === editPropertyId);
+			const id = editingCard.id;
+			setCards((current) =>
+				current.map((c) =>
+					c.id === id
+						? {
+								...c,
+								stage: editStage,
+								propertyId: editPropertyId,
+								propertyAddress: property?.address ?? '',
+								estimatedValue: editValue,
+								nextFollowUpDate: editDate,
+								referralSource: editReferral,
+								notes: editNotes,
+							}
+						: c
+				)
+			);
+			closeEditor();
+		} catch (saveError) {
+			setError((saveError as Error).message);
+		} finally {
+			setSavingEdit(false);
 		}
 	}
 
@@ -192,10 +279,12 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 					stage: 'New Lead',
 					clientId: formClientId,
 					clientName: client?.label ?? formClientId,
+					propertyId: formPropertyId,
 					propertyAddress: property?.address ?? '',
 					estimatedValue: formValue,
 					referralSource: formReferral,
 					nextFollowUpDate: formDate,
+					notes: '',
 				},
 			]);
 			closeDrawer();
@@ -311,6 +400,8 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 				</div>
 			</div>
 
+			<p className="field-hint">Double-click a card to edit its details.</p>
+
 			{view === 'board' ? (
 				hasAnyVisible ? (
 					<div className="pipeline-board">
@@ -345,6 +436,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 												className="pipeline-card"
 												draggable
 												onDragStart={(e) => e.dataTransfer.setData('text/plain', c.id)}
+												onDoubleClick={() => openEditor(c)}
 											>
 												<div className="pipeline-card-client">{c.clientName}</div>
 												{c.propertyAddress ? (
@@ -417,7 +509,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 						{listRows.map((c) => {
 							const fs = followUpState(c.nextFollowUpDate);
 							return (
-								<tr key={c.id}>
+								<tr key={c.id} onDoubleClick={() => openEditor(c)} style={{ cursor: 'pointer' }}>
 									<td>{c.clientName}</td>
 									<td>{c.propertyAddress || '—'}</td>
 									<td>
@@ -502,6 +594,87 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 							</button>
 							<button type="submit" disabled={creating}>
 								{creating ? 'Creating…' : 'Create Opportunity'}
+							</button>
+						</div>
+					</form>
+				</div>
+			)}
+
+			{editingCard && (
+				<div
+					className="drawer-scrim"
+					onClick={closeEditor}
+					onKeyDown={(e) => {
+						if (e.key === 'Escape') closeEditor();
+					}}
+				>
+					<form className="drawer" onClick={(e) => e.stopPropagation()} onSubmit={saveEdit}>
+						<div className="drawer-header">
+							<h2 style={{ margin: 0 }}>Edit Opportunity</h2>
+							<button type="button" className="drawer-close" aria-label="Close" onClick={closeEditor}>
+								×
+							</button>
+						</div>
+
+						<p className="field-hint">{editingCard.clientName}</p>
+
+						<label>
+							Stage
+							<select value={editStage} onChange={(e) => setEditStage(e.target.value)}>
+								{stages.map((s) => (
+									<option key={s} value={s}>
+										{s}
+									</option>
+								))}
+							</select>
+						</label>
+
+						{editStage === 'Lost' && editingCard.stage !== 'Lost' && (
+							<label>
+								Lost reason
+								<input type="text" value={editLostReason} onChange={(e) => setEditLostReason(e.target.value)} required />
+							</label>
+						)}
+
+						<label>
+							Property
+							<select value={editPropertyId} onChange={(e) => setEditPropertyId(e.target.value)}>
+								<option value="">— none yet —</option>
+								{properties.map((p) => (
+									<option key={p.id} value={p.id}>
+										{p.label}
+									</option>
+								))}
+							</select>
+						</label>
+
+						<div style={{ display: 'flex', gap: '0.75rem' }}>
+							<label style={{ flex: 1 }}>
+								Estimated value
+								<input type="text" placeholder="$0" value={editValue} onChange={(e) => setEditValue(e.target.value)} />
+							</label>
+							<label style={{ flex: 1 }}>
+								Next follow-up
+								<input type="date" value={editDate} onChange={(e) => setEditDate(e.target.value)} />
+							</label>
+						</div>
+
+						<label>
+							Referral source
+							<input type="text" value={editReferral} onChange={(e) => setEditReferral(e.target.value)} />
+						</label>
+
+						<label>
+							Notes
+							<textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} />
+						</label>
+
+						<div className="drawer-footer">
+							<button type="button" className="btn-secondary" onClick={closeEditor}>
+								Cancel
+							</button>
+							<button type="submit" disabled={savingEdit}>
+								{savingEdit ? 'Saving…' : 'Save Changes'}
 							</button>
 						</div>
 					</form>

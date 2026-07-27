@@ -186,6 +186,76 @@ a map link) — properties are still only ever *created* from a Client's
 own page (no separate "add" form here), but this gives direct access
 without going through Clients first.
 
+**Repeat Business Status** (`Property Status` in the spec that introduced
+it — renamed on this tab to avoid colliding with `properties/[id].astro`'s
+own derived, never-stored "property status" badge, e.g. "Prospect"/
+"Established Client", computed by `derivePropertyStatus()` from Pipeline/
+Job data): a plain optional field — `Active` / `Quote Pending` /
+`One-time Job`, or blank — flagging a second-property or one-off add-on
+request from an *existing* Client. Set manually on the Property Detail
+page's Property Notes card; never auto-set. This is the mechanism for
+"repeat business on an existing Client" from the Leads/Clients separation
+below — it deliberately reuses the existing Job-driven follow-up
+mechanism (`Next Maintenance Follow-up Date`/`Maintenance Follow-up
+Status` on Jobs) for scheduling, rather than creating a second sales
+pipeline.
+
+## Leads (cold, pre-Client opportunities — Leads/Clients separation)
+Lead ID, First Name, Last Name, Phone, Email, Street Address, City, State,
+Zip, Source, Stage, Next Follow-up Date, Notes, Quote Link, Outcome,
+Converted Client ID, Converted Property ID, Created At, Updated At, Closed
+At, Archived At.
+
+A Lead is a genuinely lighter-weight record than a Pipeline Opportunity —
+it never requires an existing Client or Property, just enough (rough
+Street Address/City/State/Zip — reusing Property's own field names, not a
+single free-text blob) to schedule a walkthrough. Two entry points exist
+side by side: create a Client directly with a Property attached (used
+when the relationship is already committed), or create a Lead with no
+Client/Property at all (used for cold opportunities that haven't been
+walked yet) — see `/leads` and `/clients`.
+
+Stages: `New Lead → Contacted → Walkthrough Scheduled → Quoted → Won /
+Lost` (its own enum, distinct from `PIPELINE_STAGES` — Quote
+Draft/Quote Sent/Follow-up collapse into a single "Quoted" stage here).
+`Quote Link` is a manual reference only (e.g. a QuickBooks estimate doc
+number/link) — QuickBooks remains the sole source of truth for real
+quote/invoice dollar amounts; nothing here is authoritative pricing data.
+
+**Convert to Client** (`convertLeadToClient()` in `lib/leads.ts`),
+enabled once Stage is `Quoted` or `Won`: creates a new Client from
+First/Last Name, Phone, Email, Referral Source (from the Lead's Source);
+auto-creates a full Property on that Client from the Lead's rough
+address (`Property Type` defaults to `Residential` — correctable
+immediately on the new Property's own detail page); leaves every
+Property-specific field not knowable from a Lead (window inventory,
+access notes, hard water history, desired maintenance frequency) blank
+for the operator to fill in after the walkthrough — no duplicate data
+entry. The Lead itself is then set to `Stage: Won`, `Outcome: Won`,
+stamped with `Converted Client ID`/`Converted Property ID`/`Closed At`,
+and archived out of the active Leads list — never deleted, kept for
+close-rate/lead-source reporting (`/leads?archived=1`).
+
+**Lost handling** (`markLeadLost()`): sets `Stage: Lost`, `Outcome: Lost`,
+`Closed At`, and archives the Lead the exact same way as a Won
+conversion — same reporting retention, no deletion. A separate `delete-
+lead` action exists too, for a genuinely mistaken entry (archives without
+setting `Outcome`, so it's distinguishable from a real Won/Lost close).
+
+**Relationship to Pipeline (deliberate, scoped decision)**: the existing
+Pipeline/Opportunity board (see below) is left completely untouched by
+this feature. Today's real Pipeline data all requires an existing Client
+already (Property is optional, Client is not) — it doesn't structurally
+match a Lead (no Client yet), and it's wired into live, unattended
+QuickBooks sync automation (webhook + the qb-settings "Sync now" button +
+`refresh-qb-estimate`). Retiring or migrating that is a real product/data
+decision with production risk that the Leads/Clients spec didn't
+explicitly ask for, so Pipeline keeps its current role unchanged (nav
+item, board, QB sync) rather than being merged or removed. The Dashboard
+gets a new "Leads needing follow-up" reminder (`Next Follow-up Date <=
+today` on an active Lead) alongside — not replacing — Pipeline's own
+"Open follow-ups" reminder.
+
 ## Pipeline (sales opportunities only — not job operations)
 Opportunity ID, Client ID, Property ID, Primary Quote ID, Stage, Status,
 Estimated Value, Referral Source, Next Follow-up Date, Last Contact Date,
@@ -785,6 +855,8 @@ that already exist, so a new tab would only duplicate state that could
 drift out of sync. Purely surfaced in the app — nothing here sends an
 email or text automatically.
 
+- **Lead follow-up** (Leads/Clients separation) — active Leads (see the
+  Leads section above) with `Next Follow-up Date` on or before today.
 - **Quote follow-up** — Pipeline rows in an open Stage with `Next
   Follow-up Date` on or before today.
 - **Walkthrough follow-up** — Walkthroughs with Status "Completed" and no

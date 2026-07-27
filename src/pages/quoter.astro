@@ -1,7 +1,7 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
-import { findById, listActiveRows } from '../lib/sheets';
+import { findById, listActiveRows, updateRow } from '../lib/sheets';
 import { clientConfig } from '../lib/models/client';
 import { propertyConfig, derivePropertyCompatDefaults } from '../lib/models/property';
 import { walkthroughConfig } from '../lib/models/walkthrough';
@@ -97,6 +97,24 @@ if (Astro.request.method === 'POST') {
 			discount: num(form, 'discount'),
 			overrideReason: String(form.get('overrideReason') ?? ''),
 		};
+		// Property Details quick-edit: the Quoter's Property card now lets the
+		// crew adjust a few permanent property facts (Stories, Total Window
+		// Units, Total Glass Panes, Typical Exterior Method, Ladder Requirement)
+		// inline, right where they're already looking at the property, instead
+		// of requiring a separate trip to the Property Detail page. Saved
+		// alongside the quote every time, in every mode (new/edit/duplicate) —
+		// harmless no-op write when nothing changed.
+		const propertyIdForDetails = String(form.get('propertyId') ?? '');
+		if (propertyIdForDetails) {
+			await updateRow(env, propertyConfig, propertyIdForDetails, {
+				Stories: String(form.get('stories') ?? ''),
+				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
+				'Total Glass Panes': String(form.get('totalGlassPanes') ?? ''),
+				'Exterior Cleaning Method': String(form.get('exteriorCleaningMethod') ?? ''),
+				'Ladder Requirement': String(form.get('ladderRequirement') ?? ''),
+			});
+		}
+
 		const sharedParams = {
 			pricingConfigId: String(form.get('pricingConfigId') ?? '') || undefined,
 			serviceScope: String(form.get('serviceScope') ?? ''),

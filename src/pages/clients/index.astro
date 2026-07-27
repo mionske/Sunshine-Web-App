@@ -1,41 +1,61 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
-import { createRow, listActiveRows } from '../../lib/sheets';
+import { createRow, listActiveRows, listArchivedRows } from '../../lib/sheets';
 import { clientConfig, PREFERRED_CONTACT_METHOD_OPTIONS } from '../../lib/models/client';
 import { formatPhoneDigits } from '../../lib/phoneFormat';
+import { deleteClient, restoreClient, duplicateClient } from '../../lib/clients';
+import { formatTimestamp } from '../../lib/format';
 
 let error: string | null = null;
 
 if (Astro.request.method === 'POST') {
 	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	const clientId = String(form.get('clientId') ?? '');
 	try {
-		await createRow(env, clientConfig, {
-			id: String(form.get('id') ?? ''),
-			'First Name': String(form.get('firstName') ?? ''),
-			'Last Name': String(form.get('lastName') ?? ''),
-			Phone: formatPhoneDigits(String(form.get('phone') ?? '')),
-			Email: String(form.get('email') ?? ''),
-			'Referral Source': String(form.get('referralSource') ?? ''),
-			'First Contact Date': String(form.get('firstContactDate') ?? ''),
-			'Customer Since': '',
-			'Preferred Contact Method': String(form.get('preferredContactMethod') ?? ''),
-			Notes: String(form.get('notes') ?? ''),
-		});
-		return Astro.redirect('/clients');
+		if (action === 'delete-client') {
+			await deleteClient(env, clientId);
+		} else if (action === 'restore-client') {
+			await restoreClient(env, clientId);
+		} else if (action === 'duplicate-client') {
+			const duplicate = await duplicateClient(env, clientId);
+			return Astro.redirect(`/clients/${duplicate['Client ID']}`);
+		} else {
+			await createRow(env, clientConfig, {
+				id: String(form.get('id') ?? ''),
+				'First Name': String(form.get('firstName') ?? ''),
+				'Last Name': String(form.get('lastName') ?? ''),
+				Phone: formatPhoneDigits(String(form.get('phone') ?? '')),
+				Email: String(form.get('email') ?? ''),
+				'Referral Source': String(form.get('referralSource') ?? ''),
+				'First Contact Date': String(form.get('firstContactDate') ?? ''),
+				'Customer Since': '',
+				'Preferred Contact Method': String(form.get('preferredContactMethod') ?? ''),
+				Notes: String(form.get('notes') ?? ''),
+			});
+			return Astro.redirect('/clients');
+		}
 	} catch (e) {
 		error = (e as Error).message;
 	}
 }
 
-const clients = await listActiveRows(env, clientConfig);
-clients.sort((a, b) => a['Last Name'].localeCompare(b['Last Name']));
+const showArchived = Astro.url.searchParams.get('archived') === '1';
+const clients = showArchived ? await listArchivedRows(env, clientConfig) : await listActiveRows(env, clientConfig);
+clients.sort((a, b) =>
+	showArchived ? (b['Archived At'] || '').localeCompare(a['Archived At'] || '') : a['Last Name'].localeCompare(b['Last Name'])
+);
 const newId = crypto.randomUUID();
 ---
 
 <BaseLayout title="Clients">
 	<main>
 		<h1>Clients</h1>
+		<p>
+			{showArchived ? <a href="/clients">← Back to active clients</a> : <a href="/clients?archived=1">View deleted/archived clients →</a>}
+		</p>
+		{error && <p role="alert">{error}</p>}
 
 		<table>
 			<thead>
@@ -44,6 +64,8 @@ const newId = crypto.randomUUID();
 					<th>Phone</th>
 					<th>Email</th>
 					<th>Referral Source</th>
+					{showArchived && <th>Deleted</th>}
+					<th></th>
 				</tr>
 			</thead>
 			<tbody>
@@ -58,17 +80,45 @@ const newId = crypto.randomUUID();
 							<td>{c.Phone}</td>
 							<td>{c.Email}</td>
 							<td>{c['Referral Source']}</td>
+							{showArchived && <td>{formatTimestamp(c['Archived At'])}</td>}
+							<td>
+								{showArchived ? (
+									<form method="POST" style="display:inline" onsubmit="return confirm('Restore this client? It will reappear everywhere in the app.')">
+										<input type="hidden" name="_action" value="restore-client" />
+										<input type="hidden" name="clientId" value={c['Client ID']} />
+										<button type="submit" class="link-button">restore</button>
+									</form>
+								) : (
+									<>
+										<form method="POST" style="display:inline">
+											<input type="hidden" name="_action" value="duplicate-client" />
+											<input type="hidden" name="clientId" value={c['Client ID']} />
+											<button type="submit" class="link-button">duplicate</button>
+										</form>
+										{' · '}
+										<form
+											method="POST"
+											style="display:inline"
+											onsubmit="return confirm('Delete this client? It will be archived and removed from view everywhere in the app.')"
+										>
+											<input type="hidden" name="_action" value="delete-client" />
+											<input type="hidden" name="clientId" value={c['Client ID']} />
+											<button type="submit" class="link-button">delete</button>
+										</form>
+									</>
+								)}
+							</td>
 						</tr>
 					))
 				}
-				{clients.length === 0 && <tr><td colspan="4">No clients yet.</td></tr>}
+				{clients.length === 0 && <tr><td colspan={showArchived ? 6 : 5}>{showArchived ? 'No deleted clients.' : 'No clients yet.'}</td></tr>}
 			</tbody>
 		</table>
 
+		{!showArchived && (
 		<section class="card card-narrow">
 			<h2>Add client</h2>
 			<p class="field-hint">Add the property address after creating the client — no need to enter it twice.</p>
-			{error && <p role="alert">{error}</p>}
 			<form method="POST" id="add-client-form">
 				<input type="hidden" name="id" value={newId} />
 				<label>First name <input type="text" name="firstName" required /></label>
@@ -88,13 +138,14 @@ const newId = crypto.randomUUID();
 				<button type="submit">Add client</button>
 			</form>
 		</section>
+		)}
 	</main>
 
 	<script>
 		import { formatPhoneDigits } from '../../lib/phoneFormat';
-		const form = document.getElementById('add-client-form') as HTMLFormElement;
-		const phone = form.querySelector('input[name="phone"]') as HTMLInputElement;
-		phone.addEventListener('input', () => {
+		const form = document.getElementById('add-client-form') as HTMLFormElement | null;
+		const phone = form?.querySelector('input[name="phone"]') as HTMLInputElement | null;
+		phone?.addEventListener('input', () => {
 			phone.value = formatPhoneDigits(phone.value);
 		});
 	</script>

@@ -13,6 +13,7 @@ import {
 	EXTERIOR_CLEANING_METHOD_OPTIONS,
 	LADDER_REQUIREMENT_OPTIONS,
 	PARKING_AND_SETUP_OPTIONS,
+	REPEAT_BUSINESS_STATUS_OPTIONS,
 	derivePropertyCompatDefaults,
 } from '../../lib/models/property';
 import { clientConfig, type Client } from '../../lib/models/client';
@@ -83,6 +84,7 @@ if (Astro.request.method === 'POST') {
 				'Sliding Glass Door Pane Count': String(form.get('slidingGlassDoorPaneCount') ?? ''),
 				'Screen Count': String(form.get('screenCount') ?? ''),
 				'Track Count': String(form.get('trackCount') ?? ''),
+				'Repeat Business Status': String(form.get('repeatBusinessStatus') ?? ''),
 				'Pet Notes': String(form.get('petNotes') ?? ''),
 				'General Notes': String(form.get('generalNotes') ?? ''),
 				'Building/Complex Name': String(form.get('buildingComplexName') ?? ''),
@@ -280,6 +282,7 @@ const timeline = activityRows
 				</a>
 			</h1>
 			<span class="badge badge-accent">{propertyStatus}</span>
+			{property['Repeat Business Status'] && <span class="badge">{property['Repeat Business Status']}</span>}
 			{property['Building/Complex Name'] && <span class="badge">{property['Building/Complex Name']}</span>}
 		</div>
 		{error && <p role="alert">{error}</p>}
@@ -509,6 +512,14 @@ const timeline = activityRows
 
 					<details class="card">
 						<summary>Property Notes</summary>
+						<label>
+							Repeat business status
+							<span class="field-hint">Flags a second property/add-on request from this existing Client — not a new sales pipeline. Leave blank when there's no active repeat-business request.</span>
+							<select name="repeatBusinessStatus">
+								<option value="" selected={!property['Repeat Business Status']} />
+								{REPEAT_BUSINESS_STATUS_OPTIONS.map((v) => <option value={v} selected={v === property['Repeat Business Status']}>{v}</option>)}
+							</select>
+						</label>
 						<label>Pet notes <textarea name="petNotes">{property['Pet Notes']}</textarea></label>
 						<label>Property Notes <textarea name="generalNotes">{property['General Notes']}</textarea></label>
 					</details>

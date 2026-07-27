@@ -129,7 +129,7 @@ describe('scoreMatch', () => {
 			'Count - Awning': '', 'Count - Skylights': '', 'Count - Solar Panels': '', 'Screen Count': '', 'Track Count': '', 'Desired Maintenance Frequency': '',
 			'Preferred Service Season': '', 'Next Recommended Service Date': '', 'Maintenance Notes': '', 'Next Scheduled Visit': '', 'Last Review Requested Date': '',
 			'Last Review Received Date': '', 'Sliding Glass Door Pane Count': '', 'Water-Fed Pole Suitable (Y/N)': '', 'Ladder Requirement': '', 'Access Notes': '',
-			'Pet Notes': '', 'General Notes': '', 'Building/Complex Name': '', 'Unit Identifier': '', 'Created At': '', 'Updated At': '', 'Archived At': '',
+			'Pet Notes': '', 'General Notes': '', 'Building/Complex Name': '', 'Unit Identifier': '', 'Repeat Business Status': '', 'Created At': '', 'Updated At': '', 'Archived At': '',
 		} as const;
 	}
 });

@@ -3,6 +3,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { listActiveRows, updateRow } from '../lib/sheets';
 import { pipelineConfig } from '../lib/models/pipeline';
+import { leadConfig } from '../lib/models/lead';
 import { clientConfig } from '../lib/models/client';
 import { propertyConfig } from '../lib/models/property';
 import { jobConfig } from '../lib/models/job';
@@ -34,8 +35,9 @@ if (Astro.request.method === 'POST') {
 
 const today = new Date().toISOString().slice(0, 10);
 
-const [opportunities, clients, properties, jobs, walkthroughs, quotes, qbInvoices, snapshot, pricingConfig] = await Promise.all([
+const [opportunities, leads, clients, properties, jobs, walkthroughs, quotes, qbInvoices, snapshot, pricingConfig] = await Promise.all([
 	listActiveRows(env, pipelineConfig),
+	listActiveRows(env, leadConfig),
 	listActiveRows(env, clientConfig),
 	listActiveRows(env, propertyConfig),
 	listActiveRows(env, jobConfig),
@@ -129,6 +131,13 @@ const completedJobs = jobs.filter((j) => COMPLETED_JOB_STATUSES.has(j['Job Statu
 const OPEN_PIPELINE_STAGES = new Set(['New Lead', 'Contacted', 'Walkthrough Scheduled', 'Quote Draft', 'Quote Sent', 'Follow-up']);
 const quoteFollowUps = opportunities
 	.filter((o) => OPEN_PIPELINE_STAGES.has(o.Stage) && o['Next Follow-up Date'] && o['Next Follow-up Date'] <= today)
+	.sort((a, b) => a['Next Follow-up Date'].localeCompare(b['Next Follow-up Date']));
+
+// Lead follow-up: same pattern as Pipeline's own quote follow-ups above,
+// against the new Leads tab (see lib/models/lead.ts) — open stages only,
+// Won/Lost leads are already archived out of listActiveRows.
+const leadFollowUps = leads
+	.filter((l) => l['Next Follow-up Date'] && l['Next Follow-up Date'] <= today)
 	.sort((a, b) => a['Next Follow-up Date'].localeCompare(b['Next Follow-up Date']));
 
 const scheduledJobsToday = jobs.filter((j) => j['Job Status'] === 'Scheduled' && j['Scheduled Date'] && j['Scheduled Date'] <= today);
@@ -387,6 +396,23 @@ const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted
 				</>
 			) : (
 				<p class="field-hint">Open follow-ups: nothing overdue.</p>
+			)}
+
+			{leadFollowUps.length > 0 ? (
+				<>
+					<h3>Leads needing follow-up ({leadFollowUps.length})</h3>
+					<ul>
+						{leadFollowUps.map((l) => (
+							<li>
+								<strong>{l['Next Follow-up Date']}</strong> —{' '}
+								<a href={`/leads/${l['Lead ID']}`}>{l['First Name']} {l['Last Name']}</a>
+								{' '}— <span class="badge">{l.Stage}</span>
+							</li>
+						))}
+					</ul>
+				</>
+			) : (
+				<p class="field-hint">Leads needing follow-up: nothing overdue.</p>
 			)}
 
 			{unpaidJobs.length > 0 ? (

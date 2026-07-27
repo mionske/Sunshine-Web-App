@@ -60,6 +60,17 @@ export const PREFERRED_SERVICE_SEASON_OPTIONS = ['Spring', 'Summer', 'Fall', 'Wi
 // difficulty-style property field already works.
 export const PARKING_AND_SETUP_OPTIONS = ['Easy', 'Limited', 'Difficult', 'Unknown'] as const;
 
+// Leads / Clients separation: repeat business on an EXISTING Client (a
+// second property, or a one-off add-on job) is tracked here rather than
+// through a second parallel sales pipeline — reuses the existing Job-driven
+// follow-up mechanism (Next Maintenance Follow-up Date/Maintenance Follow-up
+// Status on lib/models/job.ts) for scheduling. Left blank for a property
+// with no active repeat-business request. Named distinctly from the page's
+// own derived/ephemeral "property status" badge (see derivePropertyStatus()
+// in properties/[id].astro, e.g. "Prospect"/"Established Client") — that's
+// computed from Pipeline/Job data and never stored; this is a real column.
+export const REPEAT_BUSINESS_STATUS_OPTIONS = ['Active', 'Quote Pending', 'One-time Job'] as const;
+
 export const propertySchema = z.object({
 	'Property ID': z.string().min(1),
 	'Client ID': blank(),
@@ -220,6 +231,8 @@ export const propertySchema = z.object({
 	// at one Property" rule.
 	'Building/Complex Name': blank(),
 	'Unit Identifier': blank(),
+	// Leads / Clients separation — see REPEAT_BUSINESS_STATUS_OPTIONS above.
+	'Repeat Business Status': blank(),
 	'Created At': blank(),
 	'Updated At': blank(),
 	'Archived At': blank(),

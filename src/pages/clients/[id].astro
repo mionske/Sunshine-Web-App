@@ -7,6 +7,8 @@ import { propertyConfig, PROPERTY_TYPES, MAINTENANCE_FREQUENCY_OPTIONS, PREFERRE
 import { formatPhoneDigits } from '../../lib/phoneFormat';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
 import { qboEstimateWebUrl, qboInvoiceWebUrl, suggestQBLinksForClient } from '../../lib/qb/matching';
+import { deleteClient, restoreClient, duplicateClient } from '../../lib/clients';
+import { formatTimestamp } from '../../lib/format';
 
 const { id } = Astro.params;
 let error: string | null = null;
@@ -52,6 +54,14 @@ if (Astro.request.method === 'POST') {
 			// characteristic (and the Save button for editing them) lives, so
 			// there's no separate "add" vs "save" surface to get lost between.
 			return Astro.redirect(`/properties/${newProperty['Property ID']}`);
+		} else if (action === 'delete-client') {
+			await deleteClient(env, id!);
+			return Astro.redirect('/clients');
+		} else if (action === 'restore-client') {
+			await restoreClient(env, id!);
+		} else if (action === 'duplicate-client') {
+			const duplicate = await duplicateClient(env, id!);
+			return Astro.redirect(`/clients/${duplicate['Client ID']}`);
 		}
 		return Astro.redirect(`/clients/${id}`);
 	} catch (e) {
@@ -99,11 +109,29 @@ const editing = Astro.url.searchParams.get('edit') === '1';
 
 		<div class="card-header-row" style="margin-bottom: 1.5rem;">
 			<h1 style="margin: 0; white-space: nowrap;">{client['First Name']} {client['Last Name']}</h1>
-			{!editing && (
-				<a class="btn" href={`/clients/${id}?edit=1`}>Edit</a>
-			)}
+			<div class="button-row">
+				{!editing && !client['Archived At'] && <a class="btn" href={`/clients/${id}?edit=1`}>Edit</a>}
+				{!client['Archived At'] && (
+					<form method="POST" style="display:inline">
+						<input type="hidden" name="_action" value="duplicate-client" />
+						<button type="submit" class="btn btn-secondary">Duplicate</button>
+					</form>
+				)}
+				{client['Archived At'] ? (
+					<form method="POST" style="display:inline" onsubmit="return confirm('Restore this client? It will reappear everywhere in the app.')">
+						<input type="hidden" name="_action" value="restore-client" />
+						<button type="submit" class="btn btn-secondary">Restore</button>
+					</form>
+				) : (
+					<form method="POST" style="display:inline" onsubmit="return confirm('Delete this client? It will be archived and removed from view everywhere in the app.')">
+						<input type="hidden" name="_action" value="delete-client" />
+						<button type="submit" class="link-button">delete</button>
+					</form>
+				)}
+			</div>
 		</div>
 
+		{client['Archived At'] && <p class="field-hint">This client is archived (deleted {formatTimestamp(client['Archived At'])}).</p>}
 		{error && <p role="alert">{error}</p>}
 
 		<div class="stats-grid">

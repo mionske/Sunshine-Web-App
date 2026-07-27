@@ -1,0 +1,148 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { createRow, listActiveRows, listArchivedRows } from '../../lib/sheets';
+import { leadConfig, LEAD_STAGES } from '../../lib/models/lead';
+import { deleteLead, restoreLead, duplicateLead } from '../../lib/leads';
+import { formatTimestamp } from '../../lib/format';
+
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	const leadId = String(form.get('leadId') ?? '');
+	try {
+		if (action === 'create-lead') {
+			await createRow(env, leadConfig, {
+				id: String(form.get('id') ?? ''),
+				'First Name': String(form.get('firstName') ?? ''),
+				'Last Name': String(form.get('lastName') ?? ''),
+				Phone: String(form.get('phone') ?? ''),
+				Email: String(form.get('email') ?? ''),
+				'Street Address': String(form.get('streetAddress') ?? ''),
+				City: String(form.get('city') ?? ''),
+				State: String(form.get('state') ?? ''),
+				Zip: String(form.get('zip') ?? ''),
+				Source: String(form.get('source') ?? ''),
+				Notes: String(form.get('notes') ?? ''),
+			});
+			return Astro.redirect('/leads');
+		} else if (action === 'delete-lead') {
+			await deleteLead(env, leadId);
+		} else if (action === 'restore-lead') {
+			await restoreLead(env, leadId);
+		} else if (action === 'duplicate-lead') {
+			const duplicate = await duplicateLead(env, leadId);
+			return Astro.redirect(`/leads/${duplicate['Lead ID']}`);
+		}
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const showArchived = Astro.url.searchParams.get('archived') === '1';
+const stageFilter = Astro.url.searchParams.get('stage') ?? '';
+
+let leads = showArchived ? await listArchivedRows(env, leadConfig) : await listActiveRows(env, leadConfig);
+if (!showArchived && stageFilter) {
+	leads = leads.filter((l) => l.Stage === stageFilter);
+}
+leads.sort((a, b) =>
+	showArchived
+		? (b['Closed At'] || b['Archived At'] || '').localeCompare(a['Closed At'] || a['Archived At'] || '')
+		: (a['Next Follow-up Date'] || '9999-99-99').localeCompare(b['Next Follow-up Date'] || '9999-99-99')
+);
+
+const newId = crypto.randomUUID();
+---
+
+<BaseLayout title="Leads">
+	<main>
+		<h1>Leads</h1>
+		<p>
+			Cold opportunities that haven't been walked yet — no Client or Property required. Once a lead's quote is accepted, convert it to a Client from its detail page.
+			{' · '}
+			{showArchived ? <a href="/leads">← Back to active leads</a> : <a href="/leads?archived=1">View won/lost/deleted leads →</a>}
+		</p>
+		{error && <p role="alert">{error}</p>}
+
+		{!showArchived && (
+			<div class="button-row" role="tablist" aria-label="Filter by stage">
+				<a href="/leads" class={stageFilter ? 'badge' : 'badge badge-accent'} style="text-decoration: none;">All</a>
+				{LEAD_STAGES.filter((s) => s !== 'Won' && s !== 'Lost').map((s) => (
+					<a href={`/leads?stage=${encodeURIComponent(s)}`} class={stageFilter === s ? 'badge badge-accent' : 'badge'} style="text-decoration: none;">{s}</a>
+				))}
+			</div>
+		)}
+
+		<table>
+			<thead>
+				<tr>
+					<th>Name</th>
+					<th>Stage</th>
+					<th>Next follow-up</th>
+					<th>Source</th>
+					{showArchived && <th>Outcome</th>}
+					<th></th>
+				</tr>
+			</thead>
+			<tbody>
+				{leads.map((l) => (
+					<tr>
+						<td><a href={`/leads/${l['Lead ID']}`}>{l['First Name']} {l['Last Name']}</a></td>
+						<td><span class="badge">{l.Stage}</span></td>
+						<td>{l['Next Follow-up Date'] || '—'}</td>
+						<td>{l.Source || '—'}</td>
+						{showArchived && <td>{l.Outcome || '—'} {l['Closed At'] && <>({formatTimestamp(l['Closed At'])})</>}</td>}
+						<td>
+							{showArchived ? (
+								<form method="POST" style="display:inline" onsubmit="return confirm('Restore this lead? It will reappear in the active Leads list.')">
+									<input type="hidden" name="_action" value="restore-lead" />
+									<input type="hidden" name="leadId" value={l['Lead ID']} />
+									<button type="submit" class="link-button">restore</button>
+								</form>
+							) : (
+								<>
+									<form method="POST" style="display:inline">
+										<input type="hidden" name="_action" value="duplicate-lead" />
+										<input type="hidden" name="leadId" value={l['Lead ID']} />
+										<button type="submit" class="link-button">duplicate</button>
+									</form>
+									{' · '}
+									<form method="POST" style="display:inline" onsubmit="return confirm('Delete this lead? It will be archived and removed from the active list.')">
+										<input type="hidden" name="_action" value="delete-lead" />
+										<input type="hidden" name="leadId" value={l['Lead ID']} />
+										<button type="submit" class="link-button">delete</button>
+									</form>
+								</>
+							)}
+						</td>
+					</tr>
+				))}
+				{leads.length === 0 && <tr><td colspan={showArchived ? 6 : 5}>{showArchived ? 'No won, lost, or deleted leads.' : 'No leads yet.'}</td></tr>}
+			</tbody>
+		</table>
+
+		{!showArchived && (
+			<section class="card card-narrow">
+				<h2>Add lead</h2>
+				<form method="POST">
+					<input type="hidden" name="_action" value="create-lead" />
+					<input type="hidden" name="id" value={newId} />
+					<label>First name <input type="text" name="firstName" required /></label>
+					<label>Last name <input type="text" name="lastName" required /></label>
+					<label>Phone <input type="tel" name="phone" inputmode="numeric" placeholder="303-931-3903" /></label>
+					<label>Email <input type="email" name="email" /></label>
+					<label>Street address <input type="text" name="streetAddress" /></label>
+					<label>City <input type="text" name="city" /></label>
+					<label>State <input type="text" name="state" maxlength="2" placeholder="CO" /></label>
+					<label>Zip <input type="text" name="zip" /></label>
+					<label>Source <input type="text" name="source" placeholder="Referral, Google, Nextdoor, ..." /></label>
+					<label>Notes <textarea name="notes"></textarea></label>
+					<button type="submit">Add lead</button>
+				</form>
+			</section>
+		)}
+	</main>
+</BaseLayout>

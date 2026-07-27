@@ -28,10 +28,12 @@ const cards = opportunities.map((o) => {
 		stage: o.Stage,
 		clientId: o['Client ID'],
 		clientName: client ? `${client['First Name']} ${client['Last Name']}` : o['Client ID'],
+		propertyId: o['Property ID'],
 		propertyAddress: property ? fullAddress(property) : '',
 		estimatedValue: o['Estimated Value'],
 		referralSource: o['Referral Source'],
 		nextFollowUpDate: o['Next Follow-up Date'],
+		notes: o.Notes,
 	};
 });
 

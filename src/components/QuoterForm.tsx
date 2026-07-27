@@ -5,6 +5,7 @@ import { conditionForEngine, hasAnyRestorationFlag } from '../lib/pricing/condit
 import type { PricingConfig } from '../lib/models/pricingConfig';
 import type { Service } from '../lib/models/service';
 import { GLASS_CONDITION_LEVELS } from '../lib/models/walkthrough';
+import { EXTERIOR_CLEANING_METHOD_OPTIONS, LADDER_REQUIREMENT_OPTIONS } from '../lib/models/property';
 import {
 	SERVICE_SCOPE_OPTIONS,
 	INVENTORY_COVERAGE_OPTIONS,
@@ -15,6 +16,8 @@ import {
 
 type ServiceScope = (typeof SERVICE_SCOPE_OPTIONS)[number];
 type InventoryCoverage = (typeof INVENTORY_COVERAGE_OPTIONS)[number];
+type ExteriorMethod = (typeof EXTERIOR_CLEANING_METHOD_OPTIONS)[number];
+type LadderReq = (typeof LADDER_REQUIREMENT_OPTIONS)[number];
 type ScreensMode = 'Not Included' | 'Include All' | 'Custom Quantity';
 type TrackMode = 'Not Included' | 'Basic Wipe' | 'Deep Cleaning';
 type GlassConditionLevel = (typeof GLASS_CONDITION_LEVELS)[number];
@@ -306,6 +309,19 @@ export default function QuoterForm(props: QuoterFormProps) {
 	const walkthroughDefault = propertyId ? latestWalkthroughByProperty[propertyId] : undefined;
 	const propertiesForClient = properties.filter((p) => p.clientId === clientId);
 
+	// Property Details quick-edit — lets the crew fix a few permanent
+	// property facts right here instead of navigating to the Property Detail
+	// page and losing their place in the quote. Saved back to the Property
+	// record alongside the quote (see quoter.astro's POST handler). These are
+	// property facts, not QuoteInput fields, so they're plain named inputs
+	// submitted directly — no engine/effectiveCounts involvement.
+	const [totalWindowUnits, setTotalWindowUnits] = useState(summary?.totalWindowUnits ?? '');
+	const [totalGlassPanes, setTotalGlassPanes] = useState(summary?.totalGlassPanes ?? '');
+	const [exteriorCleaningMethod, setExteriorCleaningMethod] = useState<ExteriorMethod>(
+		(summary?.exteriorCleaningMethod as ExteriorMethod) || 'Undetermined'
+	);
+	const [ladderRequirement, setLadderRequirement] = useState<LadderReq>((summary?.ladderRequirement as LadderReq) || 'None');
+
 	// Reset every property-derived field whenever the selected property
 	// changes — pre-filling Quote Inventory and the Job Assessment section
 	// from the property's latest completed Walkthrough (a real per-visit
@@ -380,6 +396,10 @@ export default function QuoterForm(props: QuoterFormProps) {
 		const s = propertySummaryById[propertyId];
 		if (s) {
 			setStories(s.stories === '2' ? 2 : s.stories === '3' ? 3 : 1);
+			setTotalWindowUnits(s.totalWindowUnits || '');
+			setTotalGlassPanes(s.totalGlassPanes || '');
+			setExteriorCleaningMethod((s.exteriorCleaningMethod as ExteriorMethod) || 'Undetermined');
+			setLadderRequirement((s.ladderRequirement as LadderReq) || 'None');
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [propertyId]);
@@ -469,8 +489,14 @@ export default function QuoterForm(props: QuoterFormProps) {
 			hardWater !== walkthroughDefault.hardWater ||
 			constructionDebris !== walkthroughDefault.constructionDebris);
 
-	function setCount(key: keyof QuoteCounts, value: string) {
-		setCounts((prev) => ({ ...prev, [key]: Number(value) || 0 }));
+	// A window (or sliding door, or skylight) always has both an interior
+	// and exterior side — Quote Inventory asks for one count per type and
+	// applies it to both ext/int fields at once, rather than making the crew
+	// enter the same number twice. Service Scope (below) still narrows which
+	// side actually gets priced via effectiveCounts.
+	function setPairedCount(extKey: keyof QuoteCounts, intKey: keyof QuoteCounts, value: string) {
+		const n = Number(value) || 0;
+		setCounts((prev) => ({ ...prev, [extKey]: n, [intKey]: n }));
 	}
 
 	const laborTotalHours = (Number(laborSoloHours) || 0) * (laborCrewSize === '3+' ? 3 : Number(laborCrewSize));
@@ -540,32 +566,51 @@ export default function QuoterForm(props: QuoterFormProps) {
 					<input type="hidden" name="walkthroughId" value={walkthroughDefault?.walkthroughId ?? ''} />
 
 					{summary && (
-						<div className="stats-grid">
-							<div className="card">
-								<span className="stat-label">Stories</span>
-								<div className="stat" style={{ fontSize: '1.1rem' }}>{summary.stories || '— not set'}</div>
+						<div className="card" style={{ background: 'var(--color-cream)' }}>
+							<h3>Property Details</h3>
+							<p className="field-hint">Saves to the property when you save this quote — no need to open a separate page.</p>
+							<p className="field-label">Stories</p>
+							<div className="segmented">
+								{([1, 2, 3] as const).map((n) => (
+									<label key={n}>
+										<input type="radio" name="stories" value={n} checked={stories === n} onChange={() => setStories(n)} />
+										{n}
+									</label>
+								))}
 							</div>
-							<div className="card">
-								<span className="stat-label">Window Units</span>
-								<div className="stat" style={{ fontSize: '1.1rem' }}>{summary.totalWindowUnits || '0'}</div>
+							<div className="count-grid" style={{ marginTop: '0.75rem' }}>
+								<label>
+									Window units
+									<input
+										type="number"
+										className="field-numeric"
+										min="0"
+										name="totalWindowUnits"
+										value={totalWindowUnits}
+										onChange={(e) => setTotalWindowUnits(e.target.value)}
+									/>
+								</label>
+								<label>
+									Glass panes
+									<input
+										type="number"
+										className="field-numeric"
+										min="0"
+										name="totalGlassPanes"
+										value={totalGlassPanes}
+										onChange={(e) => setTotalGlassPanes(e.target.value)}
+									/>
+								</label>
 							</div>
-							<div className="card">
-								<span className="stat-label">Glass Panes</span>
-								<div className="stat" style={{ fontSize: '1.1rem' }}>{summary.totalGlassPanes || '0'}</div>
-							</div>
-							<div className="card">
-								<span className="stat-label">Exterior Method</span>
-								<div className="stat" style={{ fontSize: '1.1rem' }}>{summary.exteriorCleaningMethod || '— not set'}</div>
-							</div>
-							<div className="card">
-								<span className="stat-label">Ladder Requirement</span>
-								<div className="stat" style={{ fontSize: '1.1rem' }}>{summary.ladderRequirement || '— not set'}</div>
-							</div>
+							<p className="field-label" style={{ marginTop: '0.75rem' }}>Typical Exterior Method</p>
+							<Segmented name="exteriorCleaningMethod" options={EXTERIOR_CLEANING_METHOD_OPTIONS} value={exteriorCleaningMethod} onChange={setExteriorCleaningMethod} />
+							<p className="field-label" style={{ marginTop: '0.75rem' }}>Ladder Requirement</p>
+							<Segmented name="ladderRequirement" options={LADDER_REQUIREMENT_OPTIONS} value={ladderRequirement} onChange={setLadderRequirement} />
 						</div>
 					)}
 					{propertyId && (
 						<p className="field-hint">
-							<a href={`/properties/${propertyId}`}>View Property Details →</a>
+							<a href={`/properties/${propertyId}`}>View full Property page →</a>
 						</p>
 					)}
 				</section>
@@ -576,7 +621,8 @@ export default function QuoterForm(props: QuoterFormProps) {
 					<Segmented name="serviceScope" options={SERVICE_SCOPE_OPTIONS} value={serviceScope} onChange={setServiceScope} />
 					{(serviceScope === 'Exterior Only' || serviceScope === 'Interior Only') && (
 						<p className="field-hint">
-							{serviceScope === 'Exterior Only' ? 'Interior' : 'Exterior'} counts below are ignored for this scope.
+							Quote Inventory counts below cover both sides automatically — with {serviceScope} selected, only the{' '}
+							{serviceScope === 'Exterior Only' ? 'exterior' : 'interior'} side of each is priced.
 						</p>
 					)}
 
@@ -635,41 +681,65 @@ export default function QuoterForm(props: QuoterFormProps) {
 
 				<section className="card">
 					<h2>Quote Inventory</h2>
+					<p className="field-hint">One count per type — a window is always both interior and exterior. Service Scope above narrows which side is actually priced.</p>
 					{!editableInventory && <p className="field-hint">Read-only — from the latest walkthrough. Switch Inventory Coverage to edit.</p>}
 					<div className="count-grid">
 						<label>
-							Standard — ext <input type="number" className="field-numeric" min="0" disabled={!editableInventory} value={counts.windowExtStandard} onChange={(e) => setCount('windowExtStandard', e.target.value)} />
+							Standard windows
+							<input
+								type="number"
+								className="field-numeric"
+								min="0"
+								disabled={!editableInventory}
+								value={Math.max(counts.windowExtStandard, counts.windowIntStandard)}
+								onChange={(e) => setPairedCount('windowExtStandard', 'windowIntStandard', e.target.value)}
+							/>
 						</label>
 						<label>
-							Standard — int <input type="number" className="field-numeric" min="0" disabled={!editableInventory} value={counts.windowIntStandard} onChange={(e) => setCount('windowIntStandard', e.target.value)} />
+							Oversized windows
+							<input
+								type="number"
+								className="field-numeric"
+								min="0"
+								disabled={!editableInventory}
+								value={Math.max(counts.windowExtOversized, counts.windowIntOversized)}
+								onChange={(e) => setPairedCount('windowExtOversized', 'windowIntOversized', e.target.value)}
+							/>
 						</label>
 						<label>
-							Oversized — ext <input type="number" className="field-numeric" min="0" disabled={!editableInventory} value={counts.windowExtOversized} onChange={(e) => setCount('windowExtOversized', e.target.value)} />
+							Divided-Light windows
+							<input
+								type="number"
+								className="field-numeric"
+								min="0"
+								disabled={!editableInventory}
+								value={Math.max(counts.windowExtFrenchPane, counts.windowIntFrenchPane)}
+								onChange={(e) => setPairedCount('windowExtFrenchPane', 'windowIntFrenchPane', e.target.value)}
+							/>
 						</label>
 						<label>
-							Oversized — int <input type="number" className="field-numeric" min="0" disabled={!editableInventory} value={counts.windowIntOversized} onChange={(e) => setCount('windowIntOversized', e.target.value)} />
-						</label>
-						<label>
-							Divided-Light — ext <input type="number" className="field-numeric" min="0" disabled={!editableInventory} value={counts.windowExtFrenchPane} onChange={(e) => setCount('windowExtFrenchPane', e.target.value)} />
-						</label>
-						<label>
-							Divided-Light — int <input type="number" className="field-numeric" min="0" disabled={!editableInventory} value={counts.windowIntFrenchPane} onChange={(e) => setCount('windowIntFrenchPane', e.target.value)} />
-						</label>
-						<label>
-							Sliding doors — ext <input type="number" className="field-numeric" min="0" disabled={!editableInventory} value={counts.slidingDoorExt} onChange={(e) => setCount('slidingDoorExt', e.target.value)} />
-						</label>
-						<label>
-							Sliding doors — int <input type="number" className="field-numeric" min="0" disabled={!editableInventory} value={counts.slidingDoorInt} onChange={(e) => setCount('slidingDoorInt', e.target.value)} />
+							Sliding doors
+							<input
+								type="number"
+								className="field-numeric"
+								min="0"
+								disabled={!editableInventory}
+								value={Math.max(counts.slidingDoorExt, counts.slidingDoorInt)}
+								onChange={(e) => setPairedCount('slidingDoorExt', 'slidingDoorInt', e.target.value)}
+							/>
 						</label>
 						{skylightsIncluded && (
-							<>
-								<label>
-									Skylights — ext <input type="number" className="field-numeric" min="0" disabled={!editableInventory} value={counts.skylightExt} onChange={(e) => setCount('skylightExt', e.target.value)} />
-								</label>
-								<label>
-									Skylights — int <input type="number" className="field-numeric" min="0" disabled={!editableInventory} value={counts.skylightInt} onChange={(e) => setCount('skylightInt', e.target.value)} />
-								</label>
-							</>
+							<label>
+								Skylights
+								<input
+									type="number"
+									className="field-numeric"
+									min="0"
+									disabled={!editableInventory}
+									value={Math.max(counts.skylightExt, counts.skylightInt)}
+									onChange={(e) => setPairedCount('skylightExt', 'skylightInt', e.target.value)}
+								/>
+							</label>
 						)}
 					</div>
 
@@ -812,7 +882,6 @@ export default function QuoterForm(props: QuoterFormProps) {
 					<input type="hidden" name="steelWool" value={steelWool ? 'on' : ''} />
 					<input type="hidden" name="nonScratchPad" value={nonScratchPad ? 'on' : ''} />
 					<input type="hidden" name="restorationNotes" value={restorationNotes} />
-					<input type="hidden" name="stories" value={stories} />
 				</section>
 
 				<section className="card">
