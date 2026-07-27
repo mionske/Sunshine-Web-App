@@ -8,6 +8,7 @@ import { clientConfig } from '../../lib/models/client';
 import { propertyConfig } from '../../lib/models/property';
 import { acceptQuote, findJobByQuoteId, updateJobStatus, JOB_STATUSES } from '../../lib/pricing/jobLifecycle';
 import { deleteQuote, restoreQuote } from '../../lib/pricing/quotes';
+import type { QuoteInput } from '../../lib/pricing/types';
 import { updateRow } from '../../lib/sheets';
 import { REVIEW_LEFT_VALUES, MAINTENANCE_FOLLOW_UP_STATUSES, jobConfig } from '../../lib/models/job';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
@@ -108,6 +109,35 @@ const quote = await findById(env, quoteConfig, id!);
 if (!quote) {
 	return new Response('Quote not found', { status: 404 });
 }
+
+// Job Assessment reporting fields (Glass Condition, Overall Access
+// Difficulty, Access & Equipment Modifiers, Restoration Services Required)
+// live inside the Quote's own Input Snapshot, not dedicated columns — see
+// QuoteInput in lib/pricing/types.ts. Quotes created before this redesign
+// simply have none of these keys, so everything below reads as blank/false,
+// same as any other optional field this app has ever added.
+const inputSnapshot = JSON.parse(quote['Input Snapshot'] || '{}') as Partial<QuoteInput>;
+const accessModifierBadges: [string, boolean | undefined][] = [
+	['Second-Story Exterior', inputSnapshot.secondStoryExterior],
+	['Ladder Required', inputSnapshot.ladderRequired],
+	['Vaulted Interior Glass', inputSnapshot.vaultedInteriorGlass],
+	['Roof Access Required', inputSnapshot.roofAccessRequired],
+	['Oversized Glass / Large Sliders', inputSnapshot.oversizedGlass],
+	['Tight Landscaping or Obstructions', inputSnapshot.exteriorObstructions],
+	['Limited Interior Access', inputSnapshot.limitedInteriorAccess],
+	['Water-Fed Pole Used', inputSnapshot.waterFedPoleUsed],
+	['Traditional Exterior Cleaning Used', inputSnapshot.traditionalExteriorCleaningUsed],
+	['Other Access Issue', inputSnapshot.otherAccessIssue],
+];
+const restorationBadges: [string, boolean | undefined][] = [
+	['Construction Debris', inputSnapshot.constructionDebris],
+	['Window Stickers / Adhesive', inputSnapshot.siliconeResidue],
+	['Paint Overspray', inputSnapshot.paintOverspray],
+	['Hard Water / Mineral Deposits', inputSnapshot.hardWater],
+	['Razor Scraping Required', inputSnapshot.razorScraping],
+	['Steel Wool Required', inputSnapshot.steelWool],
+	['Non-Scratch Pad Required', inputSnapshot.nonScratchPad],
+];
 
 const allItems = await listActiveRows(env, quoteItemConfig);
 const items = allItems.filter((i) => i['Quote ID'] === id).sort((a, b) => Number(a['Sort Order']) - Number(b['Sort Order']));
@@ -291,18 +321,42 @@ const invoiceMismatch = linkedInvoice && job?.['Final Price ($)'] && Number(job[
 						{quote['Labor Estimate Notes'] && <><br />{quote['Labor Estimate Notes']}</>}
 					</p>
 				)}
-				{[
-					['High interior glass', quote['Job High Interior Glass (Y/N)']],
-					['Steep or uneven terrain', quote['Job Steep Or Uneven Terrain (Y/N)']],
-					['Obstructed exterior access', quote['Job Exterior Access Obstructed (Y/N)']],
-					['Furniture/belongings movement required', quote['Job Furniture Movement Required (Y/N)']],
-					['Water unavailable or difficult to access', quote['Job Water Access Difficult (Y/N)']],
-					['Silicone/adhesive/sticker residue', quote['Job Silicone Or Sticker Residue (Y/N)']],
-					['Heavy interior residue', quote['Job Heavy Interior Residue (Y/N)']],
-				]
-					.filter(([, v]) => v === 'Y')
-					.map(([label]) => <span class="badge">{label}</span>)}
-				{quote['Job Other Condition Notes'] && <p>{quote['Job Other Condition Notes']}</p>}
+			</div>
+		)}
+
+		{(inputSnapshot.overallAccessDifficulty || inputSnapshot.exteriorGlassCondition) && (
+			<div class="card">
+				<h2>Job Assessment</h2>
+				<div class="field-display-grid">
+					<div>
+						<span class="field-display-label">Overall Access Difficulty</span>
+						<span class="field-display-value">{inputSnapshot.overallAccessDifficulty || '—'}</span>
+					</div>
+					<div>
+						<span class="field-display-label">Exterior Glass Condition</span>
+						<span class="field-display-value">{inputSnapshot.exteriorGlassCondition || '—'}</span>
+					</div>
+					<div>
+						<span class="field-display-label">Interior Glass Condition</span>
+						<span class="field-display-value">{inputSnapshot.interiorGlassCondition || '—'}</span>
+					</div>
+				</div>
+
+				{accessModifierBadges.some(([, v]) => v) && (
+					<>
+						<p class="field-label" style="margin-top: 1rem;">Access &amp; Equipment Modifiers</p>
+						{accessModifierBadges.filter(([, v]) => v).map(([label]) => <span class="badge">{label}</span>)}
+						{inputSnapshot.otherAccessNotes && <p>{inputSnapshot.otherAccessNotes}</p>}
+					</>
+				)}
+
+				{restorationBadges.some(([, v]) => v) && (
+					<>
+						<p class="field-label" style="margin-top: 1rem;">Restoration Services Required</p>
+						{restorationBadges.filter(([, v]) => v).map(([label]) => <span class="badge">{label}</span>)}
+						{inputSnapshot.restorationNotes && <p>{inputSnapshot.restorationNotes}</p>}
+					</>
+				)}
 			</div>
 		)}
 

@@ -10,7 +10,8 @@ import { seedInitialServices } from '../lib/pricing/services';
 import { serviceConfig } from '../lib/models/service';
 import { createQuote, updateQuote } from '../lib/pricing/quotes';
 import { quoteConfig, type Quote } from '../lib/models/quote';
-import { itemsToQuoteCounts, conditionForEngine } from '../lib/pricing/walkthroughToQuote';
+import { itemsToQuoteCounts } from '../lib/pricing/walkthroughToQuote';
+import { conditionForEngine, hasAnyRestorationFlag } from '../lib/pricing/condition';
 import { listPricingConfigs } from '../lib/pricing/config';
 import QuoterForm, { type InitialQuoteData } from '../components/QuoterForm';
 import type { QuoteCounts, QuoteInput } from '../lib/pricing/types';
@@ -47,35 +48,51 @@ if (Astro.request.method === 'POST') {
 			skylightInt: num(form, 'skylightInt'),
 		};
 
-		// The engine's single difficultAccess boolean is derived from
-		// whichever job-specific access flags are checked (see the comment
-		// on Quote schema's job-condition fields) — one thing still actually
-		// drives the access surcharge, even though the form now captures the
-		// granular reasons why for reporting.
-		const jobConditions = {
-			highInteriorGlass: on(form, 'jobHighInteriorGlass'),
-			steepOrUnevenTerrain: on(form, 'jobSteepOrUnevenTerrain'),
-			exteriorAccessObstructed: on(form, 'jobExteriorAccessObstructed'),
-			furnitureMovementRequired: on(form, 'jobFurnitureMovementRequired'),
-			waterAccessDifficult: on(form, 'jobWaterAccessDifficult'),
-			siliconeOrStickerResidue: on(form, 'jobSiliconeOrStickerResidue'),
-			heavyInteriorResidue: on(form, 'jobHeavyInteriorResidue'),
-			otherConditionNotes: String(form.get('jobOtherConditionNotes') ?? ''),
+		// Job Assessment — mirrors Walkthrough/Historical Entry's own model.
+		// Overall Access Difficulty (not a flat OR of checkboxes) is now the
+		// one thing that drives the difficult-access surcharge; Exterior
+		// Glass Condition + whether any Restoration Services box is checked
+		// together drive the engine's condition tier, via the exact same
+		// conditionForEngine/hasAnyRestorationFlag logic Walkthrough uses.
+		const restorationFlags = {
+			hardWaterPresent: on(form, 'hardWater'),
+			constructionDebrisPresent: on(form, 'constructionDebris'),
+			siliconeResidue: on(form, 'siliconeResidue'),
+			paintOverspray: on(form, 'paintOverspray'),
+			razorScraping: on(form, 'razorScraping'),
+			steelWool: on(form, 'steelWool'),
+			nonScratchPad: on(form, 'nonScratchPad'),
 		};
-		const difficultAccess =
-			jobConditions.highInteriorGlass ||
-			jobConditions.steepOrUnevenTerrain ||
-			jobConditions.exteriorAccessObstructed ||
-			jobConditions.furnitureMovementRequired ||
-			jobConditions.waterAccessDifficult;
+		const exteriorGlassCondition = String(form.get('exteriorGlassCondition') ?? 'Maintenance');
+		const overallAccessDifficulty = String(form.get('overallAccessDifficulty') ?? 'Easy');
 
 		const input: QuoteInput = {
 			stories: (Number(form.get('stories')) || 1) as 1 | 2 | 3,
-			condition: String(form.get('condition') ?? 'light') as 'light' | 'moderate' | 'heavy' | 'firstTime',
+			condition: conditionForEngine(exteriorGlassCondition, hasAnyRestorationFlag(restorationFlags)),
 			counts,
-			hardWater: on(form, 'hardWater'),
-			constructionDebris: on(form, 'constructionDebris'),
-			difficultAccess,
+			hardWater: restorationFlags.hardWaterPresent,
+			constructionDebris: restorationFlags.constructionDebrisPresent,
+			difficultAccess: overallAccessDifficulty === 'Difficult',
+			siliconeResidue: restorationFlags.siliconeResidue,
+			paintOverspray: restorationFlags.paintOverspray,
+			razorScraping: restorationFlags.razorScraping,
+			steelWool: restorationFlags.steelWool,
+			nonScratchPad: restorationFlags.nonScratchPad,
+			restorationNotes: String(form.get('restorationNotes') ?? ''),
+			exteriorGlassCondition,
+			interiorGlassCondition: String(form.get('interiorGlassCondition') ?? 'Maintenance'),
+			overallAccessDifficulty,
+			secondStoryExterior: on(form, 'secondStoryExterior'),
+			ladderRequired: on(form, 'ladderRequired'),
+			vaultedInteriorGlass: on(form, 'vaultedInteriorGlass'),
+			roofAccessRequired: on(form, 'roofAccessRequired'),
+			oversizedGlass: on(form, 'oversizedGlass'),
+			exteriorObstructions: on(form, 'exteriorObstructions'),
+			limitedInteriorAccess: on(form, 'limitedInteriorAccess'),
+			waterFedPoleUsed: on(form, 'waterFedPoleUsed'),
+			traditionalExteriorCleaningUsed: on(form, 'traditionalExteriorCleaningUsed'),
+			otherAccessIssue: on(form, 'otherAccessIssue'),
+			otherAccessNotes: String(form.get('otherAccessNotes') ?? ''),
 			manualAdjustment: num(form, 'manualAdjustment'),
 			discount: num(form, 'discount'),
 			overrideReason: String(form.get('overrideReason') ?? ''),
@@ -90,7 +107,6 @@ if (Astro.request.method === 'POST') {
 				confidence: String(form.get('laborEstimateConfidence') ?? ''),
 				notes: String(form.get('laborEstimateNotes') ?? ''),
 			},
-			jobConditions,
 			input,
 		};
 
@@ -163,17 +179,28 @@ function buildInitialQuoteData(sourceQuote: Quote): InitialQuoteData {
 			skylightInt: 0,
 		},
 		stories: snapshot.stories ?? 1,
-		condition: snapshot.condition ?? 'light',
 		hardWater: snapshot.hardWater ?? false,
 		constructionDebris: snapshot.constructionDebris ?? false,
-		jobHighInteriorGlass: sourceQuote['Job High Interior Glass (Y/N)'] === 'Y',
-		jobSteepOrUnevenTerrain: sourceQuote['Job Steep Or Uneven Terrain (Y/N)'] === 'Y',
-		jobExteriorAccessObstructed: sourceQuote['Job Exterior Access Obstructed (Y/N)'] === 'Y',
-		jobFurnitureMovementRequired: sourceQuote['Job Furniture Movement Required (Y/N)'] === 'Y',
-		jobWaterAccessDifficult: sourceQuote['Job Water Access Difficult (Y/N)'] === 'Y',
-		jobSiliconeOrStickerResidue: sourceQuote['Job Silicone Or Sticker Residue (Y/N)'] === 'Y',
-		jobHeavyInteriorResidue: sourceQuote['Job Heavy Interior Residue (Y/N)'] === 'Y',
-		otherConditionNotes: sourceQuote['Job Other Condition Notes'],
+		exteriorGlassCondition: snapshot.exteriorGlassCondition ?? 'Maintenance',
+		interiorGlassCondition: snapshot.interiorGlassCondition ?? 'Maintenance',
+		overallAccessDifficulty: snapshot.overallAccessDifficulty ?? 'Easy',
+		secondStoryExterior: snapshot.secondStoryExterior ?? false,
+		ladderRequired: snapshot.ladderRequired ?? false,
+		vaultedInteriorGlass: snapshot.vaultedInteriorGlass ?? false,
+		roofAccessRequired: snapshot.roofAccessRequired ?? false,
+		oversizedGlass: snapshot.oversizedGlass ?? false,
+		exteriorObstructions: snapshot.exteriorObstructions ?? false,
+		limitedInteriorAccess: snapshot.limitedInteriorAccess ?? false,
+		waterFedPoleUsed: snapshot.waterFedPoleUsed ?? false,
+		traditionalExteriorCleaningUsed: snapshot.traditionalExteriorCleaningUsed ?? false,
+		otherAccessIssue: snapshot.otherAccessIssue ?? false,
+		otherAccessNotes: snapshot.otherAccessNotes ?? '',
+		siliconeResidue: snapshot.siliconeResidue ?? false,
+		paintOverspray: snapshot.paintOverspray ?? false,
+		razorScraping: snapshot.razorScraping ?? false,
+		steelWool: snapshot.steelWool ?? false,
+		nonScratchPad: snapshot.nonScratchPad ?? false,
+		restorationNotes: snapshot.restorationNotes ?? '',
 		laborSoloHours: sourceQuote['Labor Estimate Solo Hours'],
 		laborCrewSize: sourceQuote['Labor Estimate Crew Size'],
 		laborConfidence: sourceQuote['Labor Estimate Confidence'],
@@ -213,7 +240,23 @@ if (editQuoteId && !error) {
 // without guessing. Falls back to blank/manual entry when no qualifying
 // walkthrough exists yet.
 const INVENTORY_SOURCE_STATUSES = new Set(['Completed', 'Converted to Quote']);
-const latestWalkthroughByProperty: Record<string, { walkthroughId: string; walkthroughDate: string; counts: QuoteCounts } | null> = {};
+interface WalkthroughDefault {
+	walkthroughId: string;
+	walkthroughDate: string;
+	counts: QuoteCounts;
+	exteriorCondition: string;
+	interiorCondition: string;
+	accessDifficulty: string;
+	hardWater: boolean;
+	constructionDebris: boolean;
+	siliconeResidue: boolean;
+	paintOverspray: boolean;
+	razorScraping: boolean;
+	steelWool: boolean;
+	nonScratchPad: boolean;
+	restorationNotes: string;
+}
+const latestWalkthroughByProperty: Record<string, WalkthroughDefault | null> = {};
 for (const property of properties) {
 	const candidates = allWalkthroughs
 		.filter((w) => w['Property ID'] === property['Property ID'] && INVENTORY_SOURCE_STATUSES.has(w.Status))
@@ -228,16 +271,27 @@ for (const property of properties) {
 		walkthroughId: latest['Walkthrough ID'],
 		walkthroughDate: latest['Walkthrough Date'],
 		counts: itemsToQuoteCounts(items),
+		exteriorCondition: latest['Exterior Condition'],
+		interiorCondition: latest['Interior Condition'],
+		accessDifficulty: latest['Access Difficulty'],
+		hardWater: latest['Hard Water Present (Y/N)'] === 'Y',
+		constructionDebris: latest['Construction Debris Present (Y/N)'] === 'Y',
+		siliconeResidue: latest['Silicone Adhesive Or Sticker Residue (Y/N)'] === 'Y',
+		paintOverspray: latest['Paint Overspray (Y/N)'] === 'Y',
+		razorScraping: latest['Razor Scraping Required (Y/N)'] === 'Y',
+		steelWool: latest['Steel Wool Required (Y/N)'] === 'Y',
+		nonScratchPad: latest['Non-Scratch Pad Required (Y/N)'] === 'Y',
+		restorationNotes: latest['Restoration Notes'],
 	};
 }
 
 // Read-only property summary strip (Quote Header) — reuses the same
 // compat-default derivation as the Property Detail page so a
 // pre-redesign legacy value still shows correctly translated here too.
-// Also carries the raw Access Considerations / Glass Condition flags,
-// which the Current Job Conditions card pre-fills from and diffs against
-// (see the handoff's "This quote differs from the saved property details"
-// notice) — these mirror the exact Property columns 1:1.
+// Property's own legacy Window Condition / Access Considerations fields are
+// deliberately not surfaced here anymore — the Job Assessment section now
+// pre-fills from the property's latest Walkthrough (a real per-visit
+// observation) via latestWalkthroughByProperty above instead.
 const propertySummaryById = Object.fromEntries(
 	properties.map((p) => {
 		const compat = derivePropertyCompatDefaults(p);
@@ -247,17 +301,8 @@ const propertySummaryById = Object.fromEntries(
 				stories: p.Stories,
 				totalWindowUnits: p['Total Window Units'],
 				totalGlassPanes: p['Total Glass Panes'],
-				windowCondition: p['Window Condition'],
 				exteriorCleaningMethod: compat.exteriorCleaningMethodValue,
 				ladderRequirement: compat.ladderRequirementValue,
-				conditionDefault: conditionForEngine(p['Window Condition']),
-				highInteriorGlass: p['High Interior Glass (Y/N)'],
-				steepOrUnevenTerrain: p['Steep Or Uneven Terrain (Y/N)'],
-				exteriorAccessObstructed: p['Exterior Access Obstructed (Y/N)'],
-				furnitureMovementRequired: p['Furniture Or Belongings Movement Required (Y/N)'],
-				waterSourceFarFromWorkArea: p['Water Source Far From Work Area (Y/N)'],
-				siliconeResidue: p['Silicone Adhesive Or Sticker Residue (Y/N)'],
-				heavyInteriorResidue: p['Heavy Interior Residue (Y/N)'],
 			},
 		];
 	})

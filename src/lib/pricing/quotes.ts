@@ -48,16 +48,6 @@ export interface CreateQuoteParams {
 		confidence?: string;
 		notes?: string;
 	};
-	jobConditions?: {
-		highInteriorGlass?: boolean;
-		steepOrUnevenTerrain?: boolean;
-		exteriorAccessObstructed?: boolean;
-		furnitureMovementRequired?: boolean;
-		waterAccessDifficult?: boolean;
-		siliconeOrStickerResidue?: boolean;
-		heavyInteriorResidue?: boolean;
-		otherConditionNotes?: string;
-	};
 }
 
 export interface CreateQuoteResult {
@@ -135,14 +125,6 @@ export async function createQuote(env: SheetsEnv, params: CreateQuoteParams): Pr
 					'Labor Estimate Crew Size': params.laborEstimate?.crewSize ?? '',
 					'Labor Estimate Confidence': params.laborEstimate?.confidence ?? '',
 					'Labor Estimate Notes': params.laborEstimate?.notes ?? '',
-					'Job High Interior Glass (Y/N)': params.jobConditions ? (params.jobConditions.highInteriorGlass ? 'Y' : 'N') : '',
-					'Job Steep Or Uneven Terrain (Y/N)': params.jobConditions ? (params.jobConditions.steepOrUnevenTerrain ? 'Y' : 'N') : '',
-					'Job Exterior Access Obstructed (Y/N)': params.jobConditions ? (params.jobConditions.exteriorAccessObstructed ? 'Y' : 'N') : '',
-					'Job Furniture Movement Required (Y/N)': params.jobConditions ? (params.jobConditions.furnitureMovementRequired ? 'Y' : 'N') : '',
-					'Job Water Access Difficult (Y/N)': params.jobConditions ? (params.jobConditions.waterAccessDifficult ? 'Y' : 'N') : '',
-					'Job Silicone Or Sticker Residue (Y/N)': params.jobConditions ? (params.jobConditions.siliconeOrStickerResidue ? 'Y' : 'N') : '',
-					'Job Heavy Interior Residue (Y/N)': params.jobConditions ? (params.jobConditions.heavyInteriorResidue ? 'Y' : 'N') : '',
-					'Job Other Condition Notes': params.jobConditions?.otherConditionNotes ?? '',
 				},
 			],
 		},
@@ -182,16 +164,6 @@ export interface UpdateQuoteParams {
 		crewSize?: string;
 		confidence?: string;
 		notes?: string;
-	};
-	jobConditions?: {
-		highInteriorGlass?: boolean;
-		steepOrUnevenTerrain?: boolean;
-		exteriorAccessObstructed?: boolean;
-		furnitureMovementRequired?: boolean;
-		waterAccessDifficult?: boolean;
-		siliconeOrStickerResidue?: boolean;
-		heavyInteriorResidue?: boolean;
-		otherConditionNotes?: string;
 	};
 }
 
@@ -479,14 +451,6 @@ export async function updateQuote(env: SheetsEnv, quoteId: string, params: Updat
 			'Labor Estimate Crew Size': params.laborEstimate?.crewSize ?? '',
 			'Labor Estimate Confidence': params.laborEstimate?.confidence ?? '',
 			'Labor Estimate Notes': params.laborEstimate?.notes ?? '',
-			'Job High Interior Glass (Y/N)': params.jobConditions ? (params.jobConditions.highInteriorGlass ? 'Y' : 'N') : '',
-			'Job Steep Or Uneven Terrain (Y/N)': params.jobConditions ? (params.jobConditions.steepOrUnevenTerrain ? 'Y' : 'N') : '',
-			'Job Exterior Access Obstructed (Y/N)': params.jobConditions ? (params.jobConditions.exteriorAccessObstructed ? 'Y' : 'N') : '',
-			'Job Furniture Movement Required (Y/N)': params.jobConditions ? (params.jobConditions.furnitureMovementRequired ? 'Y' : 'N') : '',
-			'Job Water Access Difficult (Y/N)': params.jobConditions ? (params.jobConditions.waterAccessDifficult ? 'Y' : 'N') : '',
-			'Job Silicone Or Sticker Residue (Y/N)': params.jobConditions ? (params.jobConditions.siliconeOrStickerResidue ? 'Y' : 'N') : '',
-			'Job Heavy Interior Residue (Y/N)': params.jobConditions ? (params.jobConditions.heavyInteriorResidue ? 'Y' : 'N') : '',
-			'Job Other Condition Notes': params.jobConditions?.otherConditionNotes ?? '',
 		},
 		{ action: 'Quote edited' }
 	);

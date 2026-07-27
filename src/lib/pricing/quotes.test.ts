@@ -237,14 +237,13 @@ describe('createQuote', () => {
 		expect(Number(quote.Discount)).toBe(20);
 	});
 
-	it('persists Service Scope, Inventory Coverage, Labor Estimate, and job-condition fields when provided', async () => {
+	it('persists Service Scope, Inventory Coverage, and Labor Estimate fields when provided', async () => {
 		const { quote } = await createQuote(harness.env, {
 			clientId: 'client-1',
 			propertyId: 'property-1',
 			serviceScope: 'Exterior Only',
 			inventoryCoverage: 'Entire Property',
 			laborEstimate: { soloHours: '3.5', crewSize: '2', confidence: 'Medium', notes: 'Steep roofline' },
-			jobConditions: { highInteriorGlass: true, steepOrUnevenTerrain: false, otherConditionNotes: 'Dog on site' },
 			input: {
 				stories: 1,
 				condition: 'light',
@@ -261,12 +260,9 @@ describe('createQuote', () => {
 		expect(quote['Labor Estimate Crew Size']).toBe('2');
 		expect(quote['Labor Estimate Confidence']).toBe('Medium');
 		expect(quote['Labor Estimate Notes']).toBe('Steep roofline');
-		expect(quote['Job High Interior Glass (Y/N)']).toBe('Y');
-		expect(quote['Job Steep Or Uneven Terrain (Y/N)']).toBe('N');
-		expect(quote['Job Other Condition Notes']).toBe('Dog on site');
 	});
 
-	it('leaves Service Scope/Inventory Coverage/Labor Estimate/job-condition fields blank when not provided', async () => {
+	it('leaves Service Scope/Inventory Coverage/Labor Estimate fields blank when not provided, and never writes the legacy Job-condition columns', async () => {
 		const { quote } = await createQuote(harness.env, {
 			clientId: 'client-1',
 			propertyId: 'property-1',

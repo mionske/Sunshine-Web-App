@@ -108,13 +108,12 @@ export const quoteSchema = z.object({
 	'Labor Estimate Crew Size': blank(),
 	'Labor Estimate Confidence': blank(),
 	'Labor Estimate Notes': blank(),
-	// Current Job Conditions: job-specific condition flags, distinct from
-	// the Property's own Glass Condition/Access Considerations (which
-	// describe the property in general, not necessarily this one visit).
-	// Reporting only — none of these are read by calculateQuote. The
-	// engine's single difficultAccess boolean is derived server-side from
-	// whichever of the access-related flags below are checked, so there's
-	// still exactly one thing that actually drives the access surcharge.
+	// Legacy — superseded by the Overall Access Difficulty / Glass Condition
+	// / Restoration Services / Access & Equipment Modifiers fields now
+	// captured in Input Snapshot (matching the same structure Walkthrough
+	// and Historical Entry already use — see QuoteInput in
+	// lib/pricing/types.ts). Kept declared so old quotes' values still
+	// round-trip and display; the Quoter never writes any of these again.
 	'Job High Interior Glass (Y/N)': blank(),
 	'Job Steep Or Uneven Terrain (Y/N)': blank(),
 	'Job Exterior Access Obstructed (Y/N)': blank(),

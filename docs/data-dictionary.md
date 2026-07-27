@@ -230,7 +230,35 @@ Confidence, Labor Estimate Notes, Job High Interior Glass (Y/N), Job Steep
 Or Uneven Terrain (Y/N), Job Exterior Access Obstructed (Y/N), Job
 Furniture Movement Required (Y/N), Job Water Access Difficult (Y/N), Job
 Silicone Or Sticker Residue (Y/N), Job Heavy Interior Residue (Y/N), Job
-Other Condition Notes.
+Other Condition Notes (the 7 **Job \*** columns and Job Other Condition
+Notes are **legacy** — superseded by the Job Assessment redesign below,
+kept declared only so older quotes' values still round-trip; the Quoter
+never writes any of them again).
+
+**Job Assessment redesign** (Quoter rebuilt to match Walkthrough/Historical
+Entry's own model instead of a flat ad-hoc checklist): Exterior/Interior
+Glass Condition (`GLASS_CONDITION_LEVELS`), Overall Access Difficulty
+(Easy/Standard/Difficult), the 10-item Access & Equipment Modifiers set,
+and the 8-item Restoration Services Required set (Construction Debris,
+Window Stickers/Adhesive, Paint Overspray, Hard Water, Razor Scraping,
+Steel Wool, Non-Scratch Pad, notes) all live inside **Input Snapshot**
+(`QuoteInput`, `lib/pricing/types.ts`) rather than as dedicated Quote
+columns — matching how Manual Adjustment/Discount/Override Reason were
+already stored, and avoiding another schema migration for what's mostly
+reporting data. The Quote Detail page parses Input Snapshot to display a
+"Job Assessment" card (segmented values + badges, matching the Walkthrough
+Detail page's own style). Exterior Glass Condition + whether any
+Restoration Services box is checked together drive the engine's condition
+tier via `conditionForEngine()`/`hasAnyRestorationFlag()`
+(`lib/pricing/condition.ts` — extracted from `walkthroughToQuote.ts` so
+it's dependency-free enough to run client-side for the Quoter's live price
+preview); Overall Access Difficulty (`'Difficult'`) is the sole trigger for
+`difficultAccess`, replacing the old OR-of-checkboxes logic. The 10 Access
+& Equipment Modifiers never affect price, matching Walkthrough's own
+identical set. Quoter also auto-defaults this whole section from the
+property's latest completed Walkthrough (a real per-visit observation)
+instead of Property's legacy Window Condition/Access Considerations fields
+(which are no longer read here at all).
 
 The saved Quote + QuoteItems rows are always the authoritative record of
 what was charged. Reproducibility means the stored snapshots + config
@@ -261,17 +289,11 @@ Input Snapshot) are what actually price the job. **Labor Estimate Solo
 Hours/Crew Size/Confidence/Notes** are a second, independently
 human-entered labor figure — never read by `calculateQuote`'s own
 itemized `estimatedLaborHours`, per the owner's explicit "reporting only"
-decision. The **Job \* (Y/N)** flags mirror the corresponding Property
-Access Considerations/Glass Condition columns 1:1 (see the Properties
-section above) but describe *this specific visit*, which can diverge from
-the property's general saved condition — the Quoter pre-fills them from
-the property's saved flags and shows an inline "this quote differs from
-the saved property details" notice when the rep changes them, without
-ever auto-updating the Property record. The engine's single
-`difficultAccess` boolean (unchanged) is derived from whichever of the
-access-related Job flags are checked, so there's still exactly one
-pricing input driving the access surcharge even though the form now
-captures the specific reasons why.
+decision. The legacy **Job \* (Y/N)** flags (see "Job Assessment redesign"
+above for their replacement) used to mirror the corresponding Property
+Access Considerations/Glass Condition columns and derive `difficultAccess`
+from an OR of the access-related ones — both superseded by Overall Access
+Difficulty and the property's latest Walkthrough as the pre-fill source.
 
 **Adjustment Reason.** The existing **Override Reason** column is now
 required whenever Manual Adjustment or Discount is non-zero — enforced by

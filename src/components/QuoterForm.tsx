@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { calculateQuote } from '../lib/pricing/engine';
-import type { Condition, QuoteCounts, QuoteInput, Stories } from '../lib/pricing/types';
+import type { QuoteCounts, QuoteInput, Stories } from '../lib/pricing/types';
+import { conditionForEngine, hasAnyRestorationFlag } from '../lib/pricing/condition';
 import type { PricingConfig } from '../lib/models/pricingConfig';
 import type { Service } from '../lib/models/service';
+import { GLASS_CONDITION_LEVELS } from '../lib/models/walkthrough';
 import {
 	SERVICE_SCOPE_OPTIONS,
 	INVENTORY_COVERAGE_OPTIONS,
@@ -15,13 +17,13 @@ type ServiceScope = (typeof SERVICE_SCOPE_OPTIONS)[number];
 type InventoryCoverage = (typeof INVENTORY_COVERAGE_OPTIONS)[number];
 type ScreensMode = 'Not Included' | 'Include All' | 'Custom Quantity';
 type TrackMode = 'Not Included' | 'Basic Wipe' | 'Deep Cleaning';
+type GlassConditionLevel = (typeof GLASS_CONDITION_LEVELS)[number];
 
-const CONDITION_OPTIONS: { value: Condition; label: string }[] = [
-	{ value: 'light', label: 'Maintenance' },
-	{ value: 'moderate', label: 'Moderate Buildup' },
-	{ value: 'heavy', label: 'Heavy Buildup' },
-	{ value: 'firstTime', label: 'Restoration Required' },
-];
+// Trimmed to 3 values, matching Historical Entry's own trimmed scale (see
+// HistoricalEntryWizard.tsx) rather than the field-use Walkthrough's fuller
+// 5-value list — this is the "how I quote a home" mental model the Quoter
+// is being redesigned to match.
+const ACCESS_LEVELS = ['Easy', 'Standard', 'Difficult'] as const;
 
 const EMPTY_COUNTS: QuoteCounts = {
 	windowExtStandard: 0,
@@ -56,30 +58,37 @@ interface PropertySummary {
 	stories: string;
 	totalWindowUnits: string;
 	totalGlassPanes: string;
-	windowCondition: string;
 	exteriorCleaningMethod: string;
 	ladderRequirement: string;
-	conditionDefault: Condition;
-	highInteriorGlass: string;
-	steepOrUnevenTerrain: string;
-	exteriorAccessObstructed: string;
-	furnitureMovementRequired: string;
-	waterSourceFarFromWorkArea: string;
-	siliconeResidue: string;
-	heavyInteriorResidue: string;
 }
 
 interface WalkthroughDefault {
 	walkthroughId: string;
 	walkthroughDate: string;
 	counts: QuoteCounts;
+	// Real per-visit observations from this property's latest completed
+	// Walkthrough — the accurate source for defaulting the new Job
+	// Assessment section below, unlike Property's own legacy Window
+	// Condition field (a stale, permanent-record guess this redesign
+	// deliberately stops reading).
+	exteriorCondition: string;
+	interiorCondition: string;
+	accessDifficulty: string;
+	hardWater: boolean;
+	constructionDebris: boolean;
+	siliconeResidue: boolean;
+	paintOverspray: boolean;
+	razorScraping: boolean;
+	steelWool: boolean;
+	nonScratchPad: boolean;
+	restorationNotes: string;
 }
 
 /** Everything needed to re-populate the form from an existing Quote — see
- * quoter.astro's `?quoteId=` edit-mode loading. Counts/stories/condition/
- * hardWater/constructionDebris/manualAdjustment/discount/overrideReason
- * come straight from the Quote's own stored Input Snapshot (already this
- * exact shape); the rest are plain Quote columns. */
+ * quoter.astro's `?quoteId=` edit-mode loading. Every field here comes
+ * straight from the Quote's own stored Input Snapshot (already this exact
+ * shape) except quoteId/clientId/propertyId/pricingConfigId/serviceScope/
+ * inventoryCoverage/laborX, which are plain Quote columns. */
 export interface InitialQuoteData {
 	quoteId: string;
 	clientId: string;
@@ -89,17 +98,32 @@ export interface InitialQuoteData {
 	inventoryCoverage: string;
 	counts: QuoteCounts;
 	stories: Stories;
-	condition: Condition;
 	hardWater: boolean;
 	constructionDebris: boolean;
-	jobHighInteriorGlass: boolean;
-	jobSteepOrUnevenTerrain: boolean;
-	jobExteriorAccessObstructed: boolean;
-	jobFurnitureMovementRequired: boolean;
-	jobWaterAccessDifficult: boolean;
-	jobSiliconeOrStickerResidue: boolean;
-	jobHeavyInteriorResidue: boolean;
-	otherConditionNotes: string;
+	// Job Assessment — see QuoteInput in lib/pricing/types.ts for why
+	// exterior/interior Glass Condition and Overall Access Difficulty are
+	// stored as their original human-readable selections, not just the
+	// engine-derived condition/difficultAccess booleans.
+	exteriorGlassCondition: string;
+	interiorGlassCondition: string;
+	overallAccessDifficulty: string;
+	secondStoryExterior: boolean;
+	ladderRequired: boolean;
+	vaultedInteriorGlass: boolean;
+	roofAccessRequired: boolean;
+	oversizedGlass: boolean;
+	exteriorObstructions: boolean;
+	limitedInteriorAccess: boolean;
+	waterFedPoleUsed: boolean;
+	traditionalExteriorCleaningUsed: boolean;
+	otherAccessIssue: boolean;
+	otherAccessNotes: string;
+	siliconeResidue: boolean;
+	paintOverspray: boolean;
+	razorScraping: boolean;
+	steelWool: boolean;
+	nonScratchPad: boolean;
+	restorationNotes: string;
 	laborSoloHours: string;
 	laborCrewSize: string;
 	laborConfidence: string;
@@ -203,7 +227,6 @@ export default function QuoterForm(props: QuoterFormProps) {
 	);
 	const [counts, setCounts] = useState<QuoteCounts>(initialQuote?.counts ?? EMPTY_COUNTS);
 	const [stories, setStories] = useState<Stories>(initialQuote?.stories ?? 1);
-	const [condition, setCondition] = useState<Condition>(initialQuote?.condition ?? 'light');
 
 	const [screensMode, setScreensMode] = useState<ScreensMode>(
 		initialQuote ? (initialQuote.counts.screenClean > 0 ? 'Include All' : 'Not Included') : 'Not Included'
@@ -224,18 +247,39 @@ export default function QuoterForm(props: QuoterFormProps) {
 	const [skylightsIncluded, setSkylightsIncluded] = useState(
 		initialQuote ? initialQuote.counts.skylightExt + initialQuote.counts.skylightInt > 0 : false
 	);
+	// Job Assessment — mirrors Walkthrough/Historical Entry's own model
+	// (Glass Condition, Overall Access Difficulty, Access & Equipment
+	// Modifiers, Restoration Services Required) instead of the old flat
+	// "Current Job Conditions" checklist.
+	const [exteriorGlassCondition, setExteriorGlassCondition] = useState<GlassConditionLevel>(
+		(initialQuote?.exteriorGlassCondition as GlassConditionLevel) || 'Maintenance'
+	);
+	const [interiorGlassCondition, setInteriorGlassCondition] = useState<GlassConditionLevel>(
+		(initialQuote?.interiorGlassCondition as GlassConditionLevel) || 'Maintenance'
+	);
+	const [overallAccessDifficulty, setOverallAccessDifficulty] = useState<(typeof ACCESS_LEVELS)[number]>(
+		(initialQuote?.overallAccessDifficulty as (typeof ACCESS_LEVELS)[number]) || 'Easy'
+	);
+	const [secondStoryExterior, setSecondStoryExterior] = useState(initialQuote?.secondStoryExterior ?? false);
+	const [ladderRequired, setLadderRequired] = useState(initialQuote?.ladderRequired ?? false);
+	const [vaultedInteriorGlass, setVaultedInteriorGlass] = useState(initialQuote?.vaultedInteriorGlass ?? false);
+	const [roofAccessRequired, setRoofAccessRequired] = useState(initialQuote?.roofAccessRequired ?? false);
+	const [oversizedGlass, setOversizedGlass] = useState(initialQuote?.oversizedGlass ?? false);
+	const [exteriorObstructions, setExteriorObstructions] = useState(initialQuote?.exteriorObstructions ?? false);
+	const [limitedInteriorAccess, setLimitedInteriorAccess] = useState(initialQuote?.limitedInteriorAccess ?? false);
+	const [waterFedPoleUsed, setWaterFedPoleUsed] = useState(initialQuote?.waterFedPoleUsed ?? false);
+	const [traditionalExteriorCleaningUsed, setTraditionalExteriorCleaningUsed] = useState(initialQuote?.traditionalExteriorCleaningUsed ?? false);
+	const [otherAccessIssue, setOtherAccessIssue] = useState(initialQuote?.otherAccessIssue ?? false);
+	const [otherAccessNotes, setOtherAccessNotes] = useState(initialQuote?.otherAccessNotes ?? '');
+
 	const [hardWater, setHardWater] = useState(initialQuote?.hardWater ?? false);
 	const [constructionDebris, setConstructionDebris] = useState(initialQuote?.constructionDebris ?? false);
-	const [otherSpecialtyTreatment, setOtherSpecialtyTreatment] = useState(false);
-
-	const [jobHighInteriorGlass, setJobHighInteriorGlass] = useState(initialQuote?.jobHighInteriorGlass ?? false);
-	const [jobSteepOrUnevenTerrain, setJobSteepOrUnevenTerrain] = useState(initialQuote?.jobSteepOrUnevenTerrain ?? false);
-	const [jobExteriorAccessObstructed, setJobExteriorAccessObstructed] = useState(initialQuote?.jobExteriorAccessObstructed ?? false);
-	const [jobFurnitureMovementRequired, setJobFurnitureMovementRequired] = useState(initialQuote?.jobFurnitureMovementRequired ?? false);
-	const [jobWaterAccessDifficult, setJobWaterAccessDifficult] = useState(initialQuote?.jobWaterAccessDifficult ?? false);
-	const [jobSiliconeOrStickerResidue, setJobSiliconeOrStickerResidue] = useState(initialQuote?.jobSiliconeOrStickerResidue ?? false);
-	const [jobHeavyInteriorResidue, setJobHeavyInteriorResidue] = useState(initialQuote?.jobHeavyInteriorResidue ?? false);
-	const [otherConditionNotes, setOtherConditionNotes] = useState(initialQuote?.otherConditionNotes ?? '');
+	const [siliconeResidue, setSiliconeResidue] = useState(initialQuote?.siliconeResidue ?? false);
+	const [paintOverspray, setPaintOverspray] = useState(initialQuote?.paintOverspray ?? false);
+	const [razorScraping, setRazorScraping] = useState(initialQuote?.razorScraping ?? false);
+	const [steelWool, setSteelWool] = useState(initialQuote?.steelWool ?? false);
+	const [nonScratchPad, setNonScratchPad] = useState(initialQuote?.nonScratchPad ?? false);
+	const [restorationNotes, setRestorationNotes] = useState(initialQuote?.restorationNotes ?? '');
 
 	const [laborSoloHours, setLaborSoloHours] = useState(initialQuote?.laborSoloHours ?? '');
 	const [laborCrewSize, setLaborCrewSize] = useState<(typeof LABOR_ESTIMATE_CREW_SIZE_OPTIONS)[number]>(
@@ -263,10 +307,12 @@ export default function QuoterForm(props: QuoterFormProps) {
 	const propertiesForClient = properties.filter((p) => p.clientId === clientId);
 
 	// Reset every property-derived field whenever the selected property
-	// changes — pre-filling from its latest completed Walkthrough (Quote
-	// Inventory) and its own saved Access/Glass Condition flags (Current Job
-	// Conditions), so the diff notice below has a real baseline to compare
-	// against rather than always firing.
+	// changes — pre-filling Quote Inventory and the Job Assessment section
+	// from the property's latest completed Walkthrough (a real per-visit
+	// observation), so the diff notice below has a real baseline to compare
+	// against rather than always firing. Property's own legacy Window
+	// Condition field is deliberately not read here — it's a stale,
+	// permanent-record guess superseded by the Walkthrough model.
 	useEffect(() => {
 		// Editing an existing Quote: Client/Property are fixed (see the
 		// read-only display below) and every field already comes from the
@@ -289,6 +335,23 @@ export default function QuoterForm(props: QuoterFormProps) {
 			setTrackMode(wt.counts.trackDeep > 0 ? 'Deep Cleaning' : wt.counts.trackBasic > 0 ? 'Basic Wipe' : 'Not Included');
 			setTrackQty(String(wt.counts.trackDeep || wt.counts.trackBasic || 0));
 			setSkylightsIncluded(wt.counts.skylightExt + wt.counts.skylightInt > 0);
+			setExteriorGlassCondition((GLASS_CONDITION_LEVELS as readonly string[]).includes(wt.exteriorCondition) ? (wt.exteriorCondition as GlassConditionLevel) : 'Maintenance');
+			setInteriorGlassCondition((GLASS_CONDITION_LEVELS as readonly string[]).includes(wt.interiorCondition) ? (wt.interiorCondition as GlassConditionLevel) : 'Maintenance');
+			setOverallAccessDifficulty(
+				wt.accessDifficulty === 'Difficult' || wt.accessDifficulty === 'Specialty Access'
+					? 'Difficult'
+					: wt.accessDifficulty === 'Standard'
+						? 'Standard'
+						: 'Easy'
+			);
+			setHardWater(wt.hardWater);
+			setConstructionDebris(wt.constructionDebris);
+			setSiliconeResidue(wt.siliconeResidue);
+			setPaintOverspray(wt.paintOverspray);
+			setRazorScraping(wt.razorScraping);
+			setSteelWool(wt.steelWool);
+			setNonScratchPad(wt.nonScratchPad);
+			setRestorationNotes(wt.restorationNotes);
 		} else {
 			setInventoryCoverage('Selected Windows Only');
 			setCounts(EMPTY_COUNTS);
@@ -297,18 +360,25 @@ export default function QuoterForm(props: QuoterFormProps) {
 			setTrackMode('Not Included');
 			setTrackQty('0');
 			setSkylightsIncluded(false);
+			setExteriorGlassCondition('Maintenance');
+			setInteriorGlassCondition('Maintenance');
+			setOverallAccessDifficulty('Easy');
+			setHardWater(false);
+			setConstructionDebris(false);
+			setSiliconeResidue(false);
+			setPaintOverspray(false);
+			setRazorScraping(false);
+			setSteelWool(false);
+			setNonScratchPad(false);
+			setRestorationNotes('');
 		}
+		// Access & Equipment Modifiers never auto-default from a Walkthrough
+		// — WalkthroughWizard doesn't collect them yet either, so there's no
+		// real signal to pre-fill from; the crew checks whatever applies
+		// fresh on this visit.
 
 		const s = propertySummaryById[propertyId];
 		if (s) {
-			setCondition(s.conditionDefault);
-			setJobHighInteriorGlass(s.highInteriorGlass === 'Y');
-			setJobSteepOrUnevenTerrain(s.steepOrUnevenTerrain === 'Y');
-			setJobExteriorAccessObstructed(s.exteriorAccessObstructed === 'Y');
-			setJobFurnitureMovementRequired(s.furnitureMovementRequired === 'Y');
-			setJobWaterAccessDifficult(s.waterSourceFarFromWorkArea === 'Y');
-			setJobSiliconeOrStickerResidue(s.siliconeResidue === 'Y');
-			setJobHeavyInteriorResidue(s.heavyInteriorResidue === 'Y');
 			setStories(s.stories === '2' ? 2 : s.stories === '3' ? 3 : 1);
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -345,8 +415,17 @@ export default function QuoterForm(props: QuoterFormProps) {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [serviceScope, counts, resolvedScreenClean, resolvedTrackBasic, resolvedTrackDeep, skylightsIncluded]);
 
-	const difficultAccess =
-		jobHighInteriorGlass || jobSteepOrUnevenTerrain || jobExteriorAccessObstructed || jobFurnitureMovementRequired || jobWaterAccessDifficult;
+	const restorationFlagsActive = hasAnyRestorationFlag({
+		hardWaterPresent: hardWater,
+		constructionDebrisPresent: constructionDebris,
+		siliconeResidue,
+		paintOverspray,
+		razorScraping,
+		steelWool,
+		nonScratchPad,
+	});
+	const condition = conditionForEngine(exteriorGlassCondition, restorationFlagsActive);
+	const difficultAccess = overallAccessDifficulty === 'Difficult';
 
 	const selectedConfig = pricingConfigs.find((c) => c['Pricing Config ID'] === pricingConfigId);
 
@@ -380,16 +459,15 @@ export default function QuoterForm(props: QuoterFormProps) {
 	const adjustmentReasonRequired = (Number(manualAdjustment) || 0) !== 0 || (Number(discount) || 0) !== 0;
 	const adjustmentReasonMissing = adjustmentReasonRequired && !adjustmentReason;
 
+	// Compares against the property's latest Walkthrough (the real source
+	// this section auto-fills from) rather than a permanent property fact —
+	// a mismatch here just means this particular job differs from what was
+	// last observed, not that something needs correcting.
 	const conditionsDiffer =
-		!!summary &&
-		(condition !== summary.conditionDefault ||
-			jobHighInteriorGlass !== (summary.highInteriorGlass === 'Y') ||
-			jobSteepOrUnevenTerrain !== (summary.steepOrUnevenTerrain === 'Y') ||
-			jobExteriorAccessObstructed !== (summary.exteriorAccessObstructed === 'Y') ||
-			jobFurnitureMovementRequired !== (summary.furnitureMovementRequired === 'Y') ||
-			jobWaterAccessDifficult !== (summary.waterSourceFarFromWorkArea === 'Y') ||
-			jobSiliconeOrStickerResidue !== (summary.siliconeResidue === 'Y') ||
-			jobHeavyInteriorResidue !== (summary.heavyInteriorResidue === 'Y'));
+		!!walkthroughDefault &&
+		(exteriorGlassCondition !== walkthroughDefault.exteriorCondition ||
+			hardWater !== walkthroughDefault.hardWater ||
+			constructionDebris !== walkthroughDefault.constructionDebris);
 
 	function setCount(key: keyof QuoteCounts, value: string) {
 		setCounts((prev) => ({ ...prev, [key]: Number(value) || 0 }));
@@ -476,10 +554,6 @@ export default function QuoterForm(props: QuoterFormProps) {
 								<div className="stat" style={{ fontSize: '1.1rem' }}>{summary.totalGlassPanes || '0'}</div>
 							</div>
 							<div className="card">
-								<span className="stat-label">Typical Condition</span>
-								<div className="stat" style={{ fontSize: '1.1rem' }}>{summary.windowCondition || '— not set'}</div>
-							</div>
-							<div className="card">
 								<span className="stat-label">Exterior Method</span>
 								<div className="stat" style={{ fontSize: '1.1rem' }}>{summary.exteriorCleaningMethod || '— not set'}</div>
 							</div>
@@ -556,15 +630,7 @@ export default function QuoterForm(props: QuoterFormProps) {
 					<label>
 						<input type="checkbox" checked={skylightsIncluded} onChange={(e) => setSkylightsIncluded(e.target.checked)} /> Skylights
 					</label>
-					<label>
-						<input type="checkbox" checked={hardWater} onChange={(e) => setHardWater(e.target.checked)} /> Hard-Water Treatment
-					</label>
-					<label>
-						<input type="checkbox" checked={constructionDebris} onChange={(e) => setConstructionDebris(e.target.checked)} /> Paint or Construction Debris Removal
-					</label>
-					<label>
-						<input type="checkbox" checked={otherSpecialtyTreatment} onChange={(e) => setOtherSpecialtyTreatment(e.target.checked)} /> Other Specialty Treatment
-					</label>
+					<p className="field-hint">Hard water and construction debris/restoration cleaning move to the Restoration Services Required card below.</p>
 				</section>
 
 				<section className="card">
@@ -625,45 +691,127 @@ export default function QuoterForm(props: QuoterFormProps) {
 				</section>
 
 				<section className="card">
-					<h2>Current Job Conditions</h2>
+					<h2>Job Assessment</h2>
+					<span className="field-hint">
+						How this specific visit looks — matches the same Glass Condition / Access Difficulty / Restoration Services model used in
+						Walkthroughs and Historical Entry.
+					</span>
 					{conditionsDiffer && (
 						<p className="diff-notice">
-							This quote differs from the saved property details.
+							This quote differs from the property's latest walkthrough.
 							<br />
-							<a href={`/properties/${propertyId}`}>Update Property After Saving</a> · <em>or continue — this note is informational only, nothing is overwritten automatically.</em>
+							{walkthroughDefault ? (
+								<a href={`/walkthroughs/${walkthroughDefault.walkthroughId}`}>View that walkthrough</a>
+							) : null}{' '}
+							<em>— informational only, nothing is overwritten automatically.</em>
 						</p>
 					)}
-					<p className="field-label">Current Glass Condition</p>
-					<Segmented name="condition" options={CONDITION_OPTIONS.map((o) => o.value)} labels={Object.fromEntries(CONDITION_OPTIONS.map((o) => [o.value, o.label]))} value={condition} onChange={setCondition} />
 
-					<label>
-						<input type="checkbox" name="jobHighInteriorGlass" checked={jobHighInteriorGlass} onChange={(e) => setJobHighInteriorGlass(e.target.checked)} /> High interior glass
-					</label>
-					<label>
-						<input type="checkbox" name="jobSteepOrUnevenTerrain" checked={jobSteepOrUnevenTerrain} onChange={(e) => setJobSteepOrUnevenTerrain(e.target.checked)} /> Steep or uneven terrain
-					</label>
-					<label>
-						<input type="checkbox" name="jobExteriorAccessObstructed" checked={jobExteriorAccessObstructed} onChange={(e) => setJobExteriorAccessObstructed(e.target.checked)} /> Obstructed exterior access
-					</label>
-					<label>
-						<input type="checkbox" name="jobFurnitureMovementRequired" checked={jobFurnitureMovementRequired} onChange={(e) => setJobFurnitureMovementRequired(e.target.checked)} /> Furniture or belongings must be moved
-					</label>
-					<label>
-						<input type="checkbox" name="jobWaterAccessDifficult" checked={jobWaterAccessDifficult} onChange={(e) => setJobWaterAccessDifficult(e.target.checked)} /> Water unavailable or difficult to access
-					</label>
-					<label>
-						<input type="checkbox" name="jobSiliconeOrStickerResidue" checked={jobSiliconeOrStickerResidue} onChange={(e) => setJobSiliconeOrStickerResidue(e.target.checked)} /> Silicone/adhesive/sticker residue
-					</label>
-					<label>
-						<input type="checkbox" name="jobHeavyInteriorResidue" checked={jobHeavyInteriorResidue} onChange={(e) => setJobHeavyInteriorResidue(e.target.checked)} /> Heavy interior residue
-					</label>
-					<label>
-						Other unusual condition / specialty treatment notes
-						<textarea name="jobOtherConditionNotes" value={otherConditionNotes} onChange={(e) => setOtherConditionNotes(e.target.value)} placeholder={otherSpecialtyTreatment ? 'Describe the specialty treatment requested…' : 'Anything else unusual about this job…'} />
-					</label>
-					<p className="field-hint">Affects pricing only via the flags above — checking any of the access-related ones applies the difficult-access surcharge.</p>
+					<p className="field-label">Overall Access Difficulty</p>
+					<Segmented name="overallAccessDifficulty" options={ACCESS_LEVELS} value={overallAccessDifficulty} onChange={setOverallAccessDifficulty} />
+					<p className="field-hint">Drives the difficult-access pricing surcharge — "Difficult" applies it, "Easy"/"Standard" don't.</p>
+
+					<p className="field-label" style={{ marginTop: '1rem' }}>Exterior Glass Condition</p>
+					<Segmented name="exteriorGlassCondition" options={GLASS_CONDITION_LEVELS} value={exteriorGlassCondition} onChange={setExteriorGlassCondition} />
+					<p className="field-label" style={{ marginTop: '1rem' }}>Interior Glass Condition</p>
+					<Segmented name="interiorGlassCondition" options={GLASS_CONDITION_LEVELS} value={interiorGlassCondition} onChange={setInteriorGlassCondition} />
+
+					<fieldset style={{ marginTop: '1rem' }}>
+						<legend>Access &amp; Equipment Modifiers</legend>
+						<div className="checkbox-grid">
+							<label>
+								<input type="checkbox" checked={secondStoryExterior} onChange={(e) => setSecondStoryExterior(e.target.checked)} /> Second-Story Exterior
+							</label>
+							<label>
+								<input type="checkbox" checked={ladderRequired} onChange={(e) => setLadderRequired(e.target.checked)} /> Ladder Required
+							</label>
+							<label>
+								<input type="checkbox" checked={vaultedInteriorGlass} onChange={(e) => setVaultedInteriorGlass(e.target.checked)} /> Vaulted Interior Glass
+							</label>
+							<label>
+								<input type="checkbox" checked={roofAccessRequired} onChange={(e) => setRoofAccessRequired(e.target.checked)} /> Roof Access Required
+							</label>
+							<label>
+								<input type="checkbox" checked={oversizedGlass} onChange={(e) => setOversizedGlass(e.target.checked)} /> Oversized Glass / Large Sliders
+							</label>
+							<label>
+								<input type="checkbox" checked={exteriorObstructions} onChange={(e) => setExteriorObstructions(e.target.checked)} /> Tight Landscaping or Obstructions
+							</label>
+							<label>
+								<input type="checkbox" checked={limitedInteriorAccess} onChange={(e) => setLimitedInteriorAccess(e.target.checked)} /> Limited Interior Access
+							</label>
+							<label>
+								<input type="checkbox" checked={waterFedPoleUsed} onChange={(e) => setWaterFedPoleUsed(e.target.checked)} /> Water-Fed Pole Used
+							</label>
+							<label>
+								<input type="checkbox" checked={traditionalExteriorCleaningUsed} onChange={(e) => setTraditionalExteriorCleaningUsed(e.target.checked)} /> Traditional Exterior Cleaning Used
+							</label>
+							<label>
+								<input type="checkbox" checked={otherAccessIssue} onChange={(e) => setOtherAccessIssue(e.target.checked)} /> Other Access Issue
+							</label>
+						</div>
+						{otherAccessIssue && (
+							<label>
+								Other Access Notes
+								<textarea value={otherAccessNotes} onChange={(e) => setOtherAccessNotes(e.target.value)} />
+							</label>
+						)}
+					</fieldset>
+
+					<div className="card" style={{ background: 'var(--color-cream)', marginTop: '1rem' }}>
+						<h3>Restoration Services Required</h3>
+						<span className="field-hint">
+							Specialized cleaning beyond a standard window cleaning — supplements the condition rating above, doesn't replace it.
+						</span>
+						<div className="checkbox-grid">
+							<label>
+								<input type="checkbox" checked={constructionDebris} onChange={(e) => setConstructionDebris(e.target.checked)} /> Construction Debris
+							</label>
+							<label>
+								<input type="checkbox" checked={siliconeResidue} onChange={(e) => setSiliconeResidue(e.target.checked)} /> Window Stickers / Adhesive
+							</label>
+							<label>
+								<input type="checkbox" checked={paintOverspray} onChange={(e) => setPaintOverspray(e.target.checked)} /> Paint Overspray
+							</label>
+							<label>
+								<input type="checkbox" checked={hardWater} onChange={(e) => setHardWater(e.target.checked)} /> Hard Water / Mineral Deposits
+							</label>
+							<label>
+								<input type="checkbox" checked={razorScraping} onChange={(e) => setRazorScraping(e.target.checked)} /> Razor Scraping Required
+							</label>
+							<label>
+								<input type="checkbox" checked={steelWool} onChange={(e) => setSteelWool(e.target.checked)} /> Steel Wool Required
+							</label>
+							<label>
+								<input type="checkbox" checked={nonScratchPad} onChange={(e) => setNonScratchPad(e.target.checked)} /> Non-Scratch Pad Required
+							</label>
+						</div>
+						<label>
+							Other
+							<textarea value={restorationNotes} onChange={(e) => setRestorationNotes(e.target.value)} />
+						</label>
+						<p className="field-hint">Any of the boxes above (or Restoration Required condition) applies the First-Time Cleaning surcharge.</p>
+					</div>
+
 					<input type="hidden" name="hardWater" value={hardWater ? 'on' : ''} />
 					<input type="hidden" name="constructionDebris" value={constructionDebris ? 'on' : ''} />
+					<input type="hidden" name="secondStoryExterior" value={secondStoryExterior ? 'on' : ''} />
+					<input type="hidden" name="ladderRequired" value={ladderRequired ? 'on' : ''} />
+					<input type="hidden" name="vaultedInteriorGlass" value={vaultedInteriorGlass ? 'on' : ''} />
+					<input type="hidden" name="roofAccessRequired" value={roofAccessRequired ? 'on' : ''} />
+					<input type="hidden" name="oversizedGlass" value={oversizedGlass ? 'on' : ''} />
+					<input type="hidden" name="exteriorObstructions" value={exteriorObstructions ? 'on' : ''} />
+					<input type="hidden" name="limitedInteriorAccess" value={limitedInteriorAccess ? 'on' : ''} />
+					<input type="hidden" name="waterFedPoleUsed" value={waterFedPoleUsed ? 'on' : ''} />
+					<input type="hidden" name="traditionalExteriorCleaningUsed" value={traditionalExteriorCleaningUsed ? 'on' : ''} />
+					<input type="hidden" name="otherAccessIssue" value={otherAccessIssue ? 'on' : ''} />
+					<input type="hidden" name="otherAccessNotes" value={otherAccessNotes} />
+					<input type="hidden" name="siliconeResidue" value={siliconeResidue ? 'on' : ''} />
+					<input type="hidden" name="paintOverspray" value={paintOverspray ? 'on' : ''} />
+					<input type="hidden" name="razorScraping" value={razorScraping ? 'on' : ''} />
+					<input type="hidden" name="steelWool" value={steelWool ? 'on' : ''} />
+					<input type="hidden" name="nonScratchPad" value={nonScratchPad ? 'on' : ''} />
+					<input type="hidden" name="restorationNotes" value={restorationNotes} />
 					<input type="hidden" name="stories" value={stories} />
 				</section>
 

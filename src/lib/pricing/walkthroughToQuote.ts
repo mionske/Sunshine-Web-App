@@ -10,7 +10,10 @@ import type { PricingConfig } from '../models/pricingConfig';
 import type { Service } from '../models/service';
 import { calculateQuote } from './engine';
 import { createQuote, type CreateQuoteResult } from './quotes';
-import type { Condition, QuoteCounts, Stories } from './types';
+import type { QuoteCounts, Stories } from './types';
+import { conditionForEngine, hasAnyRestorationFlag } from './condition';
+
+export { conditionForEngine, hasAnyRestorationFlag } from './condition';
 
 function num(value: string | undefined): number {
 	const n = Number(value);
@@ -92,28 +95,6 @@ export function countAccessDifficultyItems(items: WalkthroughItem[]): AccessDiff
 	return { difficultAccessItemCount, specialtyAccessItemCount };
 }
 
-const EXTERIOR_CONDITION_TO_ENGINE: Record<string, Condition> = {
-	Maintenance: 'light',
-	'Light Buildup': 'light',
-	'Moderate Buildup': 'moderate',
-	'Heavy Buildup': 'heavy',
-};
-
-/**
- * The Glass Condition level (how dirty the glass is) maps to the engine's
- * light/moderate/heavy tiers. But if any Restoration Services Required
- * checkbox is set, that overrides the level entirely — this preserves the
- * exact pricing behavior the old "Restoration Required" condition level
- * used to trigger (the First-Time Cleaning Factor surcharge), just with a
- * more accurate trigger condition (any of the 8 restoration flags, not one
- * blunt dropdown value) now that restoration is tracked separately from
- * dirtiness. See the Restoration Services Required addendum for why.
- */
-export function conditionForEngine(exteriorCondition: string, hasRestorationFlag: boolean): Condition {
-	if (hasRestorationFlag) return 'firstTime';
-	return EXTERIOR_CONDITION_TO_ENGINE[exteriorCondition] ?? 'light';
-}
-
 export function storiesForEngine(storyCountObserved: string): Stories {
 	const n = num(storyCountObserved);
 	return n === 2 ? 2 : n === 3 ? 3 : 1;
@@ -134,26 +115,6 @@ export interface WalkthroughPricingInput {
 	razorScraping?: boolean;
 	steelWool?: boolean;
 	nonScratchPad?: boolean;
-}
-
-function hasAnyRestorationFlag(input: {
-	hardWaterPresent: boolean;
-	constructionDebrisPresent: boolean;
-	siliconeResidue?: boolean;
-	paintOverspray?: boolean;
-	razorScraping?: boolean;
-	steelWool?: boolean;
-	nonScratchPad?: boolean;
-}): boolean {
-	return Boolean(
-		input.hardWaterPresent ||
-			input.constructionDebrisPresent ||
-			input.siliconeResidue ||
-			input.paintOverspray ||
-			input.razorScraping ||
-			input.steelWool ||
-			input.nonScratchPad
-	);
 }
 
 export interface WalkthroughPricingSuggestion {
