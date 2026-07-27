@@ -697,6 +697,27 @@ Confidence thresholds (by **comparable** completed jobs): 0–9 Insufficient
 data, 10–24 Early directional data, 25–49 Moderate confidence, 50+ Strong
 internal benchmark.
 
+## PropertyPhotos
+Photo ID, Property ID, R2 Key, Original Filename, Content Type, Size
+Bytes, Caption, Created At, Updated At, Archived At.
+
+Photo bytes never live in the Sheet (a cell caps around 50k characters,
+and base64 would blow through the Sheets API's own per-minute quota) —
+they live in a Cloudflare R2 bucket (`PROPERTY_PHOTOS` binding,
+`sww-property-photos`), one object per photo at key
+`properties/{propertyId}/{photoId}.{ext}`. This tab only ever holds
+metadata pointing at that key. See `lib/propertyPhotos.ts` for
+upload/list/delete, and `pages/api/property-photos/` for the routes
+(upload is multipart `POST /api/property-photos`; bytes are served back
+via `GET /api/property-photos/{id}/file`, auth-gated the same as every
+other internal route by `src/middleware.ts` — no per-route auth code).
+Delete is soft-delete-only (metadata row archived, R2 object left as a
+harmless orphan — never hard-deleted, matching this app's convention
+everywhere else). Surfaced on Property Detail via the `PropertyPhotos.tsx`
+React island (drag-and-drop zone + a plain `accept="image/*"` file input
+as the actually-load-bearing path for the app's real mobile-first usage,
+since iOS Safari has no true OS drag-and-drop).
+
 ## Walkthroughs
 Walkthrough ID, Client ID, Property ID, Opportunity ID, Quote ID
 (link — set once the walkthrough produces a quote), Walkthrough Date,

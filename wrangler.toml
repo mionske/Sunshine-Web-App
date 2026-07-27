@@ -18,3 +18,11 @@ compatibility_flags = ["nodejs_compat"]
 [[kv_namespaces]]
 binding = "QB_TOKENS"
 id = "1a6b4efbf4bb493e9acb1935dec59f9b"
+
+# Property photo uploads. Object bytes live in R2 (not the Sheet); metadata
+# (property link, filename, content-type, caption) lives in a
+# PropertyPhotos Sheets tab, same split QB_TOKENS uses for KV-vs-Sheet.
+# Bucket created with: wrangler r2 bucket create sww-property-photos
+[[r2_buckets]]
+binding = "PROPERTY_PHOTOS"
+bucket_name = "sww-property-photos"

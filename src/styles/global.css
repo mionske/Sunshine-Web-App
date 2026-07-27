@@ -1192,6 +1192,80 @@ details.card[open] > summary {
 	margin-bottom: 0;
 }
 
+/* Property photo upload — the file input fills the whole dropzone as a
+ * tap target (not a small secondary link) since on iOS Safari there's no
+ * true OS drag-and-drop, so tapping to open the native picker (which
+ * already offers both Photo Library and Take Photo) is the real primary
+ * interaction for this app's actual mobile-first usage. */
+.photo-dropzone {
+	border: 2px dashed var(--color-tan);
+	border-radius: var(--radius-card);
+	padding: 1.5rem;
+	text-align: center;
+	margin-bottom: 1rem;
+	transition: border-color 0.15s, background 0.15s;
+}
+
+.photo-dropzone-active {
+	border-color: var(--color-red);
+	background: var(--color-cream);
+}
+
+.photo-dropzone-label {
+	display: block;
+	margin-bottom: 0;
+	font-weight: 600;
+	color: var(--color-ink-muted);
+	cursor: pointer;
+}
+
+.photo-grid {
+	display: grid;
+	grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+	gap: 0.75rem;
+}
+
+.photo-tile {
+	position: relative;
+	aspect-ratio: 1;
+	border: 2px solid var(--color-tan);
+	border-radius: var(--radius-field);
+	overflow: hidden;
+	background: var(--color-cream);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+}
+
+.photo-tile img {
+	width: 100%;
+	height: 100%;
+	object-fit: cover;
+}
+
+.photo-tile-pending {
+	padding: 0.5rem;
+	text-align: center;
+}
+
+.photo-tile-delete {
+	position: absolute;
+	top: 0.25rem;
+	right: 0.25rem;
+	width: 1.75rem;
+	height: 1.75rem;
+	padding: 0;
+	line-height: 1;
+	border-radius: 50%;
+	background: rgba(1, 36, 65, 0.75);
+	color: var(--color-cream-text);
+	border: none;
+}
+
+.photo-tile-delete:hover {
+	background: var(--color-red);
+}
+
 /* Single-field-plus-button forms (QB Estimate Link, Accept Quote, "Create
  * quote from this walkthrough") that don't need a whole card's vertical
  * stack for one control. */

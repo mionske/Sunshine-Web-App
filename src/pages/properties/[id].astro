@@ -25,6 +25,8 @@ import { getActivePricingConfig } from '../../lib/pricing/config';
 import { computeJobPerformance, computePropertyPerformance } from '../../lib/pricing/calibration';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
 import { formatTimestamp } from '../../lib/format';
+import { listPropertyPhotos } from '../../lib/propertyPhotos';
+import PropertyPhotos from '../../components/PropertyPhotos';
 
 const { id } = Astro.params;
 let error: string | null = null;
@@ -204,6 +206,16 @@ const propertyStatus = derivePropertyStatus(propertyOpportunities, propertyJobs)
 const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
 const jobRows = propertyJobs.map((job) => ({ job, perf: computeJobPerformance(job, targetHourlyRate) }));
 const performance = computePropertyPerformance(propertyJobs);
+
+const propertyPhotos = await listPropertyPhotos(env, id!);
+const propertyPhotoDtos = propertyPhotos.map((p) => ({
+	id: p['Photo ID'],
+	filename: p['Original Filename'],
+	contentType: p['Content Type'],
+	sizeBytes: p['Size Bytes'],
+	caption: p.Caption,
+	createdAt: p['Created At'],
+}));
 
 // Data-ownership separation: "Next Service" is now derived from real Job
 // data instead of a manually-typed Property field — the earliest future
@@ -580,6 +592,11 @@ const timeline = activityRows
 						</div>
 					))}
 					{jobRows.length === 0 && <p>No jobs logged yet.</p>}
+				</section>
+
+				<section class="card">
+					<h2>Photos</h2>
+					<PropertyPhotos client:load propertyId={id} photos={propertyPhotoDtos} />
 				</section>
 
 				{performance.completedJobCount > 0 && (

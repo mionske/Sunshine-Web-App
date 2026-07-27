@@ -82,6 +82,21 @@ export const TAB_SCHEMAS: Record<string, string[]> = {
 		'Updated At',
 		'Archived At',
 	],
+	// Mirrors propertyPhotoSchema in lib/models/propertyPhoto.ts exactly.
+	// Photo bytes live in R2 (lib/propertyPhotos.ts) — this tab only holds
+	// metadata pointing at an R2 object key.
+	PropertyPhotos: [
+		'Photo ID',
+		'Property ID',
+		'R2 Key',
+		'Original Filename',
+		'Content Type',
+		'Size Bytes',
+		'Caption',
+		'Created At',
+		'Updated At',
+		'Archived At',
+	],
 	// Mirrors leadSchema in lib/models/lead.ts exactly.
 	Leads: [
 		'Lead ID',

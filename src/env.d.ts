@@ -23,5 +23,10 @@ declare namespace Cloudflare {
 		QB_CLIENT_SECRET: string;
 		QB_WEBHOOK_VERIFIER_TOKEN: string;
 		QB_REDIRECT_URI: string;
+		// Property photo uploads. R2 bucket holding the raw image bytes;
+		// PropertyPhotos Sheets tab (lib/models/propertyPhoto.ts) holds the
+		// metadata row that points at each object's key. See
+		// lib/propertyPhotos.ts / pages/api/property-photos/*.
+		PROPERTY_PHOTOS: R2Bucket;
 	}
 }
