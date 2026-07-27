@@ -1,21 +1,55 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
-import { listActiveRows } from '../../lib/sheets';
+import { listActiveRows, listArchivedRows } from '../../lib/sheets';
 import { propertyConfig } from '../../lib/models/property';
 import { clientConfig } from '../../lib/models/client';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
+import { deleteProperty, restoreProperty, duplicateProperty } from '../../lib/properties';
+import { formatTimestamp } from '../../lib/format';
 
-const [properties, clients] = await Promise.all([listActiveRows(env, propertyConfig), listActiveRows(env, clientConfig)]);
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	const action = String(form.get('_action') ?? '');
+	const propertyId = String(form.get('propertyId') ?? '');
+	try {
+		if (action === 'delete-property') {
+			await deleteProperty(env, propertyId);
+		} else if (action === 'restore-property') {
+			await restoreProperty(env, propertyId);
+		} else if (action === 'duplicate-property') {
+			const duplicate = await duplicateProperty(env, propertyId);
+			return Astro.redirect(`/properties/${duplicate['Property ID']}`);
+		}
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const showArchived = Astro.url.searchParams.get('archived') === '1';
+
+const [properties, clients] = await Promise.all([
+	showArchived ? listArchivedRows(env, propertyConfig) : listActiveRows(env, propertyConfig),
+	listActiveRows(env, clientConfig),
+]);
 const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
 
-properties.sort((a, b) => (a['Street Address'] || '').localeCompare(b['Street Address'] || ''));
+properties.sort((a, b) =>
+	showArchived ? (b['Archived At'] || '').localeCompare(a['Archived At'] || '') : (a['Street Address'] || '').localeCompare(b['Street Address'] || '')
+);
 ---
 
 <BaseLayout title="Properties">
 	<main>
 		<h1>Properties</h1>
-		<p>Every property is created from its Client's page — no separate "add" form here. Use <a href="/clients">Clients</a> to start a new one.</p>
+		<p>
+			Every property is created from its Client's page — no separate "add" form here. Use <a href="/clients">Clients</a> to start a new one.
+			{' · '}
+			{showArchived ? <a href="/properties">← Back to active properties</a> : <a href="/properties?archived=1">View deleted/archived properties →</a>}
+		</p>
+		{error && <p role="alert">{error}</p>}
 
 		<table>
 			<thead>
@@ -23,6 +57,7 @@ properties.sort((a, b) => (a['Street Address'] || '').localeCompare(b['Street Ad
 					<th>Address</th>
 					<th>Client</th>
 					<th>Type</th>
+					{showArchived && <th>Deleted</th>}
 					<th></th>
 				</tr>
 			</thead>
@@ -38,11 +73,47 @@ properties.sort((a, b) => (a['Street Address'] || '').localeCompare(b['Street Ad
 							</td>
 							<td>{client ? `${client['First Name']} ${client['Last Name']}` : p['Client ID']}</td>
 							<td><span class="badge">{p['Property Type']}</span></td>
-							<td><a href={googleMapsUrl(fullAddress(p))} target="_blank" rel="noopener noreferrer">map</a></td>
+							{showArchived && <td>{formatTimestamp(p['Archived At'])}</td>}
+							<td>
+								<a href={googleMapsUrl(fullAddress(p))} target="_blank" rel="noopener noreferrer">map</a>
+								{showArchived ? (
+									<>
+										{' · '}
+										<form
+											method="POST"
+											style="display:inline"
+											onsubmit="return confirm('Restore this property? It will reappear everywhere in the app.')"
+										>
+											<input type="hidden" name="_action" value="restore-property" />
+											<input type="hidden" name="propertyId" value={p['Property ID']} />
+											<button type="submit" class="link-button">restore</button>
+										</form>
+									</>
+								) : (
+									<>
+										{' · '}
+										<form method="POST" style="display:inline">
+											<input type="hidden" name="_action" value="duplicate-property" />
+											<input type="hidden" name="propertyId" value={p['Property ID']} />
+											<button type="submit" class="link-button">duplicate</button>
+										</form>
+										{' · '}
+										<form
+											method="POST"
+											style="display:inline"
+											onsubmit="return confirm('Delete this property? It will be archived and removed from view everywhere in the app.')"
+										>
+											<input type="hidden" name="_action" value="delete-property" />
+											<input type="hidden" name="propertyId" value={p['Property ID']} />
+											<button type="submit" class="link-button">delete</button>
+										</form>
+									</>
+								)}
+							</td>
 						</tr>
 					);
 				})}
-				{properties.length === 0 && <tr><td colspan="4">No properties yet.</td></tr>}
+				{properties.length === 0 && <tr><td colspan={showArchived ? 5 : 4}>{showArchived ? 'No deleted properties.' : 'No properties yet.'}</td></tr>}
 			</tbody>
 		</table>
 	</main>

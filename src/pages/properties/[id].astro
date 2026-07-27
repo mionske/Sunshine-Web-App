@@ -3,6 +3,7 @@ import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { createRow, findById, listActiveRows, logActivity, updateRow } from '../../lib/sheets';
 import { readRows } from '../../lib/sheets/rows';
+import { deleteProperty, restoreProperty, duplicateProperty } from '../../lib/properties';
 import {
 	propertyConfig,
 	PROPERTY_TYPES,
@@ -135,6 +136,14 @@ if (Astro.request.method === 'POST') {
 			if (note) {
 				await logActivity(env, { entityType: 'Property', entityId: id!, action: 'Note added', notes: note });
 			}
+		} else if (action === 'duplicate-property') {
+			const duplicate = await duplicateProperty(env, id!);
+			return Astro.redirect(`/properties/${duplicate['Property ID']}`);
+		} else if (action === 'delete-property') {
+			await deleteProperty(env, id!);
+			return Astro.redirect('/properties');
+		} else if (action === 'restore-property') {
+			await restoreProperty(env, id!);
 		}
 		return Astro.redirect(`/properties/${id}`);
 	} catch (e) {
@@ -308,9 +317,37 @@ const timeline = activityRows
 			<a href={`/clients/${property['Client ID']}`}>Edit client</a>
 			{' · '}
 			<a href={`/historical-entry?propertyId=${property['Property ID']}&clientId=${property['Client ID']}`}>Add historical record</a>
+			{' · '}
+			<form method="POST" style="display:inline">
+				<input type="hidden" name="_action" value="duplicate-property" />
+				<button type="submit" class="link-button">Duplicate property</button>
+			</form>
+			{!property['Archived At'] && (
+				<>
+					{' · '}
+					<form
+						method="POST"
+						style="display:inline"
+						onsubmit="return confirm('Delete this property? It will be archived and removed from view everywhere in the app.')"
+					>
+						<input type="hidden" name="_action" value="delete-property" />
+						<button type="submit" class="link-button">Delete property</button>
+					</form>
+				</>
+			)}
 			{client?.['Referral Source'] && <> · Referral source: {client['Referral Source']}</>}
 			{client?.['Desired Maintenance Frequency'] && <> · Maintenance: {client['Desired Maintenance Frequency']}</>}
 		</p>
+
+		{property['Archived At'] && (
+			<div class="card">
+				<p role="alert">This property was deleted {formatTimestamp(property['Archived At'])}. It's hidden from lists but still reachable by direct link.</p>
+				<form method="POST" onsubmit="return confirm('Restore this property? It will reappear everywhere in the app.')">
+					<input type="hidden" name="_action" value="restore-property" />
+					<button type="submit" class="btn-secondary">Restore this property</button>
+				</form>
+			</div>
+		)}
 
 		{showLegacyMigrationNotice && (
 			<form method="POST" class="diff-notice">
