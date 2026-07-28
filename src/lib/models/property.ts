@@ -168,20 +168,19 @@ export const propertySchema = z.object({
 	// Window breakdown below, exactly the same relationship Total Glass
 	// Panes already has to its own detailed breakdown. Optional — never
 	// required just because the detailed fields are used, and vice versa.
-	'Count - Standard': blank(),
 	// Windows & Doors redesign — set only via the "Mark Inventory Verified"
 	// action (never auto-set on a plain field save), so it reflects an
 	// explicit "I checked this is still accurate" moment, not just "someone
 	// once edited a count."
 	'Inventory Verified At': blank(),
-	'Count - Double Hung': blank(),
-	'Count - Casement': blank(),
-	'Count - Picture': blank(),
-	'Count - Sliding': blank(),
-	'Count - French': blank(),
-	'Count - Awning': blank(),
-	'Count - Skylights': blank(),
-	'Count - Solar Panels': blank(),
+	// The per-window-style counts (Count - Standard/Double Hung/Casement/
+	// Picture/Sliding/French/Awning/Skylights/Solar Panels and Sliding Glass
+	// Door Pane Count) were removed here. Identifying every window type in a
+	// house was field busywork that nothing downstream ever read — pricing,
+	// calibration and reporting all work from window units and panes. Their
+	// sheet columns are left in place and preserved verbatim by the
+	// .passthrough() below, so the one property that has a real breakdown
+	// keeps it; the app simply no longer asks for or writes it.
 	'Screen Count': blank(),
 	'Track Count': blank(),
 	// Data-ownership separation: both are customer preferences (a client
@@ -210,11 +209,6 @@ export const propertySchema = z.object({
 	'Next Scheduled Visit': blank(),
 	'Last Review Requested Date': blank(),
 	'Last Review Received Date': blank(),
-	// Distinct from "Count - Sliding" (a sliding *window* type, alongside
-	// Double Hung/Casement/etc.) — sliding glass doors are a separate
-	// service in the pricing catalog (SLIDING_DOOR_EXT/INT), so they get
-	// their own count rather than being folded into the window counts.
-	'Sliding Glass Door Pane Count': blank(),
 	// Legacy — superseded by 'Exterior Cleaning Method' above. Kept
 	// declared so the one existing property with a value here still
 	// round-trips; the new form pre-selects a default from it once
@@ -236,7 +230,15 @@ export const propertySchema = z.object({
 	'Created At': blank(),
 	'Updated At': blank(),
 	'Archived At': blank(),
-});
+})
+	// REQUIRED, not cosmetic. updateRow rewrites the whole row
+	// (objectToRowValues writes '' for any header missing from the validated
+	// record), and a strict zod object strips keys it doesn't declare — so
+	// without this, every column removed from the schema above would be
+	// silently blanked on the next save of that property. Jobs has carried
+	// .passthrough() for the same reason since its legacy columns were first
+	// tolerated; Properties needs it now that it has undeclared columns too.
+	.catchall(z.union([z.string(), z.number(), z.boolean(), z.null()]));
 
 export type Property = z.infer<typeof propertySchema>;
 

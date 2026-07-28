@@ -44,6 +44,23 @@ the Property Detail page's utility line. Notes, Created At, Updated At,
 Archived At.
 
 ## Properties
+
+**Columns no longer declared by the app** (left in the sheet, preserved
+verbatim on every write by `propertySchema`'s `.catchall()`, never read):
+the per-window-style counts `Count - Standard`, `Count - Double Hung`,
+`Count - Casement`, `Count - Picture`, `Count - Sliding`, `Count - French`,
+`Count - Awning`, `Count - Skylights`, `Count - Solar Panels`, and
+`Sliding Glass Door Pane Count`. Identifying every window type in a house
+was field busywork nothing downstream ever read — pricing, calibration and
+reporting all work from window units and panes. One property has a real
+breakdown recorded; it stays readable in the sheet.
+
+**Why `.catchall()` matters here.** `updateRow` rewrites the entire row, and
+`objectToRowValues` writes an empty string for any header missing from the
+validated record. A strict zod object strips keys it doesn't declare, so
+without `.catchall()` every column removed above would be silently blanked
+on the next save of that property. This is not cosmetic.
+
 Property ID, Client ID, Property Type (Residential/Commercial/New
 Build-Construction — required; drives which PricingConfig segment
 applies and is a calibration segmentation dimension), Street Address,
@@ -257,12 +274,29 @@ today` on an active Lead) alongside — not replacing — Pipeline's own
 "Open follow-ups" reminder.
 
 ## Pipeline (sales opportunities only — not job operations)
-Opportunity ID, Client ID, Property ID, Primary Quote ID, Stage, Status,
-Estimated Value, Referral Source, Next Follow-up Date, Last Contact Date,
-Created At, Updated At, Closed At, Archived At, Lost Reason, Notes,
-QB Estimate ID (set only for opportunities this app's own QuickBooks sync
-created/maintains — see the QuickBooks section's "Pipeline auto-sync from
-Estimates"; blank on every manually-created opportunity).
+Opportunity ID, Client ID, Property ID, Stage, Status, Estimated Value,
+Referral Source, Next Follow-up Date, Last Contact Date, Created At,
+Updated At, Closed At, Archived At, Lost Reason, Notes.
+
+**Stages (6 working + Lost):** New Lead, Walkthrough or Quote Needed,
+Quote Sent, Approved or Scheduling, Scheduled, Completed or Follow-Up,
+Lost. The board shows the six by default; Lost is reachable through the
+outcome filter, so a lost opportunity stays a real, reportable outcome
+rather than a badge or a silent archive. Approval is the hand-off point to
+the job workflow, so it stamps `Closed At` even though the work is still
+ahead. Secondary states — walkthrough scheduled, quote accepted/declined,
+invoice sent, paid, review requested — are badges on the card, not columns.
+
+**Columns no longer declared** (left in the sheet, preserved verbatim by
+`pipelineSchema`'s `.catchall()`, never read or written):
+- `Primary Quote ID` — had exactly one writer (the public ballpark-estimate
+  flow) and no readers. The board derives an opportunity's latest quote by
+  scanning Quotes for its own `Opportunity ID`, which works for every quote
+  rather than just the first.
+- `QB Estimate ID` — belonged to the automatic QuickBooks→Pipeline sync,
+  which was removed. QuickBooks no longer creates or moves Pipeline cards.
+  Not to be confused with Quotes' own `QB Estimate ID`, which is the manual
+  quote↔estimate link and is very much still in use.
 
 Stages: New Lead → Contacted → Walkthrough Scheduled → Quote Draft →
 Quote Sent → Follow-up → Accepted → Lost. Paid is never a pipeline stage —
@@ -443,6 +477,25 @@ window counts, total panes, screens, hard water treatment,
 quoted/final/add-on/total revenue, estimated/actual/WFP time,
 time accuracy, effective $/hr, notes, calibration summary block
 (columns X–Y).
+
+**Why the header row has a gap.** The app's own Jobs columns start at
+column **Z**, deliberately: columns X–Y hold the original hand-maintained
+calibration summary block, including two intentionally blank headers. An
+early run of the (now deleted) `extend-jobs-tab` migration wrote one column
+too far left, into column Y, and a repair step in that same script moved it
+back — which is why the gap looks slightly irregular in the live sheet.
+Nothing reads those blank columns; they are preserved only because the
+Jobs-preservation protocol says existing columns are never reordered or
+removed. This note exists because that history used to live only in the
+migration script, which has since been deleted.
+
+**Columns no longer declared by the app** (present in the sheet, preserved
+verbatim on every write by `jobSchema`'s `.catchall()`, never read):
+`Photos` and `Customer Rating`. Both were added by a migration but never
+wired to any surface. `Customer Rating` was reserved for a score from a
+real customer-left review, alongside the still-live `Review Requested At` /
+`Review Left` pair; it was never collected. Distinct from `Customer
+Satisfaction Rating`, which is the owner's own retrospective judgment.
 
 **Resolved redundancy: Lead Source vs. Referral Source.** Jobs' legacy
 `Lead Source` column is never read or written by any app code — Pipeline/
@@ -680,10 +733,13 @@ everywhere else on this page. Purely descriptive — never changes pricing;
 only the owner deciding to create+activate a new PricingConfig after
 reviewing this data does that.
 
-## JobItems
-Job Item ID, Job ID, Source Quote Item ID, Service Code, Description,
-Actual Quantity, Unit, Final Unit Price, Actual Labor Minutes, Line Total,
-Created At, Updated At, Archived At, Notes.
+## JobItems — REMOVED
+This tab was declared in the bootstrap schema but never had a model file, a
+reader or a writer; bootstrapping only ever created an empty tab in each new
+environment. It was removed from the schema in the simplification pass. If a
+`JobItems` tab exists in a live spreadsheet it is inert and can be deleted
+by hand. Per-line completed-job detail was never actually captured — Jobs
+carries the totals.
 
 ## CalibrationSnapshot
 Calibration Snapshot ID, Generated At, Calculator Version,

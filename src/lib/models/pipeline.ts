@@ -52,7 +52,6 @@ export const pipelineSchema = z.object({
 	'Opportunity ID': z.string().min(1),
 	'Client ID': blank(),
 	'Property ID': blank(),
-	'Primary Quote ID': blank(),
 	Stage: z.enum(PIPELINE_STAGES).default('New Lead'),
 	Status: blank(),
 	'Estimated Value': blank(),
@@ -65,6 +64,12 @@ export const pipelineSchema = z.object({
 	'Archived At': blank(),
 	'Lost Reason': blank(),
 	Notes: blank(),
+	// 'Primary Quote ID' was removed: it had exactly one writer (the public
+	// ballpark-estimate flow) and no readers anywhere. The Pipeline board
+	// derives an opportunity's latest quote by scanning Quotes for its own
+	// 'Opportunity ID' instead, which works for every quote rather than just
+	// the first one.
+	//
 	// NOTE: a 'QB Estimate ID' column used to live here, written only by an
 	// automatic QuickBooks→Pipeline sync that created and moved cards on its
 	// own. That sync was removed (all QuickBooks activity is manual now, and
@@ -72,7 +77,11 @@ export const pipelineSchema = z.object({
 	// writer and no reader, so it was dropped. The Quote↔QuickBooks link is
 	// a different column on a different tab — see Quotes' own
 	// 'QB Estimate ID' in models/quote.ts, which is very much still in use.
-});
+})
+	// Required for the same reason Properties and Jobs carry it: updateRow
+	// rewrites the entire row, and a strict object would blank any sheet
+	// column this schema no longer declares.
+	.catchall(z.union([z.string(), z.number(), z.boolean(), z.null()]));
 
 export type Opportunity = z.infer<typeof pipelineSchema>;
 

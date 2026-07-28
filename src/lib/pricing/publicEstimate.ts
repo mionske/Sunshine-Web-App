@@ -104,7 +104,6 @@ export async function createPublicEstimate(
 					id: opportunityId,
 					'Client ID': clientId,
 					'Property ID': propertyId,
-					'Primary Quote ID': quoteId,
 					Stage: 'New Lead',
 					Status: 'Open',
 					'Referral Source': input.referralSource ?? '',
