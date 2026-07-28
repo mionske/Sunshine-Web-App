@@ -74,16 +74,14 @@ if (Astro.request.method === 'POST') {
 				'Ladder Requirement': String(form.get('highestLadderRequired') ?? ''),
 				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),
 				'Total Glass Panes': String(form.get('totalGlassPanes') ?? ''),
-				'Count - Standard': String(form.get('countStandard') ?? ''),
-				'Count - Double Hung': String(form.get('countDoubleHung') ?? ''),
-				'Count - Casement': String(form.get('countCasement') ?? ''),
-				'Count - Picture': String(form.get('countPicture') ?? ''),
-				'Count - Sliding': String(form.get('countSliding') ?? ''),
-				'Count - French': String(form.get('countFrench') ?? ''),
-				'Count - Awning': String(form.get('countAwning') ?? ''),
-				'Count - Skylights': String(form.get('countSkylights') ?? ''),
-				'Count - Solar Panels': String(form.get('countSolarPanels') ?? ''),
-				'Sliding Glass Door Pane Count': String(form.get('slidingGlassDoorPaneCount') ?? ''),
+				// The per-window-style counts (Count - Double Hung/Casement/
+				// Picture/Sliding/French/Awning/Skylights/Solar Panels/Standard,
+				// Sliding Glass Door Pane Count) are deliberately no longer
+				// written. Identifying every window type in a house was field
+				// busywork that nothing downstream ever read — pricing,
+				// calibration and reporting all work from window units and
+				// panes. The columns stay declared so existing values still
+				// round-trip; they are simply never updated again.
 				'Screen Count': String(form.get('screenCount') ?? ''),
 				'Track Count': String(form.get('trackCount') ?? ''),
 				'Repeat Business Status': String(form.get('repeatBusinessStatus') ?? ''),
@@ -486,34 +484,16 @@ const timeline = activityRows
 							<span class="field-hint">Total number of individual glass panes.</span>
 							<input type="number" class="field-numeric" id="totalPanes" name="totalGlassPanes" value={property['Total Glass Panes']} />
 						</label>
-						<p id="paneBreakdownStatus" class="field-status"></p>
-
-						<div class="count-grid">
-							<label>Standard Windows <input type="number" class="field-numeric pane-field" id="countStandard" name="countStandard" value={property['Count - Standard']} /></label>
-							<label>French / Divided-Light <input type="number" class="field-numeric pane-field" name="countFrench" value={property['Count - French']} /></label>
-							<label>Sliding Glass Doors <input type="number" class="field-numeric pane-field" name="slidingGlassDoorPaneCount" value={property['Sliding Glass Door Pane Count']} /></label>
-							<label>Skylights <input type="number" class="field-numeric pane-field" name="countSkylights" value={property['Count - Skylights']} /></label>
-						</div>
+						<span class="field-hint">
+							Window units and panes measure different things and are kept separate — neither is calculated from the other.
+							A specific visit records its own counts on the walkthrough; these are the property's standing reference numbers.
+						</span>
 
 						<p class="field-label">Accessories</p>
-						<span class="field-hint">Not included in pane totals.</span>
 						<div class="count-grid">
 							<label>Screens <input type="number" class="field-numeric" name="screenCount" value={property['Screen Count']} /></label>
 							<label>Tracks <input type="number" class="field-numeric" name="trackCount" value={property['Track Count']} /></label>
-							<label>Solar Panels <input type="number" class="field-numeric" name="countSolarPanels" value={property['Count - Solar Panels']} /></label>
 						</div>
-
-						<details style="margin-top: 0.75rem;">
-							<summary>Detailed inventory</summary>
-							<span class="field-hint">Optional — only fill in if you want to track windows by operating style. Total Glass Panes validation uses these instead of Standard Windows above once any of them are entered.</span>
-							<div class="count-grid" style="margin-top: 0.5rem;">
-								<label>Double Hung <input type="number" class="field-numeric detailed-inventory-field" name="countDoubleHung" value={property['Count - Double Hung']} /></label>
-								<label>Casement <input type="number" class="field-numeric detailed-inventory-field" name="countCasement" value={property['Count - Casement']} /></label>
-								<label>Picture <input type="number" class="field-numeric detailed-inventory-field" name="countPicture" value={property['Count - Picture']} /></label>
-								<label>Sliding Window <input type="number" class="field-numeric detailed-inventory-field" name="countSliding" value={property['Count - Sliding']} /></label>
-								<label>Awning <input type="number" class="field-numeric detailed-inventory-field" name="countAwning" value={property['Count - Awning']} /></label>
-							</div>
-						</details>
 
 						<p class="field-hint" style="margin-top: 1rem;">
 							Inventory last verified: {property['Inventory Verified At'] ? new Date(property['Inventory Verified At']).toLocaleDateString() : 'Not verified'}
@@ -649,44 +629,9 @@ const timeline = activityRows
 	</main>
 
 	<script>
-		const totalPanesInput = document.getElementById('totalPanes') as HTMLInputElement;
-		const standardInput = document.getElementById('countStandard') as HTMLInputElement;
-		const otherPaneFields = Array.from(document.querySelectorAll('.pane-field:not(#countStandard)')) as HTMLInputElement[];
-		const detailedFields = Array.from(document.querySelectorAll('.detailed-inventory-field')) as HTMLInputElement[];
-		const status = document.getElementById('paneBreakdownStatus') as HTMLElement;
-
-		// Total Glass Panes validation only counts categories that are
-		// explicitly panes (Standard/French/Sliding Glass Door/Skylights) —
-		// Screens/Tracks/Solar Panels never contribute. The detailed
-		// breakdown (Double Hung/Casement/Picture/Sliding Window/Awning)
-		// stands in for Standard Windows once any of it is used, so nothing
-		// double-counts between the aggregate and its own detailed parts. No
-		// warning renders until the rep has actually entered something.
-		function checkPaneBreakdown() {
-			const detailedTotal = detailedFields.reduce((sum, field) => sum + (Number(field.value) || 0), 0);
-			const standardContribution = detailedTotal > 0 ? detailedTotal : Number(standardInput.value) || 0;
-			const otherTotal = otherPaneFields.reduce((sum, field) => sum + (Number(field.value) || 0), 0);
-			const breakdownTotal = standardContribution + otherTotal;
-			const totalPanes = Number(totalPanesInput.value) || 0;
-
-			if (breakdownTotal === 0) {
-				status.textContent = '';
-				status.className = 'field-status';
-				return;
-			}
-			if (breakdownTotal === totalPanes) {
-				status.textContent = `✓ Pane breakdown matches total panes`;
-				status.className = 'field-status field-status-ok';
-			} else {
-				status.textContent = `⚠ Pane breakdown totals ${breakdownTotal} of ${totalPanes} panes`;
-				status.className = 'field-status mismatch';
-			}
-		}
-
-		totalPanesInput.addEventListener('input', checkPaneBreakdown);
-		standardInput.addEventListener('input', checkPaneBreakdown);
-		otherPaneFields.forEach((field) => field.addEventListener('input', checkPaneBreakdown));
-		detailedFields.forEach((field) => field.addEventListener('input', checkPaneBreakdown));
-		checkPaneBreakdown();
+		// The pane-breakdown validator lived here. It cross-checked Total Glass
+		// Panes against a per-window-style breakdown that the field workflow no
+		// longer collects — with those inputs gone there is nothing left to
+		// reconcile, so the check went with it.
 	</script>
 </BaseLayout>

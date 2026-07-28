@@ -51,6 +51,36 @@ export const walkthroughSchema = z.object({
 	'Access Difficulty': blank(),
 	'Hard Water Present (Y/N)': blank(),
 	'Construction Debris Present (Y/N)': blank(),
+	// Whole-property counts — the default and fastest way to record a
+	// walkthrough. The operator enters totals for the property and moves on;
+	// no window-type classification, no row per opening.
+	//
+	// 'Total Window Units' and 'Total Glass Panes' measure two different
+	// things and are deliberately stored separately — the app never derives
+	// one from the other. A window unit is the operator's own field judgment
+	// of how much work an opening represents (a bank of windows, or one
+	// oversized assembly, may be counted as more than one); a pane is the
+	// objective count of individual pieces of glass. Only window units feed
+	// pricing today; pane count is recorded for comparison and calibration.
+	//
+	// Optional per-area breakdown lives in WalkthroughItems rows carrying
+	// 'Window Units'/'Pane Count' (see walkthroughItem.ts). When those exist
+	// they are summed and win over these totals — see resolveWalkthroughCounts
+	// in lib/pricing/walkthroughToQuote.ts.
+	'Total Window Units': blank(),
+	'Total Glass Panes': blank(),
+	'Total Screens': blank(),
+	'Total Tracks': blank(),
+	'Total Skylights': blank(),
+	'Total Sliding Doors': blank(),
+	// Which sides this visit is scoped to. Gates whether window units price
+	// as exterior, interior, or both.
+	'Interior Included (Y/N)': blank(),
+	'Exterior Included (Y/N)': blank(),
+	// 'whole-property' | 'by-area' | 'detailed'. Recorded for reporting;
+	// pricing derives the mode from the data actually present so that
+	// walkthroughs predating this field keep pricing exactly as before.
+	'Count Entry Mode': blank(),
 	// Data-ownership separation (Property Detail simplification): these
 	// describe what THIS visit found, which is exactly why they live here
 	// rather than on Property — a maintenance visit can change every one of

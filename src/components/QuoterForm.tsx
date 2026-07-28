@@ -581,7 +581,14 @@ export default function QuoterForm(props: QuoterFormProps) {
 					{summary && (
 						<div className="card" style={{ background: 'var(--color-cream)' }}>
 							<h3>Property Details</h3>
-							<p className="field-hint">Saves to the property when you save this quote — no need to open a separate page.</p>
+							<p className="field-hint">
+							Used for this quote. Tick the box below if these are corrections to the property itself and should be saved
+							back to its record.
+						</p>
+						<label>
+							<input type="checkbox" name="updatePropertyRecord" />{' '}
+							Also update the property record
+						</label>
 							<p className="field-label">Stories</p>
 							<div className="segmented">
 								{([1, 2, 3] as const).map((n) => (

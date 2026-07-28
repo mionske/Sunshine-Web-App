@@ -16,7 +16,10 @@ import {
 	countAccessDifficultyItems,
 	createQuoteFromWalkthrough,
 	itemsToQuoteCounts,
+	resolveWalkthroughCounts,
 	saveWalkthrough,
+	sumAreaRows,
+	totalsToQuoteCounts,
 } from './walkthroughToQuote';
 
 const ACTIVITY_LOG_HEADERS = [
@@ -102,6 +105,8 @@ function item(overrides: Partial<WalkthroughItem> = {}): WalkthroughItem {
 		'Walkthrough Item ID': crypto.randomUUID(),
 		'Walkthrough ID': 'walkthrough-1',
 		Area: 'Front',
+		'Window Units': '',
+		'Pane Count': '',
 		'Item Type': 'Window',
 		Quantity: '1',
 		'Size Class': 'Standard',
@@ -654,5 +659,89 @@ describe('saveWalkthrough / createQuoteFromWalkthrough (Sheets-backed)', () => {
 		expect(second.quote['Quote ID']).toBe(first.quote['Quote ID']);
 		const quoteRows = harness.spreadsheet.getTab('Quotes').slice(1);
 		expect(quoteRows).toHaveLength(1);
+	});
+});
+
+// The simplification pass's core inventory rule: a walkthrough is recorded
+// as window units + panes of glass, with no window-type classification, and
+// the two counts are never derived from one another.
+function walkthroughRow(overrides: Partial<Walkthrough> = {}): Walkthrough {
+	return walkthroughSchema.parse({ 'Walkthrough ID': 'walkthrough-1', ...overrides });
+}
+
+function areaRow(area: string, windowUnits: string, paneCount: string, extra: Partial<WalkthroughItem> = {}): WalkthroughItem {
+	return walkthroughItemSchema.parse({
+		'Walkthrough Item ID': crypto.randomUUID(),
+		'Walkthrough ID': 'walkthrough-1',
+		Area: area,
+		'Window Units': windowUnits,
+		'Pane Count': paneCount,
+		...extra,
+	});
+}
+
+describe('whole-property counts (units + panes)', () => {
+	it('prices window units as standard windows, exterior only by default', () => {
+		const counts = totalsToQuoteCounts(
+			{ windowUnits: 77, panes: 135, screens: 44, tracks: 0, skylights: 0, slidingDoors: 0 },
+			{ interior: false, exterior: true }
+		);
+		expect(counts.windowExtStandard).toBe(77);
+		expect(counts.windowIntStandard).toBe(0);
+		expect(counts.screenClean).toBe(44);
+		// No window-type classification is ever inferred.
+		expect(counts.windowExtOversized).toBe(0);
+		expect(counts.windowExtFrenchPane).toBe(0);
+	});
+
+	it('counts both sides when the visit covers interior and exterior', () => {
+		const counts = totalsToQuoteCounts(
+			{ windowUnits: 10, panes: 30, screens: 0, tracks: 0, skylights: 2, slidingDoors: 1 },
+			{ interior: true, exterior: true }
+		);
+		expect(counts.windowExtStandard).toBe(10);
+		expect(counts.windowIntStandard).toBe(10);
+		expect(counts.skylightExt).toBe(2);
+		expect(counts.skylightInt).toBe(2);
+		expect(counts.slidingDoorExt).toBe(1);
+		expect(counts.slidingDoorInt).toBe(1);
+	});
+
+	it('never converts pane count into window units or vice versa', () => {
+		const a = totalsToQuoteCounts({ windowUnits: 12, panes: 0, screens: 0, tracks: 0, skylights: 0, slidingDoors: 0 }, { interior: false, exterior: true });
+		const b = totalsToQuoteCounts({ windowUnits: 12, panes: 999, screens: 0, tracks: 0, skylights: 0, slidingDoors: 0 }, { interior: false, exterior: true });
+		expect(a).toEqual(b);
+	});
+
+	it('resolves from the walkthrough totals when there are no item rows at all', () => {
+		const counts = resolveWalkthroughCounts(
+			walkthroughRow({ 'Total Window Units': '77', 'Total Glass Panes': '135', 'Total Screens': '44', 'Exterior Included (Y/N)': 'Y' }),
+			[]
+		);
+		expect(counts.windowExtStandard).toBe(77);
+		expect(counts.screenClean).toBe(44);
+	});
+
+	it('sums optional area rows, and those win over the property totals', () => {
+		const areas = [areaRow('Upstairs', '20', '40'), areaRow('Main floor', '30', '75'), areaRow('Basement', '7', '20')];
+		expect(sumAreaRows(areas)).toMatchObject({ windowUnits: 57, panes: 135 });
+
+		const counts = resolveWalkthroughCounts(
+			walkthroughRow({ 'Total Window Units': '999', 'Exterior Included (Y/N)': 'Y' }),
+			areas
+		);
+		expect(counts.windowExtStandard).toBe(57);
+	});
+
+	it('leaves walkthroughs that used detailed item rows priced exactly as before', () => {
+		const items = [item({ 'Size Class': 'Oversized', Quantity: '4' }), item({ 'Size Class': 'Standard', Quantity: '6' })];
+		// A walkthrough predating this change has no totals recorded at all.
+		expect(resolveWalkthroughCounts(walkthroughRow(), items)).toEqual(itemsToQuoteCounts(items));
+	});
+
+	it('defaults to exterior-only when neither side was recorded', () => {
+		const counts = resolveWalkthroughCounts(walkthroughRow({ 'Total Window Units': '10' }), []);
+		expect(counts.windowExtStandard).toBe(10);
+		expect(counts.windowIntStandard).toBe(0);
 	});
 });

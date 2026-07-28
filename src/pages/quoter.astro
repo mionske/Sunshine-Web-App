@@ -104,8 +104,14 @@ if (Astro.request.method === 'POST') {
 		// of requiring a separate trip to the Property Detail page. Saved
 		// alongside the quote every time, in every mode (new/edit/duplicate) —
 		// harmless no-op write when nothing changed.
+		// Permanent property facts are only rewritten when the user explicitly
+		// asks. This used to run on every quote save, in every mode including
+		// an edit of an old quote — which silently stamped 'Undetermined',
+		// 'None' and Stories=1 onto properties that had those fields blank,
+		// and pushed a stale quote's snapshot over today's property record.
 		const propertyIdForDetails = String(form.get('propertyId') ?? '');
-		if (propertyIdForDetails) {
+		const updatePropertyRecord = form.get('updatePropertyRecord') === 'on';
+		if (propertyIdForDetails && updatePropertyRecord) {
 			await updateRow(env, propertyConfig, propertyIdForDetails, {
 				Stories: String(form.get('stories') ?? ''),
 				'Total Window Units': String(form.get('totalWindowUnits') ?? ''),

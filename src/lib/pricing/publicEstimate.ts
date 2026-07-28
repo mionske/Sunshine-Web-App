@@ -89,7 +89,11 @@ export async function createPublicEstimate(
 					Zip: input.zip ?? '',
 					Stories: String(input.stories),
 					'Total Window Units': String(input.approxWindowCount),
-					'Window Condition': 'Client-reported (ballpark estimate) — not yet measured',
+					// 'Window Condition' is deliberately not written. It is a
+					// deprecated Property column (condition moved to Walkthrough,
+					// where it can differ per visit), and stamping a sentinel into
+					// it made every estimator-created property trip the
+					// legacy-condition migration banner on the Property page.
 				},
 			],
 		},

@@ -70,6 +70,105 @@ export function itemsToQuoteCounts(items: WalkthroughItem[]): QuoteCounts {
 	return counts;
 }
 
+/** The counts a walkthrough actually recorded, whichever way it was
+ * entered. Panes are included for reporting but never priced. */
+export interface WalkthroughCountTotals {
+	windowUnits: number;
+	panes: number;
+	screens: number;
+	tracks: number;
+	skylights: number;
+	slidingDoors: number;
+}
+
+/** An area row is the optional per-area breakdown: it carries counts and no
+ * Item Type. A detailed item row carries an Item Type. Telling them apart by
+ * shape (rather than a mode column) is what lets every walkthrough written
+ * before the whole-property simplification keep pricing exactly as it did. */
+function isAreaRow(item: WalkthroughItem): boolean {
+	return !item['Item Type'] && (item['Window Units'] !== '' || item['Pane Count'] !== '');
+}
+
+export function sumAreaRows(items: WalkthroughItem[]): WalkthroughCountTotals {
+	const totals: WalkthroughCountTotals = { windowUnits: 0, panes: 0, screens: 0, tracks: 0, skylights: 0, slidingDoors: 0 };
+	for (const item of items) {
+		if (!isAreaRow(item)) continue;
+		totals.windowUnits += num(item['Window Units']);
+		totals.panes += num(item['Pane Count']);
+		// Areas reuse the per-item screen/track columns as plain counts.
+		totals.screens += num(item['Screen Included']);
+		totals.tracks += num(item['Track Included']);
+	}
+	return totals;
+}
+
+export function walkthroughTotals(walkthrough: Walkthrough): WalkthroughCountTotals {
+	return {
+		windowUnits: num(walkthrough['Total Window Units']),
+		panes: num(walkthrough['Total Glass Panes']),
+		screens: num(walkthrough['Total Screens']),
+		tracks: num(walkthrough['Total Tracks']),
+		skylights: num(walkthrough['Total Skylights']),
+		slidingDoors: num(walkthrough['Total Sliding Doors']),
+	};
+}
+
+/** Window units are the operator's own workload judgment, so they price as
+ * plain standard windows — the same thing a Standard-class item has always
+ * mapped to. Pane count is deliberately not used here: it measures a
+ * different thing and the app never converts one into the other.
+ *
+ * Sliding doors and skylights keep their own distinct count keys rather
+ * than being folded into window units, because collapsing them would
+ * silently drop them from pricing. */
+export function totalsToQuoteCounts(totals: WalkthroughCountTotals, sides: { interior: boolean; exterior: boolean }): QuoteCounts {
+	const counts: QuoteCounts = { ...EMPTY_COUNTS };
+	if (sides.exterior) {
+		counts.windowExtStandard += totals.windowUnits;
+		counts.slidingDoorExt += totals.slidingDoors;
+		counts.skylightExt += totals.skylights;
+	}
+	if (sides.interior) {
+		counts.windowIntStandard += totals.windowUnits;
+		counts.slidingDoorInt += totals.slidingDoors;
+		counts.skylightInt += totals.skylights;
+	}
+	counts.screenClean += totals.screens;
+	counts.trackBasic += totals.tracks;
+	return counts;
+}
+
+/** The single funnel from "what this walkthrough recorded" to "what the
+ * pricing engine is given", covering all three entry modes. The mode is
+ * derived from the rows actually present rather than read from
+ * 'Count Entry Mode', so a walkthrough saved before that column existed
+ * still resolves correctly:
+ *
+ *   detailed items present   -> the original per-item path, untouched
+ *   area rows present        -> sum the areas
+ *   neither                  -> the whole-property totals
+ */
+export function resolveWalkthroughCounts(walkthrough: Walkthrough, items: WalkthroughItem[]): QuoteCounts {
+	if (items.some((i) => i['Item Type'])) return itemsToQuoteCounts(items);
+
+	const areaRows = items.filter(isAreaRow);
+	const totals = areaRows.length > 0 ? sumAreaRows(areaRows) : walkthroughTotals(walkthrough);
+	// Area rows carry no skylight/sliding-door columns of their own, so those
+	// always come from the property-level totals.
+	if (areaRows.length > 0) {
+		const propertyTotals = walkthroughTotals(walkthrough);
+		totals.skylights = propertyTotals.skylights;
+		totals.slidingDoors = propertyTotals.slidingDoors;
+	}
+
+	// Default to exterior-only when neither side was recorded — that is the
+	// common residential job, and it is the conservative choice (never prices
+	// a side the operator did not say they were doing).
+	const interior = walkthrough['Interior Included (Y/N)'] === 'Y';
+	const exterior = walkthrough['Exterior Included (Y/N)'] === 'Y';
+	return totalsToQuoteCounts(totals, interior || exterior ? { interior, exterior } : { interior: false, exterior: true });
+}
+
 /** Window-characteristic calibration reporting: sums item Quantity (not
  * row count — one row can represent several physical windows) for items
  * whose per-item Access Difficulty is 'Difficult' or 'Specialty Access'.
@@ -115,6 +214,12 @@ export interface WalkthroughPricingInput {
 	razorScraping?: boolean;
 	steelWool?: boolean;
 	nonScratchPad?: boolean;
+	// Set when the walkthrough was counted the simple way (whole-property
+	// totals, optionally broken down by area). Absent means the caller is on
+	// the detailed item-level path and the item rows carry the counts.
+	totals?: WalkthroughCountTotals;
+	interiorIncluded?: boolean;
+	exteriorIncluded?: boolean;
 }
 
 export interface WalkthroughPricingSuggestion {
@@ -138,7 +243,15 @@ export function computeWalkthroughPricing(
 	items: WalkthroughItem[],
 	input: WalkthroughPricingInput
 ): WalkthroughPricingSuggestion {
-	const counts = itemsToQuoteCounts(items);
+	// Whole-property/area totals when the walkthrough recorded them, the
+	// original per-item path when it has detailed items — see
+	// resolveWalkthroughCounts.
+	const counts = input.totals
+		? totalsToQuoteCounts(items.some(isAreaRow) ? { ...sumAreaRows(items), skylights: input.totals.skylights, slidingDoors: input.totals.slidingDoors } : input.totals, {
+				interior: input.interiorIncluded ?? false,
+				exterior: input.exteriorIncluded ?? true,
+			})
+		: itemsToQuoteCounts(items);
 	const result = calculateQuote(config, services, {
 		stories: storiesForEngine(input.storyCountObserved),
 		condition: conditionForEngine(input.exteriorCondition, hasAnyRestorationFlag(input)),
@@ -169,6 +282,10 @@ export function computeWalkthroughPricing(
 export interface WalkthroughItemInput {
 	id: string;
 	area: string;
+	/** Area rows set these two and leave itemType blank. Detailed item rows
+	 * do the reverse. */
+	windowUnits?: string;
+	paneCount?: string;
 	itemType: string;
 	quantity: string;
 	sizeClass: string;
@@ -224,6 +341,17 @@ export interface SaveWalkthroughPayload {
 	steelWool?: boolean;
 	nonScratchPad?: boolean;
 	restorationNotes?: string;
+	// Whole-property counts (the default entry path). Window units and panes
+	// are recorded independently — neither is derived from the other.
+	totalWindowUnits?: string;
+	totalGlassPanes?: string;
+	totalScreens?: string;
+	totalTracks?: string;
+	totalSkylights?: string;
+	totalSlidingDoors?: string;
+	interiorIncluded?: boolean;
+	exteriorIncluded?: boolean;
+	countEntryMode?: string;
 	items: WalkthroughItemInput[];
 }
 
@@ -248,6 +376,8 @@ export async function saveWalkthrough(
 		id: item.id,
 		'Walkthrough ID': payload.id,
 		Area: item.area,
+		'Window Units': item.windowUnits ?? '',
+		'Pane Count': item.paneCount ?? '',
 		'Item Type': item.itemType,
 		Quantity: item.quantity,
 		'Size Class': item.sizeClass,
@@ -264,7 +394,24 @@ export async function saveWalkthrough(
 	}));
 
 	const asWalkthroughItems = itemRecords.map((r) => walkthroughItemConfig.schema.parse({ ...r, 'Walkthrough Item ID': r.id }));
-	const pricing = computeWalkthroughPricing(config, services, asWalkthroughItems, payload);
+	// Detailed item rows price from the items themselves; everything else
+	// prices from the recorded totals (or the area rows that sum into them).
+	const usingDetailedItems = asWalkthroughItems.some((i) => i['Item Type']);
+	const pricing = computeWalkthroughPricing(config, services, asWalkthroughItems, {
+		...payload,
+		totals: usingDetailedItems
+			? undefined
+			: {
+					windowUnits: num(payload.totalWindowUnits),
+					panes: num(payload.totalGlassPanes),
+					screens: num(payload.totalScreens),
+					tracks: num(payload.totalTracks),
+					skylights: num(payload.totalSkylights),
+					slidingDoors: num(payload.totalSlidingDoors),
+				},
+		interiorIncluded: payload.interiorIncluded,
+		exteriorIncluded: payload.exteriorIncluded ?? true,
+	});
 
 	const { created } = await createRelatedRows(
 		env,
@@ -286,6 +433,15 @@ export async function saveWalkthrough(
 						'Access Difficulty': payload.accessDifficulty,
 						'Hard Water Present (Y/N)': payload.hardWaterPresent ? 'Y' : 'N',
 						'Construction Debris Present (Y/N)': payload.constructionDebrisPresent ? 'Y' : 'N',
+						'Total Window Units': payload.totalWindowUnits ?? '',
+						'Total Glass Panes': payload.totalGlassPanes ?? '',
+						'Total Screens': payload.totalScreens ?? '',
+						'Total Tracks': payload.totalTracks ?? '',
+						'Total Skylights': payload.totalSkylights ?? '',
+						'Total Sliding Doors': payload.totalSlidingDoors ?? '',
+						'Interior Included (Y/N)': payload.interiorIncluded ? 'Y' : 'N',
+						'Exterior Included (Y/N)': payload.exteriorIncluded === false ? 'N' : 'Y',
+						'Count Entry Mode': payload.countEntryMode ?? (usingDetailedItems ? 'detailed' : 'whole-property'),
 						'Water-Fed Pole Suitable (Y/N)': payload.waterFedPoleSuitable ? 'Y' : 'N',
 						'Ladder Required': payload.ladderRequired,
 						'Roof Access Required': payload.roofAccessRequired,
@@ -354,7 +510,7 @@ export async function createQuoteFromWalkthrough(
 
 	const allWalkthroughItems = await listActiveRows(env, walkthroughItemConfig);
 	const items = allWalkthroughItems.filter((i) => i['Walkthrough ID'] === walkthroughId);
-	const counts = itemsToQuoteCounts(items);
+	const counts = resolveWalkthroughCounts(walkthrough, items);
 	const { difficultAccessItemCount, specialtyAccessItemCount } = countAccessDifficultyItems(items);
 
 	const suggestedTarget = num(walkthrough['Suggested Target Price']);

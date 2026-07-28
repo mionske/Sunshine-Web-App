@@ -22,6 +22,8 @@ function toWalkthroughItem(raw: Record<string, unknown>): WalkthroughItem {
 		'Walkthrough Item ID': String(raw.id ?? ''),
 		'Walkthrough ID': '',
 		Area: String(raw.area ?? ''),
+		'Window Units': String(raw.windowUnits ?? ''),
+		'Pane Count': String(raw.paneCount ?? ''),
 		'Item Type': String(raw.itemType ?? ''),
 		Quantity: String(raw.quantity ?? ''),
 		'Size Class': String(raw.sizeClass ?? ''),
@@ -46,6 +48,8 @@ function toWalkthroughItemInput(raw: Record<string, unknown>): WalkthroughItemIn
 	return {
 		id: String(raw.id ?? ''),
 		area: String(raw.area ?? ''),
+		windowUnits: raw.windowUnits === undefined ? undefined : String(raw.windowUnits),
+		paneCount: raw.paneCount === undefined ? undefined : String(raw.paneCount),
 		itemType: String(raw.itemType ?? ''),
 		quantity: String(raw.quantity ?? ''),
 		sizeClass: String(raw.sizeClass ?? ''),
@@ -121,6 +125,15 @@ export const POST: APIRoute = async ({ request }) => {
 				steelWool: Boolean(body.steelWool),
 				nonScratchPad: Boolean(body.nonScratchPad),
 				restorationNotes: body.restorationNotes ? String(body.restorationNotes) : undefined,
+				totalWindowUnits: String(body.totalWindowUnits ?? ''),
+				totalGlassPanes: String(body.totalGlassPanes ?? ''),
+				totalScreens: String(body.totalScreens ?? ''),
+				totalTracks: String(body.totalTracks ?? ''),
+				totalSkylights: String(body.totalSkylights ?? ''),
+				totalSlidingDoors: String(body.totalSlidingDoors ?? ''),
+				interiorIncluded: Boolean(body.interiorIncluded),
+				exteriorIncluded: body.exteriorIncluded === undefined ? true : Boolean(body.exteriorIncluded),
+				countEntryMode: body.countEntryMode ? String(body.countEntryMode) : undefined,
 				items: (body.items as Record<string, unknown>[]).map(toWalkthroughItemInput),
 			};
 			const result = await saveWalkthrough(env, config, services, payload);
