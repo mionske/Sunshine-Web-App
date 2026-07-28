@@ -293,6 +293,12 @@ export interface WalkthroughItemInput {
 	exteriorIncluded: boolean;
 	screenIncluded: boolean;
 	trackIncluded: boolean;
+	/** Area rows only. 'Screen Included'/'Track Included' carry a Y/N flag on
+	 * a detailed item row but a plain count on an area row, so the two are
+	 * kept as separate inputs rather than one field that means two things —
+	 * writing a count through the boolean above silently turned it into 'Y'. */
+	screenCount?: string;
+	trackCount?: string;
 	condition: string;
 	accessDifficulty: string;
 	hardWater: boolean;
@@ -383,8 +389,11 @@ export async function saveWalkthrough(
 		'Size Class': item.sizeClass,
 		'Interior Included': item.interiorIncluded ? 'Y' : 'N',
 		'Exterior Included': item.exteriorIncluded ? 'Y' : 'N',
-		'Screen Included': item.screenIncluded ? 'Y' : 'N',
-		'Track Included': item.trackIncluded ? 'Y' : 'N',
+		// An area row (no Item Type) stores counts here; a detailed item row
+		// stores a Y/N flag. Both readers already branch on which shape the
+		// row is, so the writer has to as well.
+		'Screen Included': item.itemType ? (item.screenIncluded ? 'Y' : 'N') : (item.screenCount ?? ''),
+		'Track Included': item.itemType ? (item.trackIncluded ? 'Y' : 'N') : (item.trackCount ?? ''),
 		Condition: item.condition,
 		'Access Difficulty': item.accessDifficulty,
 		'Hard Water': item.hardWater ? 'Y' : 'N',

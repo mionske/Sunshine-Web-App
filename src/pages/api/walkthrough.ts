@@ -29,8 +29,11 @@ function toWalkthroughItem(raw: Record<string, unknown>): WalkthroughItem {
 		'Size Class': String(raw.sizeClass ?? ''),
 		'Interior Included': raw.interiorIncluded ? 'Y' : 'N',
 		'Exterior Included': raw.exteriorIncluded ? 'Y' : 'N',
-		'Screen Included': raw.screenIncluded ? 'Y' : 'N',
-		'Track Included': raw.trackIncluded ? 'Y' : 'N',
+		// Same dual meaning as the save path: a count on an area row, a Y/N
+		// flag on a detailed item row. The preview has to agree with what
+		// saving would produce, or the price changes on save.
+		'Screen Included': raw.itemType ? (raw.screenIncluded ? 'Y' : 'N') : String(raw.screenCount ?? ''),
+		'Track Included': raw.itemType ? (raw.trackIncluded ? 'Y' : 'N') : String(raw.trackCount ?? ''),
 		Condition: String(raw.condition ?? ''),
 		'Access Difficulty': String(raw.accessDifficulty ?? ''),
 		'Hard Water': raw.hardWater ? 'Y' : 'N',
@@ -57,6 +60,8 @@ function toWalkthroughItemInput(raw: Record<string, unknown>): WalkthroughItemIn
 		exteriorIncluded: Boolean(raw.exteriorIncluded),
 		screenIncluded: Boolean(raw.screenIncluded),
 		trackIncluded: Boolean(raw.trackIncluded),
+		screenCount: raw.screenCount === undefined ? undefined : String(raw.screenCount),
+		trackCount: raw.trackCount === undefined ? undefined : String(raw.trackCount),
 		condition: String(raw.condition ?? ''),
 		accessDifficulty: String(raw.accessDifficulty ?? ''),
 		hardWater: Boolean(raw.hardWater),

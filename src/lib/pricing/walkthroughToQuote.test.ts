@@ -745,3 +745,72 @@ describe('whole-property counts (units + panes)', () => {
 		expect(counts.windowIntStandard).toBe(0);
 	});
 });
+
+// Regression: 'Screen Included'/'Track Included' mean two different things
+// depending on the row shape — a Y/N flag on a detailed item row, a plain
+// count on an area row. The save path only knew about the flag, so an area's
+// screen count was written as 'Y' and summed to zero.
+describe('area rows keep their screen/track counts through the write path', () => {
+	let harness: FakeFetchHandle;
+
+	beforeEach(async () => {
+		harness = installFakeFetch();
+		_clearHeaderCacheForTests();
+		harness.spreadsheet.setTab('Walkthroughs', [Object.keys(walkthroughSchema.shape)]);
+		harness.spreadsheet.setTab('WalkthroughItems', [Object.keys(walkthroughItemSchema.shape)]);
+		harness.spreadsheet.setTab('ActivityLog', [ACTIVITY_LOG_HEADERS]);
+	});
+
+	afterEach(() => harness.restore());
+
+	function areaInput(area: string, windowUnits: string, paneCount: string, screens: string, tracks: string) {
+		return {
+			id: crypto.randomUUID(), area, windowUnits, paneCount,
+			itemType: '', quantity: '', sizeClass: '',
+			interiorIncluded: false, exteriorIncluded: true,
+			screenIncluded: false, trackIncluded: false,
+			screenCount: screens, trackCount: tracks,
+			condition: '', accessDifficulty: '', hardWater: false, constructionDebris: false, notes: '',
+		};
+	}
+
+	it('writes area screen/track counts as numbers, and sums them back', async () => {
+		const result = await saveWalkthrough(harness.env, config(), SERVICES, {
+			id: 'walkthrough-areas', clientId: 'c1', propertyId: 'p1',
+			walkthroughDate: '2026-07-28', exteriorCondition: 'Maintenance', interiorCondition: 'Maintenance',
+			storyCountObserved: '2', accessDifficulty: 'Standard',
+			hardWaterPresent: false, constructionDebrisPresent: false, waterFedPoleSuitable: true,
+			ladderRequired: '', roofAccessRequired: '', ownerOverridePrice: '', notes: '',
+			exteriorIncluded: true, interiorIncluded: false, countEntryMode: 'by-area',
+			items: [areaInput('Upstairs', '20', '40', '10', '1'), areaInput('Main', '30', '75', '20', '2'), areaInput('Basement', '7', '20', '5', '0')],
+		});
+
+		// Stored as counts, not 'Y'.
+		expect(result.items.map((i) => i['Screen Included'])).toEqual(['10', '20', '5']);
+
+		const totals = sumAreaRows(result.items);
+		expect(totals).toMatchObject({ windowUnits: 57, panes: 135, screens: 35, tracks: 3 });
+
+		const counts = resolveWalkthroughCounts(result.walkthrough, result.items);
+		expect(counts.windowExtStandard).toBe(57);
+		expect(counts.screenClean).toBe(35);
+		expect(counts.trackBasic).toBe(3);
+	});
+
+	it('still writes Y/N for a detailed item row', async () => {
+		const result = await saveWalkthrough(harness.env, config(), SERVICES, {
+			id: 'walkthrough-items', clientId: 'c1', propertyId: 'p1',
+			walkthroughDate: '2026-07-28', exteriorCondition: 'Maintenance', interiorCondition: 'Maintenance',
+			storyCountObserved: '1', accessDifficulty: 'Standard',
+			hardWaterPresent: false, constructionDebrisPresent: false, waterFedPoleSuitable: true,
+			ladderRequired: '', roofAccessRequired: '', ownerOverridePrice: '', notes: '',
+			items: [{
+				id: crypto.randomUUID(), area: 'Front', itemType: 'Window', quantity: '4', sizeClass: 'Standard',
+				interiorIncluded: false, exteriorIncluded: true, screenIncluded: true, trackIncluded: false,
+				condition: 'Maintenance', accessDifficulty: 'Standard', hardWater: false, constructionDebris: false, notes: '',
+			}],
+		});
+		expect(result.items[0]['Screen Included']).toBe('Y');
+		expect(itemsToQuoteCounts(result.items).screenClean).toBe(4);
+	});
+});
