@@ -9,7 +9,7 @@ import { quoteItemConfig } from '../models/quoteItem';
 import type { PricingConfig } from '../models/pricingConfig';
 import type { Service } from '../models/service';
 import { calculateQuote } from './engine';
-import { createQuote, type CreateQuoteResult } from './quotes';
+import { createQuote, type CreateQuoteResult, type LaborModelQuoteInput } from './quotes';
 import type { QuoteCounts, Stories } from './types';
 import { conditionForEngine, hasAnyRestorationFlag } from './condition';
 
@@ -493,6 +493,51 @@ export async function saveWalkthrough(
 }
 
 /**
+ * True when a walkthrough was recorded with grouped window inventory.
+ *
+ * Blank reads as legacy, deliberately: every walkthrough written before the
+ * labor model existed has nothing in this column, and treating those as the
+ * old shape is what lets them keep pricing exactly as they always did.
+ */
+export function isGroupedInventoryWalkthrough(walkthrough: Walkthrough): boolean {
+	return walkthrough['Inventory Model'] === 'grouped-v2';
+}
+
+/**
+ * The stored labor estimate, in the shape createQuote wants — or null for a
+ * legacy walkthrough.
+ *
+ * Returns null rather than throwing if the breakdown JSON is unreadable: a
+ * corrupted breakdown should cost the itemisation, not the whole quote, and
+ * the count-engine path is still a sane answer.
+ */
+function laborModelForQuote(walkthrough: Walkthrough): LaborModelQuoteInput | undefined {
+	if (!isGroupedInventoryWalkthrough(walkthrough)) return undefined;
+
+	const productiveMinutes = num(walkthrough['Productive Labor Minutes']);
+	if (productiveMinutes <= 0) return undefined;
+
+	let breakdown: Record<string, number> = {};
+	try {
+		const parsed = JSON.parse(walkthrough['Labor Breakdown (JSON)'] || '{}') as { breakdown?: Record<string, number> };
+		breakdown = parsed.breakdown ?? {};
+	} catch {
+		breakdown = {};
+	}
+
+	const ownerSelected = num(walkthrough['Owner Override Price']);
+	return {
+		productiveMinutes,
+		laborModelVersion: walkthrough['Labor Model Version'],
+		suggestedLow: num(walkthrough['Suggested Low Price']),
+		suggestedTarget: num(walkthrough['Suggested Target Price']),
+		suggestedHigh: num(walkthrough['Suggested High Price']),
+		ownerSelectedPrice: ownerSelected > 0 ? ownerSelected : undefined,
+		breakdown,
+	};
+}
+
+/**
  * Converts a completed Walkthrough into a Quote, reusing its item set and
  * the PricingConfig actually used at walkthrough time (never re-resolving
  * live, even if a newer config has since been activated — reproducibility).
@@ -522,9 +567,22 @@ export async function createQuoteFromWalkthrough(
 	const counts = resolveWalkthroughCounts(walkthrough, items);
 	const { difficultAccessItemCount, specialtyAccessItemCount } = countAccessDifficultyItems(items);
 
+	// A walkthrough recorded under the labor model carries its own hours,
+	// breakdown and price band. Those are what the operator saw and approved
+	// on site, so the quote records them rather than re-deriving a different
+	// number from the count engine — which, for a grouped walkthrough, would
+	// be answering a question nobody asked.
+	//
+	// Anything else — every walkthrough recorded before the labor model, and
+	// any recorded since without grouped rows — takes the original path below,
+	// untouched.
+	const laborModel = laborModelForQuote(walkthrough);
+
 	const suggestedTarget = num(walkthrough['Suggested Target Price']);
 	const overridePrice = num(walkthrough['Owner Override Price']);
-	const manualAdjustment = overridePrice > 0 ? overridePrice - suggestedTarget : 0;
+	// Only the count-engine path expresses the owner's price as an adjustment
+	// on top of a calculated total. The labor path passes it through directly.
+	const manualAdjustment = laborModel ? 0 : overridePrice > 0 ? overridePrice - suggestedTarget : 0;
 
 	const hardWater = walkthrough['Hard Water Present (Y/N)'] === 'Y';
 	const constructionDebris = walkthrough['Construction Debris Present (Y/N)'] === 'Y';
@@ -542,6 +600,7 @@ export async function createQuoteFromWalkthrough(
 		walkthroughId,
 		difficultAccessItemCount,
 		specialtyAccessItemCount,
+		laborModel,
 		input: {
 			stories: storiesForEngine(walkthrough['Story Count Observed']),
 			condition: conditionForEngine(
