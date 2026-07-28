@@ -88,6 +88,31 @@ export const laborConfigSchema = z.object({
 	'Condition Factor Moderate Buildup': blank(),
 	'Condition Factor Heavy Buildup': blank(),
 
+	// Restoration, priced per affected pane at the severity the operator saw.
+	//
+	// It is per-pane and not a multiplier on the glass rate because it isn't
+	// more of the same work — razoring overspray off a pane costs what it
+	// costs whether that pane was otherwise clean or filthy. The operator
+	// enters how many panes and how bad; these turn that into minutes.
+	'Restoration Minutes Per Pane Light': blank(),
+	'Restoration Minutes Per Pane Moderate': blank(),
+	'Restoration Minutes Per Pane Heavy': blank(),
+
+	// Whole-property factors, flat minutes each. Selected as plain checkboxes
+	// in the field — asking someone on a ladder to estimate the minute cost of
+	// a long hose run produced a number nobody trusted, so the cost lives here
+	// where it can be tuned once against real jobs instead of guessed per job.
+	'Modifier Minutes Heavy Cobweb Removal': blank(),
+	'Modifier Minutes Difficult Hose Routing': blank(),
+	'Modifier Minutes Tight Or Delicate Landscaping': blank(),
+	'Modifier Minutes Furniture Or Object Moving': blank(),
+	'Modifier Minutes Delicate Interior Surfaces': blank(),
+	'Modifier Minutes Multiple Setup Zones': blank(),
+	'Modifier Minutes Long Equipment Carry': blank(),
+	'Modifier Minutes Limited Water Access': blank(),
+	'Modifier Minutes Condition Varies By Area': blank(),
+	'Modifier Minutes Other Modifier': blank(),
+
 	// Productive labor is the work. Scheduled time is the day: floor changes,
 	// hose repositioning, breaks, drying, contingency.
 	'Scheduled Time Contingency Percent': blank(),

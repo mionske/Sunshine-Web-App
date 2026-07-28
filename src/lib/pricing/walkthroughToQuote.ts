@@ -493,14 +493,17 @@ export async function saveWalkthrough(
 }
 
 /**
- * True when a walkthrough was recorded with grouped window inventory.
+ * True when a walkthrough was estimated by the labor model — grouped (v2) or
+ * simplified inventory (v3). Both store a labor breakdown, so both explain
+ * themselves and both quote through the labor path.
  *
  * Blank reads as legacy, deliberately: every walkthrough written before the
  * labor model existed has nothing in this column, and treating those as the
  * old shape is what lets them keep pricing exactly as they always did.
  */
 export function isGroupedInventoryWalkthrough(walkthrough: Walkthrough): boolean {
-	return walkthrough['Inventory Model'] === 'grouped-v2';
+	const model = walkthrough['Inventory Model'];
+	return model === 'grouped-v2' || model === 'inventory-v3';
 }
 
 /**

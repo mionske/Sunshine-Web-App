@@ -185,18 +185,44 @@ export const RESTORATION_SERVICES = [
 export type RestorationService = (typeof RESTORATION_SERVICES)[number];
 
 /**
+ * What the walkthrough actually asks about.
+ *
+ * The three missing from RESTORATION_SERVICES — Razor Scraping, Steel Wool,
+ * Non-Scratch Pad Work — are *techniques*, not findings. What the operator
+ * sees in the field is overspray or hard water; which tool it takes follows
+ * from that. Their columns stay declared and keep writing 'N' so calibration's
+ * segmentation doesn't start reading blanks as unknown, but nothing offers
+ * them as a choice any more.
+ */
+export const RESTORATION_ISSUES = [
+	'Construction Debris',
+	'Paint Overspray',
+	'Stickers or Adhesive',
+	'Hard Water or Mineral Deposits',
+	'Other Restoration',
+] as const satisfies readonly RestorationService[];
+export type RestorationIssue = (typeof RESTORATION_ISSUES)[number];
+
+/** How bad a restoration issue is on the panes it affects. Priced per pane —
+ * see 'Restoration Minutes Per Pane' in models/laborConfig.ts. */
+export const SEVERITY_LEVELS = ['Light', 'Moderate', 'Heavy'] as const;
+export type Severity = (typeof SEVERITY_LEVELS)[number];
+
+/**
  * Whole-property labor that isn't attributable to any one window group.
  * Nothing here should duplicate work already covered by fixed job overhead
  * (arrival, setup, inspection, breakdown) — these are the exceptions, not the
- * routine.
+ * routine. Each carries a configured flat cost; see PROPERTY_MODIFIER_COLUMNS.
  */
 export const PROPERTY_MODIFIERS = [
 	'Heavy Cobweb Removal',
 	'Difficult Hose Routing',
-	'Tight Landscaping',
+	// Merged from the former 'Tight Landscaping' and 'Delicate Landscaping'.
+	// They were never selected separately in practice and cost the same thing:
+	// working slowly around planting.
+	'Tight or Delicate Landscaping',
 	'Furniture or Object Moving',
 	'Delicate Interior Surfaces',
-	'Delicate Landscaping',
 	'Multiple Setup Zones',
 	'Long Equipment Carry',
 	'Limited Water Access',
@@ -204,6 +230,23 @@ export const PROPERTY_MODIFIERS = [
 	'Other Modifier',
 ] as const;
 export type PropertyModifier = (typeof PROPERTY_MODIFIERS)[number];
+
+/**
+ * Frames, screens and tracks are rated as exceptions rather than on the glass
+ * condition scale. "Light Buildup" on a frame isn't a meaningful distinction
+ * in the field — either it's ordinary, or it's costing extra time. Three
+ * options answer that; four invite a coin-flip.
+ */
+export const COMPONENT_EXCEPTION_LEVELS = ['Normal', 'Moderate extra labor', 'Heavy extra labor'] as const;
+export type ComponentException = (typeof COMPONENT_EXCEPTION_LEVELS)[number];
+
+/** Maps onto the existing condition factors, so no new configuration is
+ * needed and the same multiplier does the same job it always did. */
+export const COMPONENT_EXCEPTION_TO_CONDITION: Record<ComponentException, ComponentCondition> = {
+	Normal: 'Maintenance',
+	'Moderate extra labor': 'Moderate Buildup',
+	'Heavy extra labor': 'Heavy Buildup',
+};
 
 /** Discriminator for the shared WalkthroughLaborAdjustments tab. */
 export const ADJUSTMENT_KINDS = ['Restoration', 'Modifier'] as const;
@@ -219,5 +262,5 @@ export type ScheduleRecommendation = (typeof SCHEDULE_RECOMMENDATIONS)[number];
  * aggregate estimate" rather than being back-filled with invented window
  * classes, sizes, or component conditions.
  */
-export const INVENTORY_MODELS = ['legacy-aggregate', 'grouped-v2'] as const;
+export const INVENTORY_MODELS = ['legacy-aggregate', 'grouped-v2', 'inventory-v3'] as const;
 export type InventoryModel = (typeof INVENTORY_MODELS)[number];

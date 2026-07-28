@@ -121,6 +121,7 @@ function item(overrides: Partial<WalkthroughItem> = {}): WalkthroughItem {
 		'Screens Per Unit': '',
 		'Tracks Per Unit': '',
 		'Specialty Description': '',
+		'Special Item Type': '',
 		'Interior Included': 'N',
 		'Exterior Included': 'Y',
 		'Screen Included': 'N',

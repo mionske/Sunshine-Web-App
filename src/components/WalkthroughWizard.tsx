@@ -3,14 +3,38 @@ import {
 	COMPONENT_CONDITIONS,
 	EXTERIOR_ACCESS_LEVELS,
 	INTERIOR_ACCESS_LEVELS,
-	PRODUCTION_CLASSES,
-	PRODUCTION_CLASS_HINTS,
+	COMPONENT_EXCEPTION_LEVELS,
+	COMPONENT_EXCEPTION_TO_CONDITION,
 	PROPERTY_MODIFIERS,
-	RESTORATION_SERVICES,
+	RESTORATION_ISSUES,
 	SCHEDULE_RECOMMENDATIONS,
-	SIZE_CLASSES,
-	STORIES,
+	SEVERITY_LEVELS,
+	SPECIAL_ITEM_LABELS,
+	SPECIAL_ITEM_STORIES,
+	SPECIAL_ITEM_STORY_LABELS,
+	SPECIAL_ITEM_TYPES,
+	STANDARD_FLOORS,
+	STANDARD_FLOOR_LABELS,
+	specialItemUnitLabel,
+	type ComponentCondition,
+	type ComponentException,
+	type SpecialItemType,
+	type StandardFloor,
 } from '../lib/labor/types';
+import { estimateInventoryLabor } from '../lib/labor/inventoryEstimate';
+import type { LaborBreakdown } from '../lib/labor/estimate';
+import { adjustmentMinutes } from '../lib/labor/adjustments';
+import { suggestSchedule } from '../lib/labor/schedule';
+import { suggestPriceBand } from '../lib/labor/price';
+import type { LaborModel } from '../lib/labor/config';
+import type { PricingConfig } from '../lib/models/pricingConfig';
+import {
+	EMPTY_INVENTORY_MESSAGE,
+	hasAnyInventory,
+	inventoryTotals,
+	specialItemError,
+	toInventory,
+} from '../lib/labor/inventory';
 
 function newId(): string {
 	return crypto.randomUUID();
@@ -62,38 +86,20 @@ function Segmented({
 	);
 }
 
-/** One grouped inventory row: a set of similar windows with a quantity.
- * Never one row per physical window. */
-interface GroupState {
+/** One unusual window or door. Ordinary windows never get a row — they are
+ * four counts, one per floor. */
+interface SpecialItemState {
 	id: string;
+	type: string;
 	quantity: string;
-	productionClass: string;
-	sizeClass: string;
 	story: string;
-	interiorAccess: string;
-	exteriorAccess: string;
-	panesPerUnit: string;
-	screensPerUnit: string;
-	tracksPerUnit: string;
-	specialtyDescription: string;
 	notes: string;
 }
 
-function emptyGroup(): GroupState {
-	return {
-		id: newId(),
-		quantity: '1',
-		productionClass: 'Standard Window',
-		sizeClass: '',
-		story: 'First',
-		interiorAccess: 'Floor Level',
-		exteriorAccess: 'Ground-Level Traditional',
-		panesPerUnit: '',
-		screensPerUnit: '',
-		tracksPerUnit: '',
-		specialtyDescription: '',
-		notes: '',
-	};
+/** Blank on purpose. A freshly added row is in progress, not in error, and
+ * has to be removable without ever having shown a complaint. */
+function emptySpecialItem(): SpecialItemState {
+	return { id: newId(), type: '', quantity: '', story: '', notes: '' };
 }
 
 /** A restoration service or property-level modifier the operator selected,
@@ -102,14 +108,22 @@ interface AdjustmentState {
 	id: string;
 	kind: 'Restoration' | 'Modifier';
 	label: string;
-	affectedUnits: string;
 	affectedPanes: string;
-	additionalMinutes: string;
+	severity: string;
 	notes: string;
 }
 
+/** Blank panes and severity on purpose. A freshly checked issue hasn't been
+ * described yet, and defaulting the severity would put a price on something
+ * nobody looked at. */
 function emptyAdjustment(kind: 'Restoration' | 'Modifier', label: string): AdjustmentState {
-	return { id: newId(), kind, label, affectedUnits: '', affectedPanes: '', additionalMinutes: '', notes: '' };
+	return { id: newId(), kind, label, affectedPanes: '', severity: '', notes: '' };
+}
+
+/** A restoration issue that's checked but not yet described costs nothing —
+ * which is right, but worth saying out loud so it isn't mistaken for priced. */
+function restorationIncomplete(adjustment: AdjustmentState): boolean {
+	return adjustment.kind === 'Restoration' && (!adjustment.severity || !(Number(adjustment.affectedPanes) > 0));
 }
 
 interface WizardState {
@@ -134,17 +148,35 @@ interface WizardState {
 	furnitureMovementRequired: boolean;
 	temporaryAccessNotes: string;
 
-	groups: GroupState[];
-	manualScreenTotal: string;
-	manualTrackTotal: string;
+	// Simplified inventory. Standard windows per floor, then only the
+	// openings that are genuinely unusual.
+	standardWindows: Record<StandardFloor, string>;
+	specialItems: SpecialItemState[];
+	totalGlassPanes: string;
+	screens: string;
+	tracks: string;
+	solarPanels: string;
 
-	// One rating per component. Blank is legitimate — a component that isn't
-	// in scope is never rated.
+	// One access selection each for the whole property. This used to be asked
+	// per window group, which is most of what made the old inventory step too
+	// slow to finish in the field.
+	interiorAccess: string;
+	exteriorAccess: string;
+
+	// One glass rating for the property, because that's how it almost always
+	// is. The two split apart only when the operator says they differ — until
+	// then both sides read from `overallCondition`, so there is exactly one
+	// number to keep right.
+	overallCondition: string;
+	conditionsDiffer: boolean;
 	interiorGlassCondition: string;
-	trackCondition: string;
 	exteriorGlassCondition: string;
-	exteriorFrameCondition: string;
-	screenCondition: string;
+
+	// Frames, screens and tracks are exceptions rather than ratings: either
+	// ordinary, or costing extra. See COMPONENT_EXCEPTION_LEVELS.
+	frameException: string;
+	screenException: string;
+	trackException: string;
 	conditionNotes: string;
 
 	adjustments: AdjustmentState[];
@@ -174,14 +206,21 @@ function emptyState(): WizardState {
 		exteriorAccessObstructed: false,
 		furnitureMovementRequired: false,
 		temporaryAccessNotes: '',
-		groups: [emptyGroup()],
-		manualScreenTotal: '',
-		manualTrackTotal: '',
-		interiorGlassCondition: '',
-		trackCondition: '',
+		standardWindows: { first: '', second: '', third: '', fourthPlus: '' },
+		specialItems: [],
+		totalGlassPanes: '',
+		screens: '',
+		tracks: '',
+		solarPanels: '',
+		interiorAccess: '',
+		exteriorAccess: '',
+		overallCondition: 'Maintenance',
+		conditionsDiffer: false,
+		interiorGlassCondition: 'Maintenance',
 		exteriorGlassCondition: 'Maintenance',
-		exteriorFrameCondition: '',
-		screenCondition: '',
+		frameException: 'Normal',
+		screenException: 'Normal',
+		trackException: 'Normal',
 		conditionNotes: '',
 		adjustments: [],
 		restorationNotes: '',
@@ -192,40 +231,38 @@ function emptyState(): WizardState {
 	};
 }
 
-// v3: labor is now estimated from grouped window rows rather than
-// whole-property counts, so a v2 draft carries a shape this form can't
-// represent. Bumping the key retires those drafts instead of restoring one
-// into a form that would silently drop most of it.
+// Bumped on every change to WizardState's shape. A stale draft restored into
+// a form that can't represent it looks like a saved walkthrough while
+// silently dropping most of what it held — retiring the draft is the honest
+// failure. v5 reshapes condition into one overall rating plus exceptions.
 function draftKey(propertyId: string): string {
-	return `sww-walkthrough-draft-v3-${propertyId}`;
+	return `sww-walkthrough-draft-v5-${propertyId}`;
 }
 
-interface LaborBreakdown {
-	fixedOverhead: number;
-	interiorGlass: number;
-	exteriorGlass: number;
-	exteriorFrames: number;
-	screens: number;
-	tracks: number;
-	interiorAccess: number;
-	exteriorAccess: number;
-	storyLogistics: number;
-	condition: number;
-	restoration: number;
-	propertyModifiers: number;
+/** The recommendation in the words someone would actually use for it. The
+ * underlying value is unchanged — this is only how it reads. */
+function scheduleHeadline(recommendation: string): string {
+	switch (recommendation) {
+		case 'One-Day Job':
+			return 'One full day';
+		case 'Two-Day Job':
+			return 'Two-day project';
+		case 'Crew Recommended':
+			return 'Too big for one person — bring a crew';
+		default:
+			return 'Your call';
+	}
 }
 
-interface LaborPreview {
-	estimate: {
-		breakdown: LaborBreakdown;
-		productiveMinutes: number;
-		totals: { windowUnits: number; glassPanes: number; screens: number; tracks: number; screensManual: boolean; tracksManual: boolean };
-		laborModelVersion: string;
-		explanation: string;
-		hazardousAccess: string[];
-	};
-	schedule: { scheduledMinutes: number; recommendation: string; reasons: string[] };
-	band: { low: number; target: number; high: number; minimumApplied: boolean };
+/** How a two-day job splits. Exterior first: it's the half that depends on
+ * the weather, and finishing inside on day two means the glass isn't
+ * re-dirtied by the outside work. Only offered when both sides are in scope —
+ * an exterior-only job spread over two days splits by area, not by side, and
+ * this screen has no way to know where. */
+function scheduleSplit(recommendation: string, scope: { interior: boolean; exterior: boolean }): string[] {
+	if (recommendation !== 'Two-Day Job') return [];
+	if (!scope.interior || !scope.exterior) return ['Split across two days — the areas are yours to choose.'];
+	return ['Day 1: Exterior', 'Day 2: Interior'];
 }
 
 /** The order the breakdown reads in — overhead first, then the work, then
@@ -261,11 +298,15 @@ export default function WalkthroughWizard({
 	propertyId,
 	opportunityId,
 	propertyReference,
+	laborModel,
+	pricingConfig,
 }: {
 	clientId: string;
 	propertyId: string;
 	opportunityId?: string;
 	propertyReference?: PropertyReference;
+	laborModel: LaborModel;
+	pricingConfig: PricingConfig;
 }) {
 	const [state, setState] = useState<WizardState>(() => {
 		const saved = typeof window !== 'undefined' ? window.localStorage.getItem(draftKey(propertyId)) : null;
@@ -278,8 +319,6 @@ export default function WalkthroughWizard({
 		}
 		return emptyState();
 	});
-	const [preview, setPreview] = useState<LaborPreview | null>(null);
-	const [loadingPreview, setLoadingPreview] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [saveError, setSaveError] = useState<string | null>(null);
 	const [saveResult, setSaveResult] = useState<Record<string, unknown> | null>(null);
@@ -306,22 +345,20 @@ export default function WalkthroughWizard({
 		setState((s) => ({ ...s, step }));
 	}
 
-	function updateGroup(id: string, patch: Partial<GroupState>) {
-		setState((s) => ({ ...s, groups: s.groups.map((g) => (g.id === id ? { ...g, ...patch } : g)) }));
+	function setFloor(floor: StandardFloor, value: string) {
+		setState((s) => ({ ...s, standardWindows: { ...s.standardWindows, [floor]: value } }));
 	}
 
-	function addGroup() {
-		setState((s) => ({ ...s, groups: [...s.groups, emptyGroup()] }));
+	function updateSpecialItem(id: string, patch: Partial<SpecialItemState>) {
+		setState((s) => ({ ...s, specialItems: s.specialItems.map((i) => (i.id === id ? { ...i, ...patch } : i)) }));
 	}
 
-	/** Duplicate gets a fresh id — two rows that shared one would collide on
-	 * save, and the second would overwrite the first. */
-	function duplicateGroup(group: GroupState) {
-		setState((s) => ({ ...s, groups: [...s.groups, { ...group, id: newId() }] }));
+	function addSpecialItem() {
+		setState((s) => ({ ...s, specialItems: [...s.specialItems, emptySpecialItem()] }));
 	}
 
-	function removeGroup(id: string) {
-		setState((s) => ({ ...s, groups: s.groups.filter((g) => g.id !== id) }));
+	function removeSpecialItem(id: string) {
+		setState((s) => ({ ...s, specialItems: s.specialItems.filter((i) => i.id !== id) }));
 	}
 
 	function toggleAdjustment(kind: 'Restoration' | 'Modifier', label: string) {
@@ -348,59 +385,75 @@ export default function WalkthroughWizard({
 		frames: state.framesIncluded,
 	};
 
+	// The component exceptions map onto the existing condition factors, so the
+	// same multiplier does the same job it always did and no new configuration
+	// is needed for them.
+	const exception = (value: string) => COMPONENT_EXCEPTION_TO_CONDITION[value as ComponentException] ?? 'Maintenance';
+	const glass = (v: string) => v as ComponentCondition;
 	const conditions = {
-		interiorGlass: state.interiorGlassCondition,
-		track: state.trackCondition,
-		exteriorGlass: state.exteriorGlassCondition,
-		exteriorFrame: state.exteriorFrameCondition,
-		screen: state.screenCondition,
+		interiorGlass: glass(state.conditionsDiffer ? state.interiorGlassCondition : state.overallCondition),
+		exteriorGlass: glass(state.conditionsDiffer ? state.exteriorGlassCondition : state.overallCondition),
+		exteriorFrame: exception(state.frameException),
+		screen: exception(state.screenException),
+		track: exception(state.trackException),
 	};
+
+	const inventory = {
+		standardWindowsByStory: state.standardWindows,
+		specialItems: state.specialItems,
+		totalGlassPanes: state.totalGlassPanes,
+		screens: state.screens,
+		tracks: state.tracks,
+		solarPanels: state.solarPanels,
+	};
+
+	// Everything on the review screen, recomputed on every render.
+	//
+	// The three functions below are the same pure ones the server calls on
+	// save, given the same labor model, so what the operator reads here is
+	// what gets stored — there is no second implementation to drift. And
+	// because none of it touches the network, the estimate can simply always
+	// be current instead of waiting behind a button.
+	const estimate = estimateInventoryLabor(laborModel, {
+		inventory: toInventory(inventory),
+		scope,
+		conditions,
+		access: { interior: state.interiorAccess as never, exterior: state.exteriorAccess as never },
+		adjustments: state.adjustments.map((a) => ({
+			kind: a.kind,
+			label: a.label,
+			additionalMinutes: adjustmentMinutes(laborModel, a),
+		})),
+	});
+	const schedule = suggestSchedule(laborModel, estimate.productiveMinutes, {
+		hazardousAccess: estimate.hazardousAccess,
+		overrideMinutes: state.scheduledHoursOverride ? Number(state.scheduledHoursOverride) * 60 : undefined,
+	});
+	const band = suggestPriceBand(pricingConfig, estimate.productiveMinutes);
+
+	// Only the adjustments that actually cost something. A checked restoration
+	// issue with no pane count yet is real to the operator but worth nothing
+	// to the estimate, and listing it at 0.0 h reads like a bug.
+	const selectedAdjustments = state.adjustments.filter((a) => adjustmentMinutes(laborModel, a) > 0);
+
+	const productiveHours = estimate.productiveMinutes / 60;
+	const scheduledHours = schedule.scheduledMinutes / 60;
+	const price = Number(state.ownerSelectedPrice) || band.target;
+	const perProductiveHour = productiveHours > 0 ? Math.round(price / productiveHours) : 0;
+	const perScheduledHour = scheduledHours > 0 ? Math.round(price / scheduledHours) : 0;
 
 	function laborPayload() {
 		return {
 			propertyId,
-			groups: state.groups,
+			inventory,
+			access: { interior: state.interiorAccess, exterior: state.exteriorAccess },
 			adjustments: state.adjustments,
 			scope,
 			conditions,
-			manualScreenTotal: state.manualScreenTotal,
-			manualTrackTotal: state.manualTrackTotal,
 			scheduledMinutesOverride: state.scheduledHoursOverride
 				? String(Number(state.scheduledHoursOverride) * 60)
 				: '',
 		};
-	}
-
-	// Fetched on demand rather than on every keystroke: each preview reads the
-	// labor config, its profiles and the pricing config, and the Sheets API
-	// allows 60 reads a minute.
-	async function loadPreview(): Promise<LaborPreview | null> {
-		setLoadingPreview(true);
-		setSaveError(null);
-		try {
-			const res = await fetch('/api/walkthrough', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ action: 'preview-labor', ...laborPayload() }),
-			});
-			const body = (await res.json()) as { ok: boolean; error?: string } & LaborPreview;
-			if (!body.ok) {
-				setSaveError(body.error ?? 'Could not calculate the labor estimate.');
-				return null;
-			}
-			const next: LaborPreview = { estimate: body.estimate, schedule: body.schedule, band: body.band };
-			setPreview(next);
-			// Seeded once, from the target. Never re-seeded on a later
-			// recalculation — that would quietly discard a price the owner had
-			// already decided on.
-			setState((s) => (s.ownerSelectedPrice ? s : { ...s, ownerSelectedPrice: String(next.band.target) }));
-			return next;
-		} catch (e) {
-			setSaveError((e as Error).message || 'Network error while calculating.');
-			return null;
-		} finally {
-			setLoadingPreview(false);
-		}
 	}
 
 	async function save() {
@@ -471,7 +524,6 @@ export default function WalkthroughWizard({
 		setState(emptyState());
 		setSaveResult(null);
 		setSaveError(null);
-		setPreview(null);
 	}
 
 	if (saveResult) {
@@ -505,11 +557,22 @@ export default function WalkthroughWizard({
 		);
 	}
 
-	const groupedUnits = state.groups.reduce((sum, g) => sum + (Number(g.quantity) || 0), 0);
-	const specialtyMissingDescription = state.groups.some(
-		(g) => g.productionClass === 'Specialty Shape' && !g.specialtyDescription.trim()
+	// Totals are computed here, on every keystroke, from the same coercion the
+	// server uses. There is no "update totals" button: a number the operator
+	// has to ask for is a number they'll stop trusting.
+	const totals = inventoryTotals(toInventory(inventory));
+	const itemErrors = new Map(
+		state.specialItems.map((item) => [
+			item.id,
+			specialItemError({
+				id: item.id,
+				type: item.type as SpecialItemType,
+				quantity: Number(item.quantity) || 0,
+				story: item.story as never,
+			}),
+		])
 	);
-	const inventoryValid = state.groups.length > 0 && groupedUnits > 0 && !specialtyMissingDescription;
+	const inventoryValid = hasAnyInventory(toInventory(inventory)) && [...itemErrors.values()].every((e) => e === null);
 
 	const STEP_TITLES = ['Scope & Property', 'Window Inventory', 'Condition & Special Work', 'Review, Labor & Price'];
 
@@ -589,6 +652,7 @@ export default function WalkthroughWizard({
 							Stories observed
 							<input
 								type="number"
+								inputMode="numeric"
 								min="1"
 								value={state.storyCountObserved}
 								onChange={(e) => update({ storyCountObserved: e.target.value })}
@@ -633,6 +697,34 @@ export default function WalkthroughWizard({
 						<textarea value={state.temporaryAccessNotes} onChange={(e) => update({ temporaryAccessNotes: e.target.value })} />
 					</label>
 
+					{/* One selection each for the whole property. Asked here rather
+					    than per window: a walkthrough that has to rate every opening
+					    doesn't get finished in the field. Height is charged
+					    separately, per occupied floor — being upstairs is not by
+					    itself difficult access. */}
+					{state.exteriorIncluded && (
+						<Segmented
+							label="Exterior access"
+							name="exterior-access"
+							value={state.exteriorAccess}
+							options={EXTERIOR_ACCESS_LEVELS}
+							allowBlank
+							hint="How you'll reach the exterior glass across this property. Leave unset if it's ordinary ground-level work."
+							onChange={(v) => update({ exteriorAccess: v })}
+						/>
+					)}
+					{state.interiorIncluded && (
+						<Segmented
+							label="Interior access"
+							name="interior-access"
+							value={state.interiorAccess}
+							options={INTERIOR_ACCESS_LEVELS}
+							allowBlank
+							hint="How you'll reach the interior glass. Leave unset if everything is reachable from the floor."
+							onChange={(v) => update({ interiorAccess: v })}
+						/>
+					)}
+
 					<button type="button" onClick={() => goTo(1)}>
 						Next: Window Inventory
 					</button>
@@ -643,225 +735,199 @@ export default function WalkthroughWizard({
 				<section className="card">
 					<div className="card-header-row">
 						<h2>Window Inventory</h2>
-						<span className="field-hint">{groupedUnits} units in {state.groups.length} group(s)</span>
+						<span className="field-hint">
+							{totals.totalWindowUnits} units · {totals.totalGlassPanes} panes
+						</span>
 					</div>
 					<p className="field-hint">
-						Group similar windows together and give each group a quantity — eight standard casements upstairs is one row,
-						not eight. Access is chosen per group, because that&apos;s what actually changes how long the work takes.
+						Count ordinary windows by floor. Only describe an opening individually when it&apos;s genuinely unusual —
+						everything else is assumed standard.
 					</p>
 
-					{state.groups.map((group, index) => (
-						<div key={group.id} className="card">
-							<div className="card-header-row">
-								<h3>Group {index + 1}</h3>
-								<div className="button-row button-row-compact">
-									<button type="button" className="btn-secondary" onClick={() => duplicateGroup(group)}>
-										Duplicate
-									</button>
-									<button
-										type="button"
-										className="btn-secondary"
-										onClick={() => removeGroup(group.id)}
-										disabled={state.groups.length === 1}
-									>
+					<h3>Standard windows</h3>
+					<p className="field-hint">
+						By floor. The floor is asked because it changes the trip, not the window — a standard window costs the same
+						wherever it is. Leave a floor blank if there are none.
+					</p>
+					<div className="count-grid">
+						{STANDARD_FLOORS.map((floor) => (
+							<label key={floor}>
+								{STANDARD_FLOOR_LABELS[floor]}
+								<input
+									type="number"
+									inputMode="numeric"
+									min="0"
+									value={state.standardWindows[floor]}
+									onChange={(e) => setFloor(floor, e.target.value)}
+								/>
+							</label>
+						))}
+					</div>
+
+					<h3>Special windows &amp; doors</h3>
+					<p className="field-hint">
+						Skip this entirely if there aren&apos;t any. Divided-light rows are counted in <strong>panes</strong>;
+						everything else in units.
+					</p>
+
+					{state.specialItems.map((item, index) => {
+						const error = itemErrors.get(item.id);
+						return (
+							<div key={item.id} className="card">
+								<div className="card-header-row">
+									<h4>Item {index + 1}</h4>
+									<button type="button" className="btn-secondary" onClick={() => removeSpecialItem(item.id)}>
 										Remove
 									</button>
 								</div>
-							</div>
-
-							<div className="form-grid">
-								<label>
-									Quantity
-									<input
-										type="number"
-										min="1"
-										value={group.quantity}
-										onChange={(e) => updateGroup(group.id, { quantity: e.target.value })}
-									/>
-								</label>
-								<label>
-									Production class
-									<select
-										value={group.productionClass}
-										onChange={(e) => updateGroup(group.id, { productionClass: e.target.value })}
-									>
-										{PRODUCTION_CLASSES.map((c) => (
-											<option key={c}>{c}</option>
-										))}
-									</select>
-									<span className="field-hint">
-										{PRODUCTION_CLASS_HINTS[group.productionClass as keyof typeof PRODUCTION_CLASS_HINTS]}
-									</span>
-								</label>
-								<label>
-									Story
-									<select value={group.story} onChange={(e) => updateGroup(group.id, { story: e.target.value })}>
-										{STORIES.map((s) => (
-											<option key={s}>{s}</option>
-										))}
-									</select>
-								</label>
-							</div>
-
-							<Segmented
-								label="Size"
-								name={`size-${group.id}`}
-								value={group.sizeClass}
-								options={SIZE_CLASSES}
-								allowBlank
-								hint="Leave unset unless this group is meaningfully bigger or smaller than typical for its class."
-								onChange={(v) => updateGroup(group.id, { sizeClass: v })}
-							/>
-
-							{state.interiorIncluded && (
-								<Segmented
-									label="Interior access"
-									name={`int-access-${group.id}`}
-									value={group.interiorAccess}
-									options={INTERIOR_ACCESS_LEVELS}
-									onChange={(v) => updateGroup(group.id, { interiorAccess: v })}
-								/>
-							)}
-							{state.exteriorIncluded && (
-								<Segmented
-									label="Exterior access"
-									name={`ext-access-${group.id}`}
-									value={group.exteriorAccess}
-									options={EXTERIOR_ACCESS_LEVELS}
-									onChange={(v) => updateGroup(group.id, { exteriorAccess: v })}
-								/>
-							)}
-
-							{group.productionClass === 'Specialty Shape' && (
-								<label>
-									Specialty description
-									<span className="field-hint">Required — describe the shape so this doesn&apos;t become a new category.</span>
-									<input
-										type="text"
-										value={group.specialtyDescription}
-										onChange={(e) => updateGroup(group.id, { specialtyDescription: e.target.value })}
-									/>
-								</label>
-							)}
-
-							<details>
-								<summary>Per-unit counts and notes</summary>
-								<span className="field-hint">
-									All optional. Blank means the typical amount for this class — never a zero.
-								</span>
-								<div className="count-grid">
+								<div className="form-grid">
 									<label>
-										Panes per unit
+										Type
+										<select value={item.type} onChange={(e) => updateSpecialItem(item.id, { type: e.target.value })}>
+											<option value="">Choose…</option>
+											{SPECIAL_ITEM_TYPES.map((type) => (
+												<option key={type} value={type}>
+													{SPECIAL_ITEM_LABELS[type]}
+												</option>
+											))}
+										</select>
+									</label>
+									<label>
+										{item.type ? `Quantity (${specialItemUnitLabel(item.type as SpecialItemType)})` : 'Quantity'}
 										<input
 											type="number"
-											min="0"
-											value={group.panesPerUnit}
-											onChange={(e) => updateGroup(group.id, { panesPerUnit: e.target.value })}
+											inputMode="numeric"
+											min="1"
+											value={item.quantity}
+											onChange={(e) => updateSpecialItem(item.id, { quantity: e.target.value })}
 										/>
 									</label>
 									<label>
-										Screens per unit
-										<input
-											type="number"
-											min="0"
-											value={group.screensPerUnit}
-											onChange={(e) => updateGroup(group.id, { screensPerUnit: e.target.value })}
-										/>
-									</label>
-									<label>
-										Tracks per unit
-										<input
-											type="number"
-											min="0"
-											value={group.tracksPerUnit}
-											onChange={(e) => updateGroup(group.id, { tracksPerUnit: e.target.value })}
-										/>
+										Story
+										<select value={item.story} onChange={(e) => updateSpecialItem(item.id, { story: e.target.value })}>
+											<option value="">Choose…</option>
+											{SPECIAL_ITEM_STORIES.map((story) => (
+												<option key={story} value={story}>
+													{SPECIAL_ITEM_STORY_LABELS[story]}
+												</option>
+											))}
+										</select>
 									</label>
 								</div>
 								<label>
 									Notes
-									<input type="text" value={group.notes} onChange={(e) => updateGroup(group.id, { notes: e.target.value })} />
+									<span className="field-hint">Optional.</span>
+									<input type="text" value={item.notes} onChange={(e) => updateSpecialItem(item.id, { notes: e.target.value })} />
 								</label>
-							</details>
-						</div>
-					))}
+								{error && <p role="alert">{error}</p>}
+							</div>
+						);
+					})}
 
-					<button type="button" className="btn-secondary" onClick={addGroup}>
-						+ Add window group
+					<button type="button" className="btn-secondary" onClick={addSpecialItem}>
+						+ Add special item
 					</button>
 
-					<h3>Totals</h3>
-					{preview ? (
-						<div className="stats-grid">
-							<div>
-								<strong>{preview.estimate.totals.windowUnits}</strong>
-								<span className="field-hint">window units</span>
-							</div>
-							<div>
-								<strong>{preview.estimate.totals.glassPanes}</strong>
-								<span className="field-hint">glass panes</span>
-							</div>
-							<div>
-								<strong>{preview.estimate.totals.screens}</strong>
-								<span className="field-hint">
-									screens{preview.estimate.totals.screensManual ? ' — manual' : ' — calculated'}
-								</span>
-							</div>
-							<div>
-								<strong>{preview.estimate.totals.tracks}</strong>
-								<span className="field-hint">
-									tracks{preview.estimate.totals.tracksManual ? ' — manual' : ' — calculated'}
-								</span>
-							</div>
-						</div>
-					) : (
-						<p className="field-hint">
-							{groupedUnits} window units entered. Panes, screens and tracks are calculated from the groups — update
-							totals to see them.
-						</p>
-					)}
+					<h3>Total glass panes</h3>
+					<p className="field-hint">
+						Counted directly, not worked out from the windows above. It measures a different thing — panes are an
+						objective count of glass, units are a judgment about work — so the two are never reconciled against each
+						other and a mismatch is never an error.
+					</p>
+					<label>
+						Total glass panes
+						<input
+							type="number"
+							inputMode="numeric"
+							min="0"
+							value={state.totalGlassPanes}
+							onChange={(e) => update({ totalGlassPanes: e.target.value })}
+						/>
+					</label>
 
-					<details>
-						<summary>Override screen or track totals</summary>
+					<h3>Accessories</h3>
+					<p className="field-hint">Counted directly too. Leave blank if not applicable.</p>
+					<div className="count-grid">
+						<label>
+							Screens
+							<input
+								type="number"
+								inputMode="numeric"
+								min="0"
+								value={state.screens}
+								onChange={(e) => update({ screens: e.target.value })}
+							/>
+						</label>
+						<label>
+							Tracks
+							<input
+								type="number"
+								inputMode="numeric"
+								min="0"
+								value={state.tracks}
+								onChange={(e) => update({ tracks: e.target.value })}
+							/>
+						</label>
+						<label>
+							Solar panels
+							<input
+								type="number"
+								inputMode="numeric"
+								min="0"
+								value={state.solarPanels}
+								onChange={(e) => update({ solarPanels: e.target.value })}
+							/>
+						</label>
+					</div>
+
+					<h3>Summary</h3>
+					<div className="stats-grid">
+						<div>
+							<strong>{totals.standardWindowTotal}</strong>
+							<span className="field-hint">standard windows</span>
+						</div>
+						<div>
+							<strong>{totals.specialUnitTotal}</strong>
+							<span className="field-hint">special units</span>
+						</div>
+						<div>
+							<strong>{totals.dividedLightPaneTotal}</strong>
+							<span className="field-hint">divided-light panes</span>
+						</div>
+						<div>
+							<strong>{totals.totalWindowUnits}</strong>
+							<span className="field-hint">total window units</span>
+						</div>
+						<div>
+							<strong>{totals.totalGlassPanes}</strong>
+							<span className="field-hint">total glass panes</span>
+						</div>
+						<div>
+							<strong>{totals.screens}</strong>
+							<span className="field-hint">screens</span>
+						</div>
+						<div>
+							<strong>{totals.tracks}</strong>
+							<span className="field-hint">tracks</span>
+						</div>
+						<div>
+							<strong>{totals.solarPanels}</strong>
+							<span className="field-hint">solar panels</span>
+						</div>
+					</div>
+					{totals.dividedLightPaneTotal > 0 && (
 						<span className="field-hint">
-							Use when the grouped totals don&apos;t match reality. A value here wins over the calculation and is labelled
-							as manual — it&apos;s never silently merged.
+							Divided-light panes are not counted as window units — one french door with {totals.dividedLightPaneTotal}{' '}
+							lights is one opening to set up at.
 						</span>
-						<div className="pane-grid">
-							<label>
-								Total screens (manual)
-								<input
-									type="number"
-									min="0"
-									value={state.manualScreenTotal}
-									onChange={(e) => update({ manualScreenTotal: e.target.value })}
-								/>
-							</label>
-							<label>
-								Total tracks (manual)
-								<input
-									type="number"
-									min="0"
-									value={state.manualTrackTotal}
-									onChange={(e) => update({ manualTrackTotal: e.target.value })}
-								/>
-							</label>
-						</div>
-					</details>
-
-					{specialtyMissingDescription && (
-						<p role="alert" className="field-hint">
-							Every Specialty Shape group needs a description before you can continue.
-						</p>
 					)}
+
+					{!inventoryValid && <p className="field-hint">{EMPTY_INVENTORY_MESSAGE}</p>}
 					{saveError && <p role="alert">{saveError}</p>}
 
 					<div className="button-row">
 						<button type="button" className="btn-secondary" onClick={() => goTo(0)}>
 							Back
-						</button>
-						<button type="button" className="btn-secondary" disabled={loadingPreview || !inventoryValid} onClick={loadPreview}>
-							{loadingPreview ? 'Calculating…' : 'Update totals'}
 						</button>
 						<button type="button" disabled={!inventoryValid} onClick={() => goTo(2)}>
 							Next: Condition
@@ -869,179 +935,319 @@ export default function WalkthroughWizard({
 					</div>
 				</section>
 			)}
-
 			{state.step === 2 && (
 				<section className="card">
 					<h2>Condition &amp; Special Work</h2>
-					<p className="field-hint">
-						Rate each component separately. A rating only affects its own labor — moderate frames cost frame time, they
-						don&apos;t make the glass take longer.
-					</p>
 
-					{state.interiorIncluded && (
-						<Segmented
-							label="Interior glass"
-							name="interiorGlassCondition"
-							value={state.interiorGlassCondition}
-							options={COMPONENT_CONDITIONS}
-							allowBlank
-							onChange={(v) => update({ interiorGlassCondition: v })}
-						/>
+					<h3>Overall condition</h3>
+					<p className="field-hint">
+						How dirty the glass is. Restoration work is asked about separately below — a two-year-old house with
+						construction residue is a light-dirt job that also needs a razor, not a heavy one.
+					</p>
+					<Segmented
+						label="Glass condition"
+						name="overallCondition"
+						value={state.overallCondition}
+						options={COMPONENT_CONDITIONS}
+						onChange={(v) => update({ overallCondition: v })}
+					/>
+					<label>
+						<input
+							type="checkbox"
+							checked={state.conditionsDiffer}
+							onChange={(e) => update({ conditionsDiffer: e.target.checked })}
+						/>{' '}
+						Interior and exterior conditions differ
+					</label>
+
+					{state.conditionsDiffer && (
+						<>
+							{state.interiorIncluded && (
+								<Segmented
+									label="Interior glass"
+									name="interiorGlassCondition"
+									value={state.interiorGlassCondition}
+									options={COMPONENT_CONDITIONS}
+									onChange={(v) => update({ interiorGlassCondition: v })}
+								/>
+							)}
+							{state.exteriorIncluded && (
+								<Segmented
+									label="Exterior glass"
+									name="exteriorGlassCondition"
+									value={state.exteriorGlassCondition}
+									options={COMPONENT_CONDITIONS}
+									onChange={(v) => update({ exteriorGlassCondition: v })}
+								/>
+							)}
+						</>
 					)}
-					{state.tracksIncluded && (
-						<Segmented
-							label="Tracks"
-							name="trackCondition"
-							value={state.trackCondition}
-							options={COMPONENT_CONDITIONS}
-							allowBlank
-							onChange={(v) => update({ trackCondition: v })}
-						/>
-					)}
-					{state.exteriorIncluded && (
-						<Segmented
-							label="Exterior glass"
-							name="exteriorGlassCondition"
-							value={state.exteriorGlassCondition}
-							options={COMPONENT_CONDITIONS}
-							allowBlank
-							onChange={(v) => update({ exteriorGlassCondition: v })}
-						/>
-					)}
+
+					<h3>Component exceptions</h3>
+					<p className="field-hint">
+						Only the components that are costing extra. A rating here affects that component and nothing else — heavy
+						frames cost frame time, they don&apos;t make the glass take longer.
+					</p>
 					{state.exteriorIncluded && state.framesIncluded && (
 						<Segmented
 							label="Frames and exterior sills"
-							name="exteriorFrameCondition"
-							value={state.exteriorFrameCondition}
-							options={COMPONENT_CONDITIONS}
-							allowBlank
-							onChange={(v) => update({ exteriorFrameCondition: v })}
+							name="frameException"
+							value={state.frameException}
+							options={COMPONENT_EXCEPTION_LEVELS}
+							onChange={(v) => update({ frameException: v })}
 						/>
 					)}
 					{state.screensIncluded && (
 						<Segmented
 							label="Screens"
-							name="screenCondition"
-							value={state.screenCondition}
-							options={COMPONENT_CONDITIONS}
-							allowBlank
-							onChange={(v) => update({ screenCondition: v })}
+							name="screenException"
+							value={state.screenException}
+							options={COMPONENT_EXCEPTION_LEVELS}
+							onChange={(v) => update({ screenException: v })}
+						/>
+					)}
+					{state.tracksIncluded && (
+						<Segmented
+							label="Tracks"
+							name="trackException"
+							value={state.trackException}
+							options={COMPONENT_EXCEPTION_LEVELS}
+							onChange={(v) => update({ trackException: v })}
 						/>
 					)}
 
+					<h3>Restoration issues</h3>
+					<p className="field-hint">
+						Specialized work beyond a standard cleaning. Priced per affected pane at the severity you saw, so a
+						four-pane sunroom and a whole south elevation don&apos;t cost the same.
+					</p>
+					<div className="checkbox-grid">
+						{RESTORATION_ISSUES.map((issue) => (
+							<label key={issue}>
+								<input
+									type="checkbox"
+									checked={state.adjustments.some((a) => a.kind === 'Restoration' && a.label === issue)}
+									onChange={() => toggleAdjustment('Restoration', issue)}
+								/>{' '}
+								{issue}
+							</label>
+						))}
+					</div>
+
+					{state.adjustments
+						.filter((a) => a.kind === 'Restoration')
+						.map((adjustment) => (
+							<div key={adjustment.id} className="card">
+								<p className="field-label">{adjustment.label}</p>
+								<label>
+									Affected panes
+									<input
+										type="number"
+										inputMode="numeric"
+										min="0"
+										value={adjustment.affectedPanes}
+										onChange={(e) => updateAdjustment(adjustment.id, { affectedPanes: e.target.value })}
+									/>
+								</label>
+								<Segmented
+									label="Severity"
+									name={`severity-${adjustment.id}`}
+									value={adjustment.severity}
+									options={SEVERITY_LEVELS}
+									onChange={(v) => updateAdjustment(adjustment.id, { severity: v })}
+								/>
+								<label>
+									Notes
+									<input
+										type="text"
+										value={adjustment.notes}
+										onChange={(e) => updateAdjustment(adjustment.id, { notes: e.target.value })}
+									/>
+								</label>
+								{restorationIncomplete(adjustment) && (
+									<p className="field-hint">
+										Add the pane count and severity, or this issue is recorded but costs nothing.
+									</p>
+								)}
+							</div>
+						))}
+
+					<h3>Property-level factors</h3>
+					<p className="field-hint">
+						Whole-property time that isn&apos;t attributable to any one window. Each carries its own configured cost —
+						don&apos;t check anything already covered by ordinary setup and breakdown.
+					</p>
+					<div className="checkbox-grid">
+						{PROPERTY_MODIFIERS.map((modifier) => (
+							<label key={modifier}>
+								<input
+									type="checkbox"
+									checked={state.adjustments.some((a) => a.kind === 'Modifier' && a.label === modifier)}
+									onChange={() => toggleAdjustment('Modifier', modifier)}
+								/>{' '}
+								{modifier}
+							</label>
+						))}
+					</div>
+
 					<label>
-						Condition notes
+						Notes
+						<span className="field-hint">Optional.</span>
 						<textarea value={state.conditionNotes} onChange={(e) => update({ conditionNotes: e.target.value })} />
 					</label>
-
-					<AdjustmentPicker
-						title="Restoration services required"
-						hint="Specialized work beyond a standard window cleaning. Restoration labor is calculated separately and does not replace the component condition ratings above."
-						kind="Restoration"
-						options={RESTORATION_SERVICES}
-						adjustments={state.adjustments}
-						onToggle={toggleAdjustment}
-						onUpdate={updateAdjustment}
-					/>
-					<label>
-						Restoration notes
-						<textarea value={state.restorationNotes} onChange={(e) => update({ restorationNotes: e.target.value })} />
-					</label>
-
-					<AdjustmentPicker
-						title="Property-level factors"
-						hint="Whole-property labor that isn't attributable to any one window group. Don't add anything here that's already covered by ordinary setup and breakdown."
-						kind="Modifier"
-						options={PROPERTY_MODIFIERS}
-						adjustments={state.adjustments}
-						onToggle={toggleAdjustment}
-						onUpdate={updateAdjustment}
-					/>
 
 					<div className="button-row">
 						<button type="button" className="btn-secondary" onClick={() => goTo(1)}>
 							Back
 						</button>
-						<button
-							type="button"
-							disabled={loadingPreview}
-							onClick={async () => {
-								await loadPreview();
-								goTo(3);
-							}}
-						>
-							{loadingPreview ? 'Calculating…' : 'Next: Review & Price'}
+						<button type="button" onClick={() => goTo(3)}>
+							Next: Review &amp; Price
 						</button>
 					</div>
 				</section>
 			)}
-
 			{state.step === 3 && (
 				<section className="card">
 					<h2>Review, Labor &amp; Price</h2>
 
-					{!preview ? (
-						<p>No estimate calculated yet.</p>
-					) : (
-						<>
-							<div className="stats-grid">
-								<div>
-									<strong>{hours(preview.estimate.productiveMinutes)} h</strong>
-									<span className="field-hint">estimated productive labor</span>
-								</div>
-								<div>
-									<strong>{hours(preview.schedule.scheduledMinutes)} h</strong>
-									<span className="field-hint">suggested scheduled time</span>
-								</div>
-								<div>
-									<strong>{preview.schedule.recommendation}</strong>
-									<span className="field-hint">schedule recommendation</span>
-								</div>
+					{/* Header: what the job is, before what it costs. */}
+					<div className="stats-grid">
+						<div>
+							<strong>{productiveHours.toFixed(1)} h</strong>
+							<span className="field-hint">estimated productive labor</span>
+						</div>
+						<div>
+							<strong>{scheduledHours.toFixed(1)} h</strong>
+							<span className="field-hint">scheduled time</span>
+						</div>
+						<div>
+							<strong>{state.scheduleRecommendationOverride || schedule.recommendation}</strong>
+							<span className="field-hint">schedule recommendation</span>
+						</div>
+					</div>
+
+					<p>{estimate.explanation}</p>
+
+					{/* --- Price. The decision this screen exists to support. --- */}
+					<div className="card">
+						<h3>Recommended price</h3>
+						<p className="price-headline">${band.target}</p>
+						<p className="field-hint">
+							Recommended range ${band.low} to ${band.high}
+							{band.minimumApplied ? ' — lifted by the job minimum' : ''}
+						</p>
+
+						<div className="pane-grid">
+							<label>
+								Your price
+								<span className="field-hint">Starts at the recommendation. Change it and the rates below follow.</span>
+								<input
+									type="number"
+									inputMode="decimal"
+									min="0"
+									value={state.ownerSelectedPrice}
+									placeholder={String(band.target)}
+									onChange={(e) => update({ ownerSelectedPrice: e.target.value })}
+								/>
+							</label>
+							<label>
+								Pricing notes
+								<span className="field-hint">
+									Optional. Referral, repeat customer, neighbour discount, bundle, competitive adjustment.
+								</span>
+								<input
+									type="text"
+									value={state.ownerOverrideReason}
+									onChange={(e) => update({ ownerOverrideReason: e.target.value })}
+								/>
+							</label>
+						</div>
+
+						<div className="stats-grid">
+							<div>
+								<strong>${perProductiveHour}/hr</strong>
+								<span className="field-hint">revenue / productive hour</span>
 							</div>
+							<div>
+								<strong>${perScheduledHour}/hr</strong>
+								<span className="field-hint">revenue / scheduled hour</span>
+							</div>
+						</div>
+					</div>
 
-							<p>{preview.estimate.explanation}</p>
+					{/* --- Where the time comes from. --- */}
+					<div className="card">
+						<h3>Where the time goes</h3>
+						<table>
+							<tbody>
+								{BREAKDOWN_ROWS.filter((row) => estimate.breakdown[row.key] > 0).map((row) => (
+									<tr key={row.key}>
+										<td>{row.label}</td>
+										<td>{hours(estimate.breakdown[row.key])} h</td>
+									</tr>
+								))}
+								<tr>
+									<td>
+										<strong>Total productive labor</strong>
+									</td>
+									<td>
+										<strong>{productiveHours.toFixed(1)} h</strong>
+									</td>
+								</tr>
+							</tbody>
+						</table>
 
-							<details open>
-								<summary>Labor breakdown</summary>
+						{selectedAdjustments.length > 0 && (
+							<>
+								<h4>Included in the adjustments above</h4>
 								<table>
 									<tbody>
-										{BREAKDOWN_ROWS.filter((row) => preview.estimate.breakdown[row.key] > 0).map((row) => (
-											<tr key={row.key}>
-												<td>{row.label}</td>
-												<td>{hours(preview.estimate.breakdown[row.key])} h</td>
+										{selectedAdjustments.map((a) => (
+											<tr key={a.id}>
+												<td>
+													{a.label}
+													{a.kind === 'Restoration' && a.severity && a.affectedPanes
+														? ` — ${a.affectedPanes} panes, ${a.severity.toLowerCase()}`
+														: ''}
+												</td>
+												<td>{hours(adjustmentMinutes(laborModel, a))} h</td>
 											</tr>
 										))}
-										<tr>
-											<td>
-												<strong>Total productive labor</strong>
-											</td>
-											<td>
-												<strong>{hours(preview.estimate.productiveMinutes)} h</strong>
-											</td>
-										</tr>
-										<tr>
-											<td>Suggested scheduled time</td>
-											<td>{hours(preview.schedule.scheduledMinutes)} h</td>
-										</tr>
 									</tbody>
 								</table>
-								{preview.schedule.reasons.length > 0 && (
-									<ul>
-										{preview.schedule.reasons.map((reason) => (
-											<li key={reason} className="field-hint">
-												{reason}
-											</li>
-										))}
-									</ul>
-								)}
-							</details>
+							</>
+						)}
+					</div>
 
+					{/* --- Schedule. --- */}
+					<div className="card">
+						<h3>Recommended schedule</h3>
+						<p className="schedule-headline">✓ {scheduleHeadline(state.scheduleRecommendationOverride || schedule.recommendation)}</p>
+						<p className="field-hint">Estimated onsite time: {scheduledHours.toFixed(1)} hours</p>
+						{scheduleSplit(state.scheduleRecommendationOverride || schedule.recommendation, scope).map((line) => (
+							<p key={line} className="field-hint">
+								{line}
+							</p>
+						))}
+						{schedule.reasons.length > 0 && (
+							<ul>
+								{schedule.reasons.map((reason) => (
+									<li key={reason} className="field-hint">
+										{reason}
+									</li>
+								))}
+							</ul>
+						)}
+
+						<details>
+							<summary>Override the schedule</summary>
 							<div className="pane-grid">
 								<label>
-									Scheduled hours (override)
+									Scheduled hours
 									<span className="field-hint">Changes the time you block out. Never changes the estimate above.</span>
 									<input
 										type="number"
+										inputMode="decimal"
 										min="0"
 										step="0.25"
 										value={state.scheduledHoursOverride}
@@ -1049,175 +1255,39 @@ export default function WalkthroughWizard({
 									/>
 								</label>
 								<label>
-									Schedule
+									Recommendation
 									<select
 										value={state.scheduleRecommendationOverride}
 										onChange={(e) => update({ scheduleRecommendationOverride: e.target.value })}
 									>
-										<option value="">Use recommendation ({preview.schedule.recommendation})</option>
+										<option value="">Use recommendation ({schedule.recommendation})</option>
 										{SCHEDULE_RECOMMENDATIONS.map((r) => (
 											<option key={r}>{r}</option>
 										))}
 									</select>
 								</label>
 							</div>
-
-							<h3>Price</h3>
-							<div className="stats-grid">
-								<div>
-									<strong>${preview.band.low}</strong>
-									<span className="field-hint">low</span>
-								</div>
-								<div>
-									<strong>${preview.band.target}</strong>
-									<span className="field-hint">target</span>
-								</div>
-								<div>
-									<strong>${preview.band.high}</strong>
-									<span className="field-hint">high</span>
-								</div>
-							</div>
-							{preview.band.minimumApplied && <p className="field-hint">The job minimum lifted this band.</p>}
-
-							<div className="pane-grid">
-								<label>
-									Your price
-									<input
-										type="number"
-										min="0"
-										value={state.ownerSelectedPrice}
-										onChange={(e) => update({ ownerSelectedPrice: e.target.value })}
-									/>
-								</label>
-								<label>
-									Reason (optional)
-									<span className="field-hint">Worth a note when your price sits well outside the suggested band.</span>
-									<input
-										type="text"
-										value={state.ownerOverrideReason}
-										onChange={(e) => update({ ownerOverrideReason: e.target.value })}
-									/>
-								</label>
-							</div>
-
-							<p className="field-hint">Labor model: {preview.estimate.laborModelVersion}</p>
-						</>
-					)}
+						</details>
+					</div>
 
 					<label>
 						General notes
 						<textarea value={state.notes} onChange={(e) => update({ notes: e.target.value })} />
 					</label>
 
+					<p className="field-hint">Labor model: {estimate.laborModelVersion}</p>
+
 					{saveError && <p role="alert">{saveError}</p>}
 					<div className="button-row">
 						<button type="button" className="btn-secondary" onClick={() => goTo(2)}>
 							Back
 						</button>
-						<button type="button" className="btn-secondary" disabled={loadingPreview} onClick={loadPreview}>
-							{loadingPreview ? 'Calculating…' : 'Recalculate'}
-						</button>
-						<button type="button" disabled={saving || !preview} onClick={save}>
+						<button type="button" disabled={saving} onClick={save}>
 							{saving ? 'Saving…' : 'Save walkthrough'}
 						</button>
 					</div>
 				</section>
 			)}
-		</div>
-	);
-}
-
-/**
- * A checkbox list where checking an item reveals its own scope and minutes.
- *
- * Restoration and property modifiers share this because they are the same
- * shape — a named extra with its own affected counts and its own time. The
- * minutes field stays empty until the operator fills it in: no configuration
- * can know how bad the overspray is until someone looks at it, and a default
- * would be a guess presented as a calculation.
- */
-function AdjustmentPicker({
-	title,
-	hint,
-	kind,
-	options,
-	adjustments,
-	onToggle,
-	onUpdate,
-}: {
-	title: string;
-	hint: string;
-	kind: 'Restoration' | 'Modifier';
-	options: readonly string[];
-	adjustments: AdjustmentState[];
-	onToggle: (kind: 'Restoration' | 'Modifier', label: string) => void;
-	onUpdate: (id: string, patch: Partial<AdjustmentState>) => void;
-}) {
-	const selected = adjustments.filter((a) => a.kind === kind);
-
-	return (
-		<div className="card" style={{ background: 'var(--color-cream)' }}>
-			<h3>{title}</h3>
-			<span className="field-hint">{hint}</span>
-			<div className="checkbox-grid">
-				{options.map((option) => (
-					<label key={option}>
-						<input
-							type="checkbox"
-							checked={selected.some((a) => a.label === option)}
-							onChange={() => onToggle(kind, option)}
-						/>{' '}
-						{option}
-					</label>
-				))}
-			</div>
-
-			{selected.map((adjustment) => (
-				<div key={adjustment.id} className="card">
-					<p className="field-label">{adjustment.label}</p>
-					<div className="count-grid">
-						{kind === 'Restoration' && (
-							<>
-								<label>
-									Affected units
-									<input
-										type="number"
-										min="0"
-										value={adjustment.affectedUnits}
-										onChange={(e) => onUpdate(adjustment.id, { affectedUnits: e.target.value })}
-									/>
-								</label>
-								<label>
-									Affected panes
-									<input
-										type="number"
-										min="0"
-										value={adjustment.affectedPanes}
-										onChange={(e) => onUpdate(adjustment.id, { affectedPanes: e.target.value })}
-									/>
-								</label>
-							</>
-						)}
-						<label>
-							Added minutes
-							<input
-								type="number"
-								min="0"
-								value={adjustment.additionalMinutes}
-								onChange={(e) => onUpdate(adjustment.id, { additionalMinutes: e.target.value })}
-							/>
-						</label>
-					</div>
-					<label>
-						Notes
-						<input
-							type="text"
-							value={adjustment.notes}
-							onChange={(e) => onUpdate(adjustment.id, { notes: e.target.value })}
-						/>
-					</label>
-				</div>
-			))}
 		</div>
 	);
 }

@@ -1,19 +1,79 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
-import { findById, listActiveRows } from '../../lib/sheets';
+import { createRow, findById, listActiveRows, updateRow } from '../../lib/sheets';
 import { walkthroughConfig } from '../../lib/models/walkthrough';
 import { walkthroughItemConfig } from '../../lib/models/walkthroughItem';
 import { walkthroughAdjustmentConfig } from '../../lib/models/walkthroughAdjustment';
 import { propertyConfig } from '../../lib/models/property';
 import { clientConfig } from '../../lib/models/client';
 import { createQuoteFromWalkthrough, isGroupedInventoryWalkthrough } from '../../lib/pricing/walkthroughToQuote';
+import {
+	hasLegacyInventoryDetails,
+	migrateGroupsToInventory,
+	migrationColumns,
+	migrationItemRows,
+	readLegacyInventoryDetails,
+} from '../../lib/labor/legacyInventory';
+import { loadActiveLaborModel } from '../../lib/labor/config';
+import {
+	SPECIAL_ITEM_LABELS,
+	SPECIAL_ITEM_STORY_LABELS,
+	STANDARD_FLOORS,
+	STANDARD_FLOOR_LABELS,
+	specialItemUnitLabel,
+	type SpecialItemStory,
+	type SpecialItemType,
+	type StandardFloor,
+} from '../../lib/labor/types';
+import type { Walkthrough } from '../../lib/models/walkthrough';
+
+const STANDARD_FLOOR_COLUMNS: Record<StandardFloor, keyof Walkthrough> = {
+	first: 'Standard Windows First',
+	second: 'Standard Windows Second',
+	third: 'Standard Windows Third',
+	fourthPlus: 'Standard Windows Fourth Plus',
+};
 
 const { id } = Astro.params;
 let error: string | null = null;
 
 if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
 	try {
+		if (form.get('_action') === 'migrate-inventory') {
+			// Explicit, never automatic. It leaves the original group rows and
+			// the recorded hours and price untouched — it adds a v3 reading
+			// alongside them — but it does change how the record reads, so
+			// it's the owner's decision to make.
+			const existing = await findById(env, walkthroughConfig, id!);
+			const rows = (await listActiveRows(env, walkthroughItemConfig)).filter(
+				(i) => i['Walkthrough ID'] === id && i['Production Class']
+			);
+			const model = existing?.['Property ID']
+				? await loadActiveLaborModel(env, (await findById(env, propertyConfig, existing['Property ID']))?.['Property Type'] ?? '')
+				: null;
+			const paneFactors = model
+				? Object.fromEntries(Object.entries(model.profiles).map(([k, p]) => [k, p.defaultPaneFactor]))
+				: {};
+			const migration = migrateGroupsToInventory(
+				rows,
+				{
+					glassPanes: existing?.['Total Glass Panes'] ?? '',
+					screens: existing?.['Total Screens'] ?? '',
+					tracks: existing?.['Total Tracks'] ?? '',
+				},
+				paneFactors
+			);
+			await updateRow(env, walkthroughConfig, id!, migrationColumns(migration, existing?.['Total Window Units'] ?? ''), {
+				action: 'migrate-inventory',
+			});
+			// Added alongside the original group rows, never instead of them.
+			for (const row of migrationItemRows(migration, id!)) {
+				await createRow(env, walkthroughItemConfig, row, { action: 'migrate-inventory' });
+			}
+			return Astro.redirect(`/walkthroughs/${id}`);
+		}
 		const result = await createQuoteFromWalkthrough(env, id!);
 		return Astro.redirect(`/quotes/${result.quote['Quote ID']}`);
 	} catch (e) {
@@ -31,11 +91,17 @@ const client = walkthrough['Client ID'] ? await findById(env, clientConfig, walk
 const allItems = await listActiveRows(env, walkthroughItemConfig);
 const items = allItems.filter((i) => i['Walkthrough ID'] === id);
 
-// A grouped walkthrough explains itself from its stored breakdown. Anything
-// older shows the summary it actually recorded and is labelled as such —
-// never back-filled with numbers it never had.
+// A labor-model walkthrough explains itself from its stored breakdown.
+// Anything older shows the summary it actually recorded and is labelled as
+// such — never back-filled with numbers it never had.
 const grouped = isGroupedInventoryWalkthrough(walkthrough);
-const groups = grouped ? items.filter((i) => i['Production Class']) : [];
+const simplified = walkthrough['Inventory Model'] === 'inventory-v3';
+const groups = grouped && !simplified ? items.filter((i) => i['Production Class']) : [];
+const specialItems = simplified ? items.filter((i) => i['Special Item Type']) : [];
+
+// Shown only for a walkthrough that was MIGRATED from the grouped shape —
+// never for one recorded the simplified way, which has nothing to disclose.
+const legacyInventory = hasLegacyInventoryDetails(walkthrough) ? readLegacyInventoryDetails(walkthrough) : null;
 
 const adjustments = grouped
 	? (await listActiveRows(env, walkthroughAdjustmentConfig)).filter((a) => a['Walkthrough ID'] === id)
@@ -204,7 +270,107 @@ const COMPONENT_CONDITION_ROWS = [
 			</section>
 		</div>
 
-		{grouped ? (
+		{simplified ? (
+			<section class="card">
+				<h2>Window inventory</h2>
+				<div class="stats-grid">
+					{STANDARD_FLOORS.filter((f) => Number(walkthrough[STANDARD_FLOOR_COLUMNS[f]]) > 0).map((f) => (
+						<div>
+							<strong>{walkthrough[STANDARD_FLOOR_COLUMNS[f]]}</strong>
+							<span class="field-hint">{STANDARD_FLOOR_LABELS[f]}</span>
+						</div>
+					))}
+					<div>
+						<strong>{walkthrough['Total Glass Panes'] || '0'}</strong>
+						<span class="field-hint">glass panes</span>
+					</div>
+					<div>
+						<strong>{walkthrough['Total Screens'] || '0'}</strong>
+						<span class="field-hint">screens</span>
+					</div>
+					<div>
+						<strong>{walkthrough['Total Tracks'] || '0'}</strong>
+						<span class="field-hint">tracks</span>
+					</div>
+					{Number(walkthrough['Total Solar Panels']) > 0 && (
+						<div>
+							<strong>{walkthrough['Total Solar Panels']}</strong>
+							<span class="field-hint">solar panels</span>
+						</div>
+					)}
+				</div>
+
+				{specialItems.length > 0 && (
+					<>
+						<h3>Special windows &amp; doors</h3>
+						<table>
+							<thead>
+								<tr><th>Type</th><th>Qty</th><th>Story</th><th>Notes</th></tr>
+							</thead>
+							<tbody>
+								{specialItems.map((i) => {
+									const type = i['Special Item Type'] as SpecialItemType;
+									return (
+										<tr>
+											<td>{SPECIAL_ITEM_LABELS[type] ?? type}</td>
+											<td>{i.Quantity} {specialItemUnitLabel(type)}</td>
+											<td>{SPECIAL_ITEM_STORY_LABELS[i.Story as SpecialItemStory] ?? i.Story ?? '—'}</td>
+											<td>{i.Notes}</td>
+										</tr>
+									);
+								})}
+							</tbody>
+						</table>
+					</>
+				)}
+
+				<p class="field-hint">
+					Access: {walkthrough['Exterior Access'] || 'not set'} outside
+					{walkthrough['Interior Access'] ? `, ${walkthrough['Interior Access']} inside` : ''}. Chosen once for the whole
+					property; height is charged separately, per occupied floor.
+				</p>
+
+				{legacyInventory && (
+					<details>
+						<summary>Previous inventory details</summary>
+						<p class="field-hint">
+							This walkthrough was recorded with the older grouped inventory and converted. The original rows below are
+							exactly as they were entered and were never changed — everything the simplified shape has no field for is
+							kept here rather than dropped.
+						</p>
+
+						{legacyInventory.notes.length > 0 && (
+							<ul>
+								{legacyInventory.notes.map((note) => (
+									<li>{note}</li>
+								))}
+							</ul>
+						)}
+
+						<h4>Original window groups</h4>
+						<table>
+							<thead>
+								<tr><th>Qty</th><th>Class</th><th>Size</th><th>Story</th><th>Interior access</th><th>Exterior access</th><th>Notes</th></tr>
+							</thead>
+							<tbody>
+								{legacyInventory.unmapped.groups.map((g) => (
+									<tr>
+										<td>{g.Quantity}</td>
+										<td>{g['Production Class']}{g['Specialty Description'] ? ` — ${g['Specialty Description']}` : ''}</td>
+										<td>{g['Size Class'] || '—'}</td>
+										<td>{g.Story || '—'}</td>
+										<td>{g['Interior Access'] || '—'}</td>
+										<td>{g['Exterior Access'] || '—'}</td>
+										<td>{g.Notes}</td>
+									</tr>
+								))}
+								{legacyInventory.unmapped.groups.length === 0 && <tr><td colspan="7">No window groups were recorded.</td></tr>}
+							</tbody>
+						</table>
+					</details>
+				)}
+			</section>
+		) : grouped ? (
 			<section class="card">
 				<h2>Window groups ({groups.length})</h2>
 				<table>
@@ -226,6 +392,19 @@ const COMPONENT_CONDITION_ROWS = [
 						{groups.length === 0 && <tr><td colspan="7">No window groups recorded.</td></tr>}
 					</tbody>
 				</table>
+
+				{groups.length > 0 && (
+					<form method="POST">
+						<input type="hidden" name="_action" value="migrate-inventory" />
+						<p class="field-hint">
+							These groups can be converted to the simplified inventory. The conversion is conservative — anything the
+							simplified shape can't hold exactly is kept verbatim rather than approximated, and the rows above are never
+							changed. The hours and price recorded here stay as they are: they are the estimate that was actually made,
+							not something to re-derive from today's logic.
+						</p>
+						<button type="submit" class="btn-secondary">Convert to simplified inventory</button>
+					</form>
+				)}
 			</section>
 		) : (
 			<section class="card">

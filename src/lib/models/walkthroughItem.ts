@@ -25,11 +25,17 @@ export const WALKTHROUGH_ITEM_AREAS = [
 //     Type' is set. Item Type + Size Class together select a Service Code
 //     (see lib/pricing/walkthroughToQuote.ts) — e.g. Window + Oversized +
 //     Exterior Included -> WINDOW_EXT_OVERSIZED.
-//  3. WINDOW GROUP ROW (the current model): 'Production Class' is set. A
-//     group of similar windows with a quantity — never one row per physical
-//     window. This is what the labor model reads; see lib/labor/estimate.ts.
+//  3. WINDOW GROUP ROW: 'Production Class' is set. A group of similar
+//     windows with a quantity — never one row per physical window. Read by
+//     lib/labor/estimate.ts.
+//  4. SPECIAL ITEM ROW (the current model): 'Special Item Type' is set. One
+//     unusual window or door, or — for divided-light rows only — a pane
+//     count. Read by lib/labor/inventoryEstimate.ts. Standard windows have
+//     no row at all in this model; they are four counts on the walkthrough
+//     itself, because a 15-minute walkthrough shouldn't describe an ordinary
+//     window at all.
 //
-// Shapes 1 and 2 are read-only history now. Nothing writes them any more,
+// Shapes 1, 2 and 3 are read-only history now. Nothing writes them any more,
 // and a walkthrough built from them stays on its original pricing path.
 export const WALKTHROUGH_ITEM_TYPES = ['Window', 'Sliding Door', 'Skylight'] as const;
 export const WALKTHROUGH_SIZE_CLASSES = ['Standard', 'Oversized', 'French/Divided-Light'] as const;
@@ -68,6 +74,14 @@ export const walkthroughItemSchema = z.object({
 	// Required when Production Class is Specialty Shape, so an odd window is
 	// described once instead of becoming a new permanent category.
 	'Specialty Description': blank(),
+	// --- Special item row (shape 4) ---
+	// SPECIAL_ITEM_TYPES in lib/labor/types.ts. Set means this is a special
+	// item row. 'Quantity' counts units for every type except
+	// 'divided_light_panes', where it counts PANES — one french door with
+	// eighteen lights is one opening to set up at, not eighteen windows to
+	// walk to. 'Story' holds SPECIAL_ITEM_STORIES (which, unlike the group
+	// row's Story, includes 'roof' and 'multiple').
+	'Special Item Type': blank(),
 	'Interior Included': blank(),
 	'Exterior Included': blank(),
 	'Screen Included': blank(),

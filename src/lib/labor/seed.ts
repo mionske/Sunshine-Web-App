@@ -78,6 +78,32 @@ export const SEED_LABOR_CONFIG: Omit<LaborConfig, 'Created At' | 'Updated At' | 
 	'Condition Factor Moderate Buildup': '1.35',
 	'Condition Factor Heavy Buildup': '1.75',
 
+	// Starting values, same standing as every other number in this file: they
+	// are here so the feature works on day one, and they are expected to move
+	// once real jobs have been measured against them.
+	//
+	// Anchored on a standard exterior pane at 2.5 minutes. Light restoration
+	// roughly doubles that pane; moderate triples it; heavy is razor-and-
+	// re-clean work at about five times a normal pane.
+	'Restoration Minutes Per Pane Light': '2.5',
+	'Restoration Minutes Per Pane Moderate': '5',
+	'Restoration Minutes Per Pane Heavy': '12',
+
+	// Also starting values. Each is the extra time the factor costs across the
+	// whole job, not per window.
+	'Modifier Minutes Heavy Cobweb Removal': '20',
+	'Modifier Minutes Difficult Hose Routing': '15',
+	'Modifier Minutes Tight Or Delicate Landscaping': '20',
+	'Modifier Minutes Furniture Or Object Moving': '25',
+	'Modifier Minutes Delicate Interior Surfaces': '20',
+	'Modifier Minutes Multiple Setup Zones': '20',
+	'Modifier Minutes Long Equipment Carry': '15',
+	'Modifier Minutes Limited Water Access': '20',
+	'Modifier Minutes Condition Varies By Area': '15',
+	// Deliberately 0: "Other" has no knowable cost, and a default here would
+	// be a guess presented as a calculation. Use the notes field.
+	'Modifier Minutes Other Modifier': '0',
+
 	'Scheduled Time Contingency Percent': '12',
 	'Two-Day Threshold Hours': '9',
 	'Crew Recommendation Threshold Hours': '14',

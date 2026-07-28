@@ -199,12 +199,39 @@ export const walkthroughSchema = z.object({
 	// "Residential v2" — shown to the owner instead of a UUID.
 	'Labor Model Version': blank(),
 	'Labor Config ID': blank(),
-	// 'legacy-aggregate' | 'grouped-v2' (INVENTORY_MODELS in
+	// 'legacy-aggregate' | 'grouped-v2' | 'inventory-v3' (INVENTORY_MODELS in
 	// lib/labor/types.ts). Blank reads as legacy: a walkthrough recorded
 	// before window groups existed keeps its stored numbers and its original
 	// pricing path, and is labeled "Legacy aggregate estimate" rather than
 	// back-filled with invented classes, sizes, or component conditions.
 	'Inventory Model': blank(),
+
+	// --- Simplified inventory (v3) -----------------------------------------
+	//
+	// Standard windows counted per floor. A floor is asked about because it
+	// changes the trip, not the window: the labor model charges Story
+	// Logistics once per occupied floor and prices the windows themselves at
+	// one flat rate wherever they are (see lib/labor/inventoryEstimate.ts).
+	// A zero here is a real answer — "no windows on that floor" — which is
+	// why the four are stored separately rather than as one total.
+	'Standard Windows First': blank(),
+	'Standard Windows Second': blank(),
+	'Standard Windows Third': blank(),
+	'Standard Windows Fourth Plus': blank(),
+	// Counted directly rather than derived from the windows, same reasoning
+	// as 'Total Screens'/'Total Tracks' above.
+	'Total Solar Panels': blank(),
+	// One access selection each for the whole property, for this visit.
+	// INTERIOR_ACCESS_LEVELS / EXTERIOR_ACCESS_LEVELS in lib/labor/types.ts.
+	// Deliberately property-level rather than per-window: a 15-minute
+	// walkthrough can't rate every opening, and the v2 per-group version of
+	// this was the single biggest reason the inventory step took too long.
+	'Interior Access': blank(),
+	'Exterior Access': blank(),
+	// Anything a legacy walkthrough held that the v3 shape has no field for,
+	// kept verbatim as JSON so a migration never has to discard it. Only
+	// written by the migration; never by the wizard.
+	'Legacy Window Group Data': blank(),
 
 	Notes: blank(),
 	'Created At': blank(),

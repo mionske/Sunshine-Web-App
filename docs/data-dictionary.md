@@ -823,6 +823,31 @@ Roof Access Required, Estimated On-Site Labor Hours, Suggested Low
 Price, Suggested Target Price, Suggested High Price, Owner Override
 Price, Pricing Config ID, Notes, Created At, Updated At, Archived At.
 
+**Simplified inventory (v3)**: Standard Windows First/Second/Third/
+Fourth Plus, Total Solar Panels, Interior Access, Exterior Access,
+Legacy Window Group Data.
+
+Standard windows are four counts, one per floor. A floor is asked about
+because it changes the trip, not the window — see the height note under
+LaborConfig. A zero is a real answer ("no windows on that floor"), which
+is why the four are stored separately rather than as one total. Only
+genuinely unusual openings get a WalkthroughItems row.
+
+`Interior Access`/`Exterior Access` are one selection each for the whole
+property, for this visit. Deliberately property-level rather than
+per-window: a 15-to-20-minute walkthrough can't rate every opening, and
+the per-group version of this was the single biggest reason the
+inventory step went unfinished in the field.
+
+`Legacy Window Group Data` holds, verbatim as JSON, everything a
+migrated grouped (v2) walkthrough carried that the v3 shape has no field
+for — the original group rows, per-group access selections, size
+classes, specialty descriptions and notes, plus the pre-migration
+`Total Window Units`. Written only by the migration, never by the
+wizard. Its presence is what makes the "Previous inventory details"
+disclosure appear on the walkthrough detail page, so that disclosure can
+never show on a walkthrough recorded the simplified way.
+
 **Component conditions** (added with the labor model): Interior Glass
 Condition, Track Condition, Exterior Glass Condition, Exterior Frame
 Condition, Screen Condition. One rating per component on the same
@@ -854,20 +879,55 @@ owner can move scheduled time without touching the estimate underneath.
 The breakdown is stored as JSON so the review page can still explain a
 past estimate after the labor configuration moves on.
 
-`Inventory Model` is `legacy-aggregate` or `grouped-v2`; blank reads as
-legacy. A walkthrough recorded before window groups existed keeps its
-stored numbers and its original pricing path, and is labeled **"Legacy
-aggregate estimate"** rather than back-filled with invented classes,
-sizes or component conditions. It can be manually upgraded; nothing
-upgrades automatically.
+`Inventory Model` is `legacy-aggregate`, `grouped-v2` or `inventory-v3`;
+blank reads as legacy. A walkthrough recorded before window groups
+existed keeps its stored numbers and its original pricing path, and is
+labeled **"Legacy aggregate estimate"** rather than back-filled with
+invented classes, sizes or component conditions.
+
+**Migrating a grouped (v2) walkthrough to the simplified shape** is an
+explicit per-walkthrough action on the walkthrough detail page; nothing
+upgrades automatically. `lib/labor/legacyInventory.ts` maps only what a
+v3 field holds exactly and keeps everything else verbatim:
+
+- The original group rows are **never rewritten**. The migration adds a
+  v3 reading alongside them.
+- Hours, price and the stored labor breakdown are **never rewritten**.
+  Those are the estimate that was actually made and quoted from;
+  re-deriving a past price from current logic is the one thing this app
+  never does.
+- `Total Window Units` **is** rewritten, because the two shapes disagree
+  about what a unit is — v2 counted a french door as one unit, v3 counts
+  its panes as glass and the opening as nothing. The previous value is
+  preserved in `Legacy Window Group Data`.
+- Every ambiguous case biases **downward**, so a migrated walkthrough
+  can never silently quote higher than it did. A Large specialty shape
+  becomes a plain specialty shape (large_triangle, small_triangle and
+  bay_bow all map *forward* onto Specialty Shape, so reversing it would
+  assert a shape nobody recorded). An oversized standard window becomes
+  an ordinary one. Per-group access becomes one property-level selection
+  only when every group agreed, and is left unset when they differed.
+- Each judgment call produces a plain-English line in the "Previous
+  inventory details" disclosure. A migration the operator can't see is a
+  migration they can't correct.
 
 A walkthrough-only visit is a standalone record — it never creates a Job
 just to have somewhere to live. The Suggested Low/Target/High Price,
 Estimated On-Site Labor Hours, and Pricing Config ID columns are now
 populated by the guided mobile walkthrough mode (`/walkthroughs/new`,
-`src/components/WalkthroughWizard.tsx`) — computed server-side via the
-same shared pricing engine the in-field quoter uses
-(`lib/pricing/walkthroughToQuote.ts`), never a second calculation path.
+`src/components/WalkthroughWizard.tsx`).
+
+The wizard computes its estimate, schedule and price **in the browser**,
+on every keystroke, from a `LaborModel` and `PricingConfig` resolved once
+server-side and passed to the island as plain props. It calls the same
+pure functions the server calls on save (`estimateInventoryLabor`,
+`suggestSchedule`, `suggestPriceBand`), so there is no second calculation
+path and what the operator reads is what gets stored. Recalculating on
+the server as the operator types would run straight into the Sheets API's
+60 reads a minute — the limit that took the property page down in
+production — which is why there is no Recalculate button and why
+`lib/labor/adjustments.ts` exists as a Sheets-free module the island can
+safely import.
 The historical-entry form never creates a Walkthrough at all, so it
 never reconstructs a price recommendation after the fact.
 
@@ -963,22 +1023,39 @@ Story, Interior Access, Exterior Access, Panes Per Unit, Screens Per
 Unit, Tracks Per Unit, Specialty Description, Interior Included (Y/N),
 Exterior Included (Y/N), Screen Included (Y/N), Track Included (Y/N),
 Condition, Access Difficulty, Hard Water (Y/N), Construction Debris
-(Y/N), Estimated Labor Minutes, Notes, Sort Order, Created At, Updated
-At, Archived At.
+(Y/N), Estimated Labor Minutes, Special Item Type, Notes, Sort Order,
+Created At, Updated At, Archived At.
 
-**A row here is one of three shapes**, told apart by which columns are
+**A row here is one of four shapes**, told apart by which columns are
 filled — there is no discriminator column, so rows written before each
 successive change keep working unchanged:
 
 1. **Area row** — `Window Units`/`Pane Count` set, `Item Type` and
    `Production Class` both blank. The optional per-area breakdown.
 2. **Detailed item row** — `Item Type` set. The legacy item-level path.
-3. **Window group row** — `Production Class` set. The current model: a
-   group of similar windows with a quantity, never one row per physical
-   window.
+3. **Window group row** — `Production Class` set. A group of similar
+   windows with a quantity, never one row per physical window.
+4. **Special item row** — `Special Item Type` set. The current model:
+   one unusual window or door. Standard windows have no row at all here;
+   they are four counts on the Walkthrough itself, because a 15-minute
+   walkthrough shouldn't have to describe an ordinary window.
 
-Shapes 1 and 2 are read-only history. Nothing writes them any more, and
-a walkthrough built from them stays on its original pricing path.
+Shapes 1, 2 and 3 are read-only history. Nothing writes them any more,
+and a walkthrough built from them stays on its original pricing path —
+unless it is explicitly migrated, which adds shape-4 rows alongside the
+originals and never rewrites them.
+
+**Special item rows** carry `Special Item Type` (large_picture,
+oversized_picture, sliding_glass_door, divided_light_panes, skylight,
+large_triangle, small_triangle, specialty_shape, bay_bow, custom),
+`Quantity`, `Story` (first/second/third/fourth_plus/roof/multiple/
+not_applicable) and `Notes`.
+
+`Quantity` counts **units** for every type except `divided_light_panes`,
+where it counts **panes**. One french door with eighteen lights is one
+opening to set up at, not eighteen windows to walk to — so divided-light
+quantities never reach the walkthrough's window-unit total, and are
+priced per pane.
 
 **Window group rows** carry `Production Class` (Standard Window / Large
 Picture Window / Specialty Shape / Sliding Door / French Panes /
@@ -1062,9 +1139,10 @@ Labor Config ID, Config Name, Version Label, Property Type, Status
 `Overhead ... Minutes` columns, four `Size Factor ...` columns, six
 `Interior Access ... Minutes` columns, seven `Exterior Access ...
 Minutes` columns, four `Story Logistics ... Minutes` columns, four
-`Condition Factor ...` columns, Scheduled Time Contingency Percent,
-Two-Day Threshold Hours, Crew Recommendation Threshold Hours, Notes,
-Created At, Updated At, Archived At.
+`Condition Factor ...` columns, three `Restoration Minutes Per Pane ...`
+columns, ten `Modifier Minutes ...` columns, Scheduled Time Contingency
+Percent, Two-Day Threshold Hours, Crew Recommendation Threshold Hours,
+Notes, Created At, Updated At, Archived At.
 
 Every labor assumption in the app lives in one versioned row. No
 production constant belongs in a component, a controller, or the engine.
@@ -1076,9 +1154,34 @@ explainable after the numbers move. Seeded row: `Residential v2`.
 
 Access minutes are the mechanism that makes dangerous access cost real
 time. The gap between Extended WFP and Difficult Ladder Positioning is
-deliberately wide, and story logistics are per *group* and small, since
-height is already paid for through access — charging both per unit would
-double-count.
+deliberately wide.
+
+**Height is charged once, and only through Story Logistics.** There is
+deliberately no per-unit second/third-floor multiplier on the standard
+window rate: a standard window costs the same base minutes on any floor,
+and Story Logistics is charged once per distinct occupied story for
+hauling the gear up. Adding a per-unit floor factor would bill height
+twice — once for the trip, again on every window the trip reaches.
+Access is separate and genuinely so: a third-floor window reached from a
+balcony and one reached off a ladder on a slope are the same story and
+very different work. Access is never inferred from floor — being
+upstairs does not by itself mean difficult access. See the pricing-audit
+comment block at the head of `lib/labor/inventoryEstimate.ts`, which is
+the authoritative statement of where each physical difficulty is charged.
+
+`Restoration Minutes Per Pane Light/Moderate/Heavy` price restoration
+per affected pane at the recorded severity. Per pane and not a
+multiplier on the glass rate because it isn't more of the same work:
+razoring overspray off a pane costs what it costs whether that pane was
+otherwise clean or filthy.
+
+The ten `Modifier Minutes ...` columns are the flat whole-job cost of
+each property-level factor. They live in configuration rather than being
+entered per walkthrough because asking someone on a ladder to estimate
+the minute cost of a long hose run produced a number nobody trusted.
+`Modifier Minutes Other Modifier` is deliberately 0 — "Other" has no
+knowable cost, and a default there would be a guess presented as a
+calculation.
 
 ### WindowProductionProfiles
 Profile ID, Labor Config ID, Production Class, Interior Glass Base
@@ -1109,20 +1212,38 @@ not an edit to the old one.
 
 ### WalkthroughLaborAdjustments
 Adjustment ID, Walkthrough ID, Kind (Restoration/Modifier), Label,
-Affected Units, Affected Panes, Additional Minutes, Notes, Sort Order,
-Created At, Updated At, Archived At.
+Affected Units, Affected Panes, Severity, Additional Minutes, Notes,
+Sort Order, Created At, Updated At, Archived At.
 
-One row per selected restoration service or property-level labor
-modifier. Rows rather than columns on Walkthrough because restoration
-almost never applies to every window: "razor scraping" as a boolean
-can't say whether it's four panes on the sunroom or the whole south
-elevation, and pricing a checkbox is how a restoration job gets
-underquoted. `Additional Minutes` is always the owner's own estimate —
-no configuration can know how bad the overspray is until someone looks.
+One row per selected restoration issue or property-level factor. Rows
+rather than columns on Walkthrough because restoration almost never
+applies to every window: a boolean can't say whether it's four panes on
+the sunroom or the whole south elevation, and pricing a checkbox is how
+a restoration job gets underquoted.
+
+`Additional Minutes` is the **resolved** cost of the line, stored so the
+record still explains itself after the configured rates move on. It is
+derived by `adjustmentMinutes()` in `lib/labor/adjustments.ts`:
+
+- Restoration → `Affected Panes` × the rate for `Severity`
+  (Light/Moderate/Heavy).
+- Modifier → that modifier's configured flat cost.
+
+Rows written before those rates existed hold a hand-entered number
+instead, and are still read at it. That is deliberate: re-pricing an old
+line from today's configuration would quietly restate a past quote.
 
 Restoration supplements the component condition ratings rather than
 replacing them: a two-year-old house with construction residue is not
 Heavy Buildup, it is a light-dirt job that also needs a razor.
+
+The walkthrough asks about five restoration **issues** (construction
+debris, paint overspray, stickers or adhesive, hard water or mineral
+deposits, other). Razor scraping, steel wool and non-scratch pad work
+are *techniques*, not findings — what an operator sees on a wall is
+overspray or hard water, and which tool it takes follows from that.
+Their Walkthrough Y/N columns stay declared and keep writing `N` so
+calibration's segmentation doesn't start reading blanks as unknown.
 
 ## ActivityLog
 Activity ID, Entity Type, Entity ID, Action, Previous Value, New Value,

@@ -4,6 +4,8 @@ import { env } from 'cloudflare:workers';
 import { findById } from '../../lib/sheets';
 import { propertyConfig, derivePropertyCompatDefaults } from '../../lib/models/property';
 import { clientConfig } from '../../lib/models/client';
+import { loadActiveLaborModel } from '../../lib/labor/config';
+import { getActivePricingConfig } from '../../lib/pricing/config';
 import WalkthroughWizard from '../../components/WalkthroughWizard';
 
 const propertyId = Astro.url.searchParams.get('propertyId') ?? '';
@@ -14,6 +16,20 @@ if (!property) {
 	return new Response('Property not found — start a walkthrough from a Property page.', { status: 404 });
 }
 const client = property['Client ID'] ? await findById(env, clientConfig, property['Client ID']) : null;
+
+// Resolved once, here, and handed to the wizard as plain data.
+//
+// The estimator, the schedule suggestion and the price band are all pure
+// functions of this model plus what's on screen, so with it in hand the wizard
+// can keep every number current on every keystroke without a round trip. The
+// alternative — recalculating on the server as the operator types — would run
+// straight into the Sheets API's 60 reads a minute, which is exactly what took
+// the property page down in production.
+const laborModel = await loadActiveLaborModel(env, property['Property Type']);
+const pricingConfig = await getActivePricingConfig(env, property['Property Type']);
+if (!pricingConfig) {
+	return new Response(`No active PricingConfig for ${property['Property Type']}.`, { status: 500 });
+}
 
 // Read-only reference so the permanent property record doesn't have to be
 // re-entered at every visit — see the data-ownership separation addendum.
@@ -41,6 +57,8 @@ const propertyReference = {
 			propertyId={propertyId}
 			opportunityId={opportunityId}
 			propertyReference={propertyReference}
+			laborModel={laborModel}
+			pricingConfig={pricingConfig}
 		/>
 	</main>
 </BaseLayout>

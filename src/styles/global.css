@@ -208,6 +208,11 @@ textarea {
 	width: 100%;
 	margin-top: 0.375rem;
 	padding: 0.5rem 0.75rem;
+	/* This app is used one-handed on a phone at a customer's house, so every
+	 * field is a real touch target. 44px is Apple's own minimum; the padding
+	 * above lands at 39px on its own, which is small enough to mis-tap while
+	 * holding a ladder. */
+	min-height: 44px;
 	font-family: var(--font-body);
 	font-size: 1rem;
 	color: var(--color-ink);
@@ -243,6 +248,10 @@ input[type='radio'] {
 	display: inline-block;
 	width: auto;
 	padding: 0;
+	/* The 44px floor above is for fields you tap into. A checkbox's target is
+	   its whole label, so forcing it here would just stretch the box itself
+	   and wreck the checkbox grids and segmented pills. */
+	min-height: revert;
 	border: revert;
 	border-radius: revert;
 	background: revert;
@@ -383,6 +392,8 @@ button,
 	font-weight: 700;
 	font-size: 0.95rem;
 	padding: 0.6rem 1.5rem;
+	/* Same 44px touch floor as the fields above. */
+	min-height: 44px;
 	border-radius: var(--radius-pill);
 	border: 2px solid var(--color-navy);
 	background: var(--color-navy);
@@ -1169,6 +1180,9 @@ details.card[open] > summary {
 	align-items: center;
 	margin: 0;
 	padding: 0.4rem 0.75rem;
+	/* The pill IS the tap target here — the radio inside it is visually
+	   hidden — so it gets the same 44px floor as every other field. */
+	min-height: 44px;
 	font-size: 0.8rem;
 	font-weight: 600;
 	color: var(--color-ink-muted);
@@ -1197,9 +1211,18 @@ details.card[open] > summary {
 /* Compact numeric grid for pane-breakdown/accessory counts */
 .count-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+	/* One column on a phone. A 100px minimum fits two columns at 375px, which
+	   halves every count field's width and its tap target with it — on the
+	   surface most likely to be filled in one-handed in the field. */
+	grid-template-columns: 1fr;
 	gap: 0.75rem 1rem;
 	margin-bottom: 1rem;
+}
+
+@media (min-width: 480px) {
+	.count-grid {
+		grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+	}
 }
 
 /* Sidebar reference cards (Walkthroughs/Quotes/Jobs) — compact rows
@@ -2248,4 +2271,25 @@ details.card[open] > summary {
 .btn-danger:hover:not(:disabled) {
 	background: var(--color-link);
 	color: var(--color-cream-text);
+}
+
+/* The one number the review screen exists to deliver. Everything around it
+   is context; this is the decision. */
+.price-headline {
+	font-family: var(--font-heading);
+	font-size: 3rem;
+	font-weight: 700;
+	line-height: 1;
+	color: var(--color-navy);
+	margin: 0 0 0.25rem;
+}
+
+.schedule-headline {
+	font-family: var(--font-heading);
+	font-size: 1.25rem;
+	font-weight: 700;
+	text-transform: uppercase;
+	letter-spacing: 0.03em;
+	color: var(--color-navy);
+	margin: 0 0 0.25rem;
 }

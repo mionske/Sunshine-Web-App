@@ -5,9 +5,19 @@ import { walkthroughAdjustmentConfig, type WalkthroughAdjustment } from '../mode
 import type { PricingConfig } from '../models/pricingConfig';
 import type { LaborModel } from './config';
 import { estimateLabor, type ComponentConditions, type LaborEstimate, type LaborScope, type WindowGroup } from './estimate';
+import { estimateInventoryLabor } from './inventoryEstimate';
+import { toInventory, type InventoryFormValues } from './inventory';
+import { adjustmentMinutes, type AdjustmentInput } from './adjustments';
 import { suggestSchedule, type ScheduleSuggestion } from './schedule';
 import { suggestPriceBand, type PriceBand } from './price';
-import type { AdjustmentKind, ProductionClass, RestorationService } from './types';
+import {
+	type ExteriorAccess,
+	type InteriorAccess,
+	type ProductionClass,
+	type RestorationService,
+} from './types';
+
+export { adjustmentMinutes, type AdjustmentInput };
 
 /** A grouped inventory row as the wizard sends it — strings, because that's
  * what a form produces and what the Sheet stores. */
@@ -26,21 +36,28 @@ export interface WindowGroupInput {
 	notes?: string;
 }
 
-export interface AdjustmentInput {
+/** One unusual window or door as the wizard sends it. For divided-light
+ * rows `quantity` counts panes, not openings — see SPECIAL_ITEM_TYPES. */
+export interface SpecialItemInput {
 	id: string;
-	kind: AdjustmentKind;
-	label: string;
-	affectedUnits?: string;
-	affectedPanes?: string;
-	additionalMinutes?: string;
+	type: string;
+	quantity: string;
+	story: string;
 	notes?: string;
 }
 
 export interface LaborWalkthroughInput {
-	groups: WindowGroupInput[];
+	/** v3. When present this is what gets priced. */
+	inventory?: InventoryFormValues;
+	/** v2 grouped rows. Only still read for walkthroughs that were recorded
+	 * that way — the wizard hasn't sent these since v3. */
+	groups?: WindowGroupInput[];
 	adjustments: AdjustmentInput[];
 	scope: LaborScope;
 	conditions: ComponentConditions;
+	/** Property-level, one selection each, for this visit. v3 only; the
+	 * grouped model carried access per group. */
+	access?: { interior?: string; exterior?: string };
 	manualScreenTotal?: string;
 	manualTrackTotal?: string;
 	scheduledMinutesOverride?: string;
@@ -89,20 +106,33 @@ export function computeWalkthroughLabor(
 	pricingConfig: PricingConfig,
 	input: LaborWalkthroughInput
 ): LaborWalkthroughResult {
-	const estimate = estimateLabor(model, {
-		groups: toWindowGroups(input.groups),
-		scope: input.scope,
-		conditions: input.conditions,
-		adjustments: input.adjustments.map((a) => ({
-			kind: a.kind,
-			label: a.label,
-			additionalMinutes: num(a.additionalMinutes),
-		})),
-		manualTotals: {
-			screens: optionalNum(input.manualScreenTotal),
-			tracks: optionalNum(input.manualTrackTotal),
-		},
-	});
+	const adjustments = input.adjustments.map((a) => ({
+		kind: a.kind,
+		label: a.label,
+		additionalMinutes: adjustmentMinutes(model, a),
+	}));
+
+	const estimate = input.inventory
+		? estimateInventoryLabor(model, {
+				inventory: toInventory(input.inventory),
+				scope: input.scope,
+				conditions: input.conditions,
+				adjustments,
+				access: {
+					interior: (input.access?.interior || '') as InteriorAccess | '',
+					exterior: (input.access?.exterior || '') as ExteriorAccess | '',
+				},
+			})
+		: estimateLabor(model, {
+				groups: toWindowGroups(input.groups ?? []),
+				scope: input.scope,
+				conditions: input.conditions,
+				adjustments,
+				manualTotals: {
+					screens: optionalNum(input.manualScreenTotal),
+					tracks: optionalNum(input.manualTrackTotal),
+				},
+			});
 
 	const schedule = suggestSchedule(model, estimate.productiveMinutes, {
 		hazardousAccess: estimate.hazardousAccess,
@@ -169,7 +199,23 @@ export async function saveLaborWalkthrough(
 	const computed = computeWalkthroughLabor(model, pricingConfig, payload);
 	const { estimate, schedule, band } = computed;
 
-	const groupRecords = payload.groups.map((g, index) => ({
+	// One row per unusual opening. Standard windows deliberately get no rows
+	// at all — they are four counts on the walkthrough itself.
+	const specialItemRecords = (payload.inventory?.specialItems ?? [])
+		.filter((item) => item.type && num(item.quantity) > 0)
+		.map((item, index) => ({
+			id: item.id,
+			'Walkthrough ID': payload.id,
+			'Special Item Type': item.type,
+			Quantity: item.quantity,
+			Story: item.story,
+			'Interior Included': payload.scope.interior ? 'Y' : 'N',
+			'Exterior Included': payload.scope.exterior ? 'Y' : 'N',
+			Notes: item.notes ?? '',
+			'Sort Order': String(index),
+		}));
+
+	const groupRecords = (payload.groups ?? []).map((g, index) => ({
 		id: g.id,
 		'Walkthrough ID': payload.id,
 		'Production Class': g.productionClass,
@@ -195,7 +241,10 @@ export async function saveLaborWalkthrough(
 		Label: a.label,
 		'Affected Units': a.affectedUnits ?? '',
 		'Affected Panes': a.affectedPanes ?? '',
-		'Additional Minutes': a.additionalMinutes ?? '',
+		Severity: a.severity ?? '',
+		// The resolved cost, stored so the record still explains itself after
+		// the configured rates move on.
+		'Additional Minutes': String(adjustmentMinutes(model, a)),
 		Notes: a.notes ?? '',
 		'Sort Order': String(index),
 	}));
@@ -211,6 +260,22 @@ export async function saveLaborWalkthrough(
 		const column = RESTORATION_FLAG_COLUMNS[adjustment.label as RestorationService];
 		if (column) restorationFlags[column] = 'Y';
 	}
+
+	// The per-floor standard counts and the property-level access selections.
+	// Only written for a v3 walkthrough — a grouped one carried access per
+	// group, and writing a blank here would read as "Floor Level everywhere"
+	// rather than "asked a different way".
+	const inventoryColumns: Partial<Record<keyof Walkthrough, string>> = payload.inventory
+		? {
+				'Standard Windows First': String(num(payload.inventory.standardWindowsByStory?.first)),
+				'Standard Windows Second': String(num(payload.inventory.standardWindowsByStory?.second)),
+				'Standard Windows Third': String(num(payload.inventory.standardWindowsByStory?.third)),
+				'Standard Windows Fourth Plus': String(num(payload.inventory.standardWindowsByStory?.fourthPlus)),
+				'Total Solar Panels': String(num(payload.inventory.solarPanels)),
+				'Interior Access': payload.access?.interior ?? '',
+				'Exterior Access': payload.access?.exterior ?? '',
+			}
+		: {};
 
 	const { created } = await createRelatedRows(
 		env,
@@ -256,8 +321,9 @@ export async function saveLaborWalkthrough(
 						'Total Tracks': String(estimate.totals.tracks),
 						'Manual Screen Total': payload.manualScreenTotal ?? '',
 						'Manual Track Total': payload.manualTrackTotal ?? '',
-						'Count Entry Mode': 'grouped',
-						'Inventory Model': 'grouped-v2',
+						'Count Entry Mode': payload.inventory ? 'inventory' : 'grouped',
+						'Inventory Model': payload.inventory ? 'inventory-v3' : 'grouped-v2',
+						...inventoryColumns,
 
 						'Productive Labor Minutes': estimate.productiveMinutes.toFixed(1),
 						'Scheduled Minutes': schedule.scheduledMinutes.toFixed(1),
@@ -296,7 +362,7 @@ export async function saveLaborWalkthrough(
 					},
 				],
 			},
-			{ config: walkthroughItemConfig, records: groupRecords },
+			{ config: walkthroughItemConfig, records: [...specialItemRecords, ...groupRecords] },
 			{ config: walkthroughAdjustmentConfig, records: adjustmentRecords },
 		],
 		meta

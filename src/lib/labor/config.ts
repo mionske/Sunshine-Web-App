@@ -7,12 +7,16 @@ import {
 	EXTERIOR_ACCESS_LEVELS,
 	INTERIOR_ACCESS_LEVELS,
 	PRODUCTION_CLASSES,
+	PROPERTY_MODIFIERS,
+	SEVERITY_LEVELS,
 	SIZE_CLASSES,
 	STORIES,
 	type ComponentCondition,
 	type ExteriorAccess,
 	type InteriorAccess,
 	type ProductionClass,
+	type PropertyModifier,
+	type Severity,
 	type SizeClass,
 	type Story,
 } from './types';
@@ -43,6 +47,10 @@ export interface LaborModel {
 	exteriorAccessMinutes: Record<ExteriorAccess, number>;
 	storyLogisticsMinutes: Record<Story, number>;
 	conditionFactor: Record<ComponentCondition, number>;
+	/** Per affected pane, by how bad the operator said it was. */
+	restorationMinutesPerPane: Record<Severity, number>;
+	/** Flat minutes across the job, per selected factor. */
+	propertyModifierMinutes: Record<PropertyModifier, number>;
 	contingencyPercent: number;
 	twoDayThresholdHours: number;
 	crewThresholdHours: number;
@@ -158,6 +166,25 @@ export function resolveLaborModel(config: LaborConfig, profileRows: WindowProduc
 		'Heavy Buildup': 'Condition Factor Heavy Buildup',
 	};
 
+	const severityColumns: Record<Severity, keyof LaborConfig> = {
+		Light: 'Restoration Minutes Per Pane Light',
+		Moderate: 'Restoration Minutes Per Pane Moderate',
+		Heavy: 'Restoration Minutes Per Pane Heavy',
+	};
+
+	const modifierColumns: Record<PropertyModifier, keyof LaborConfig> = {
+		'Heavy Cobweb Removal': 'Modifier Minutes Heavy Cobweb Removal',
+		'Difficult Hose Routing': 'Modifier Minutes Difficult Hose Routing',
+		'Tight or Delicate Landscaping': 'Modifier Minutes Tight Or Delicate Landscaping',
+		'Furniture or Object Moving': 'Modifier Minutes Furniture Or Object Moving',
+		'Delicate Interior Surfaces': 'Modifier Minutes Delicate Interior Surfaces',
+		'Multiple Setup Zones': 'Modifier Minutes Multiple Setup Zones',
+		'Long Equipment Carry': 'Modifier Minutes Long Equipment Carry',
+		'Limited Water Access': 'Modifier Minutes Limited Water Access',
+		'Condition Varies by Area': 'Modifier Minutes Condition Varies By Area',
+		'Other Modifier': 'Modifier Minutes Other Modifier',
+	};
+
 	const lookup = <K extends string>(keys: readonly K[], columns: Record<K, keyof LaborConfig>, read: (v: string) => number) =>
 		Object.fromEntries(keys.map((k) => [k, read(String(config[columns[k]] ?? ''))])) as Record<K, number>;
 
@@ -177,6 +204,8 @@ export function resolveLaborModel(config: LaborConfig, profileRows: WindowProduc
 		exteriorAccessMinutes: lookup(EXTERIOR_ACCESS_LEVELS, exteriorAccessColumns, minutes),
 		storyLogisticsMinutes: lookup(STORIES, storyColumns, minutes),
 		conditionFactor: lookup(COMPONENT_CONDITIONS, conditionColumns, (v) => factor(v)),
+		restorationMinutesPerPane: lookup(SEVERITY_LEVELS, severityColumns, minutes),
+		propertyModifierMinutes: lookup(PROPERTY_MODIFIERS, modifierColumns, minutes),
 		contingencyPercent: minutes(config['Scheduled Time Contingency Percent']),
 		twoDayThresholdHours: minutes(config['Two-Day Threshold Hours']),
 		crewThresholdHours: minutes(config['Crew Recommendation Threshold Hours']),

@@ -47,6 +47,7 @@ function toWalkthroughItem(raw: Record<string, unknown>): WalkthroughItem {
 		'Screens Per Unit': '',
 		'Tracks Per Unit': '',
 		'Specialty Description': '',
+		'Special Item Type': '',
 		'Interior Included': raw.interiorIncluded ? 'Y' : 'N',
 		'Exterior Included': raw.exteriorIncluded ? 'Y' : 'N',
 		// Same dual meaning as the save path: a count on an area row, a Y/N
@@ -109,8 +110,11 @@ async function resolvePropertyPricing(propertyId: string) {
  * screen is the number that gets stored. */
 function toLaborInput(body: Record<string, unknown>): LaborWalkthroughInput {
 	const scope = (body.scope ?? {}) as Record<string, unknown>;
+	const access = (body.access ?? {}) as Record<string, unknown>;
 	return {
+		inventory: body.inventory as LaborWalkthroughInput['inventory'],
 		groups: (body.groups as WindowGroupInput[] | undefined) ?? [],
+		access: { interior: String(access.interior ?? ''), exterior: String(access.exterior ?? '') },
 		adjustments: (body.adjustments as AdjustmentInput[] | undefined) ?? [],
 		scope: {
 			interior: Boolean(scope.interior),

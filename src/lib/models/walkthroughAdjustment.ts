@@ -15,9 +15,12 @@ const blank = () => z.coerce.string().default('');
  * checkbox is exactly how a restoration job gets underquoted. Each row
  * carries its own affected counts, its own minutes, and its own note.
  *
- * 'Additional Minutes' is the owner's estimate for this line and is always
- * theirs to set — nothing in the labor model derives it, since no
- * configuration can know how bad the overspray is until someone looks at it.
+ * 'Additional Minutes' is the resolved cost of this line, stored so the record
+ * still explains itself after the configured rates move on. For restoration it
+ * comes from 'Affected Panes' × the rate for 'Severity'; for a property
+ * modifier it's that modifier's configured flat cost. Rows written before those
+ * rates existed hold a hand-entered number instead, and are still read at it —
+ * see adjustmentMinutes() in lib/labor/walkthroughLabor.ts.
  */
 export const walkthroughAdjustmentSchema = z.object({
 	'Adjustment ID': z.string().min(1),
@@ -26,6 +29,8 @@ export const walkthroughAdjustmentSchema = z.object({
 	Label: blank(),
 	'Affected Units': blank(),
 	'Affected Panes': blank(),
+	// SEVERITY_LEVELS in lib/labor/types.ts. Restoration rows only.
+	Severity: blank(),
 	'Additional Minutes': blank(),
 	Notes: blank(),
 	'Sort Order': blank(),

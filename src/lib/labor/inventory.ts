@@ -6,6 +6,7 @@ import {
 	type StandardFloor,
 } from './types';
 
+
 /**
  * What a walkthrough records about what's actually there.
  *
@@ -56,6 +57,49 @@ export function emptyInventory(): WalkthroughInventory {
 
 function count(value: number | undefined): number {
 	return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+/** The inventory as a form produces it — every field a string. */
+export interface InventoryFormValues {
+	standardWindowsByStory: Record<string, string>;
+	specialItems: { id: string; type: string; quantity: string; story: string; notes?: string }[];
+	totalGlassPanes: string;
+	screens: string;
+	tracks: string;
+	solarPanels: string;
+}
+
+/**
+ * Form strings to a real inventory. Lives here, next to the totals, so the
+ * wizard's live summary and the server's estimate are coerced by the same
+ * code — two copies of "what does a blank mean" would drift, and the number
+ * on screen would stop being the number that gets saved.
+ *
+ * A blank or negative count is zero: an operator who skipped a floor
+ * recorded nothing there, not something.
+ */
+export function toInventory(values: InventoryFormValues): WalkthroughInventory {
+	const byStory = emptyInventory().standardWindowsByStory;
+	for (const floor of STANDARD_FLOORS) byStory[floor] = count(Number(values.standardWindowsByStory?.[floor]));
+
+	return {
+		standardWindowsByStory: byStory,
+		// A row the operator added and never filled in is in progress, not
+		// data — it is dropped rather than priced as an unknown type.
+		specialItems: values.specialItems
+			.filter((item) => item.type && count(Number(item.quantity)) > 0)
+			.map((item) => ({
+				id: item.id,
+				type: item.type as SpecialItemType,
+				quantity: count(Number(item.quantity)),
+				story: item.story as SpecialItemStory,
+				notes: item.notes,
+			})),
+		totalGlassPanes: count(Number(values.totalGlassPanes)),
+		screens: count(Number(values.screens)),
+		tracks: count(Number(values.tracks)),
+		solarPanels: count(Number(values.solarPanels)),
+	};
 }
 
 /**
