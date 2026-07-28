@@ -99,17 +99,39 @@ export const GET: APIRoute = async () => {
 	}
 };
 
-export const POST: APIRoute = async () => {
+export const POST: APIRoute = async ({ url }) => {
+	// ?refresh=1 rewrites the seeded rows in place from the current code
+	// values. Only appropriate while the model is still being calibrated and
+	// nothing references it: once real walkthroughs have been estimated under
+	// a version, that version is history and a change belongs in a NEW row,
+	// not an edit to the old one.
+	const refresh = url.searchParams.get('refresh') === '1';
+
 	try {
 		const before = await plan();
 
-		await createRow(env, laborConfigConfig, { ...SEED_LABOR_CONFIG, id: SEED_LABOR_CONFIG_ID });
+		if (refresh && before.laborConfig === 'exists') {
+			await updateRow(env, laborConfigConfig, SEED_LABOR_CONFIG_ID, SEED_LABOR_CONFIG, {
+				action: 'refreshed labor config from code',
+			});
+		} else {
+			await createRow(env, laborConfigConfig, { ...SEED_LABOR_CONFIG, id: SEED_LABOR_CONFIG_ID });
+		}
 
 		// Sequentially, not Promise.all — appending a row is a read-then-write
 		// (find the first empty row, then write to it), so concurrent creates
 		// on one tab race for the same row. See the note in sheets/crud.ts.
 		for (const profile of SEED_WINDOW_PRODUCTION_PROFILES) {
-			await createRow(env, windowProductionProfileConfig, { ...profile, id: profile['Profile ID'] });
+			const exists = before.profiles.some(
+				(p) => p.productionClass === profile['Production Class'] && p.action === 'exists'
+			);
+			if (refresh && exists) {
+				await updateRow(env, windowProductionProfileConfig, profile['Profile ID'], profile, {
+					action: 'refreshed production profile from code',
+				});
+			} else if (!exists) {
+				await createRow(env, windowProductionProfileConfig, { ...profile, id: profile['Profile ID'] });
+			}
 		}
 
 		if ('id' in before.pricingConfig && Object.keys(before.pricingConfig.changes).length > 0) {

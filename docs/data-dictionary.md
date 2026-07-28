@@ -1055,6 +1055,19 @@ count for the class — a group that records its own panes-per-unit scales
 its glass minutes by the ratio, so a 12-pane french unit costs twice a
 6-pane one.
 
+### Seeding and revising the labor model
+`POST /api/admin/seed-labor-config` writes the initial rows from
+`lib/labor/seed.ts` and fills the hourly production targets on the Active
+PricingConfig. Idempotent — seeded rows use fixed IDs, so a second run is
+a no-op. `GET` is a dry run that also reports what is actually stored,
+including any duplicate profile IDs.
+
+`POST ...?refresh=1` rewrites the seeded rows in place from the current
+code values. Appropriate only while the model is still being calibrated
+and nothing references it. Once real walkthroughs have been estimated
+under a version, that version is history: a change belongs in a new row,
+not an edit to the old one.
+
 ### WalkthroughLaborAdjustments
 Adjustment ID, Walkthrough ID, Kind (Restoration/Modifier), Label,
 Affected Units, Affected Panes, Additional Minutes, Notes, Sort Order,
