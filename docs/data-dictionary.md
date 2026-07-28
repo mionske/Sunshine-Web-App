@@ -1034,6 +1034,14 @@ Groups: `record`, `access`, `considerations`, `water`, `parking`,
 `access-notes`, `inventory`, `notes`. The whole-record form survives at
 `?tab=edit` as a fallback.
 
+**Still present, currently unreachable**: `/api/walkthrough`'s
+`preview-pricing` and `save` actions, and the `saveWalkthrough` /
+`computeWalkthroughPricing` functions behind them. The wizard now uses
+`preview-labor` / `save-labor` exclusively. They are kept deliberately —
+the labor path passes its tests but has not yet saved a real walkthrough
+through the UI, and this project's rule is to retire an old path only
+after its replacement has been used in anger. Delete them once it has.
+
 **Derived, never stored**: difficulty summary and its three bars,
 true/false consideration flags, the four-stage pipeline stepper (computed
 from whether walkthroughs/quotes/jobs exist), rail badge counts, and the

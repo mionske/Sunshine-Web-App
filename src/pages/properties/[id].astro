@@ -27,6 +27,12 @@ import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
 import { formatTimestamp } from '../../lib/format';
 import { listPropertyPhotos } from '../../lib/propertyPhotos';
 import { PHOTO_CATEGORIES } from '../../lib/models/propertyPhoto';
+import {
+	PROPERTY_TABS,
+	FALLBACK_EDIT_TAB,
+	resolvePropertyView,
+	type PropertyTabKey,
+} from '../../lib/propertyTabs';
 import PropertyPhotos from '../../components/PropertyPhotos';
 
 const { id } = Astro.params;
@@ -350,31 +356,16 @@ const timeline = activityRows
 
 // --- Option 1B workspace ---------------------------------------------------
 
-const TABS = [
-	{ key: 'overview', label: 'Overview' },
-	{ key: 'access', label: 'Access & Setup' },
-	{ key: 'inventory', label: 'Inventory' },
-	{ key: 'photos', label: 'Photos' },
-	{ key: 'notes', label: 'Notes' },
-	{ key: 'walkthroughs', label: 'Walkthroughs' },
-	{ key: 'quotes', label: 'Quotes' },
-	{ key: 'jobs', label: 'Jobs' },
-	{ key: 'history', label: 'History' },
-] as const;
-type TabKey = (typeof TABS)[number]['key'];
+// Tab and edit-group state live in the URL so they survive a reload, a Save
+// redirect and a shared link. Resolution is in lib/propertyTabs.ts so it can
+// be tested — see propertyTabs.test.ts.
+const TABS = PROPERTY_TABS;
+type TabKey = PropertyTabKey;
+const { tab: activeTab, editingGroup } = resolvePropertyView(Astro.url.searchParams);
 
-// Tab state lives in the URL so it survives a reload, a Save redirect, and a
-// shared link. An unrecognised value falls back to Overview rather than
-// rendering an empty panel.
-const requestedTab = Astro.url.searchParams.get('tab') ?? '';
-const activeTab: TabKey = (TABS.find((t) => t.key === requestedTab)?.key ?? 'overview') as TabKey;
-function tabHref(tab: TabKey): string {
+function tabHref(tab: TabKey | typeof FALLBACK_EDIT_TAB): string {
 	return tab === 'overview' ? `/properties/${id}` : `/properties/${id}?tab=${tab}`;
 }
-
-// Which card is in edit mode. One param, so one group at a time by
-// construction — there is no state in which two cards are both live forms.
-const editingGroup = Astro.url.searchParams.get('edit') ?? '';
 function editHref(tab: TabKey, group: string): string {
 	return `/properties/${id}?tab=${tab}&edit=${group}`;
 }
