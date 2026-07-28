@@ -31,12 +31,13 @@ export const pipelineSchema = z.object({
 	'Archived At': blank(),
 	'Lost Reason': blank(),
 	Notes: blank(),
-	// Set only for opportunities this app itself created/maintains from a
-	// QuickBooks Estimate (see lib/qb/pipelineSync.ts) — never set by any
-	// manually-created opportunity. Lets the sync find "its own" card again
-	// on a later run (to update Stage) without touching opportunities the
-	// owner created and manages by hand.
-	'QB Estimate ID': blank(),
+	// NOTE: a 'QB Estimate ID' column used to live here, written only by an
+	// automatic QuickBooks→Pipeline sync that created and moved cards on its
+	// own. That sync was removed (all QuickBooks activity is manual now, and
+	// the board is entirely owner-driven), which left the column with no
+	// writer and no reader, so it was dropped. The Quote↔QuickBooks link is
+	// a different column on a different tab — see Quotes' own
+	// 'QB Estimate ID' in models/quote.ts, which is very much still in use.
 });
 
 export type Opportunity = z.infer<typeof pipelineSchema>;

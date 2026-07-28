@@ -1,28 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { installFakeFetch, type FakeFetchHandle } from '../sheets/testHarness';
-import { _clearHeaderCacheForTests } from '../sheets/rows';
-import { qbCustomerSchema } from '../models/qbCustomer';
-import { qbInvoiceSchema } from '../models/qbInvoice';
-import { handleWebhookEvent, parseWebhookEvents, verifyWebhookSignature } from './webhook';
-import type { QBSyncEnv } from './sync';
-import type { QBTokenStore, QBTokens } from './tokens';
-
-const ACTIVITY_LOG_HEADERS = [
-	'Activity ID', 'Entity Type', 'Entity ID', 'Action', 'Previous Value', 'New Value', 'User', 'Timestamp', 'Request ID', 'Notes',
-];
-
-class FakeKV implements QBTokenStore {
-	private store = new Map<string, string>();
-	async get(key: string): Promise<string | null> {
-		return this.store.get(key) ?? null;
-	}
-	async put(key: string, value: string): Promise<void> {
-		this.store.set(key, value);
-	}
-	async delete(key: string): Promise<void> {
-		this.store.delete(key);
-	}
-}
+import { describe, expect, it } from 'vitest';
+import * as webhookModule from './webhook';
+import { parseWebhookEvents, verifyWebhookSignature } from './webhook';
 
 async function sign(body: string, secret: string): Promise<string> {
 	const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
@@ -90,90 +68,18 @@ describe('parseWebhookEvents', () => {
 	});
 });
 
-describe('handleWebhookEvent (Sheets-backed)', () => {
-	let harness: FakeFetchHandle;
-	let qbFetchMock: ReturnType<typeof vi.fn<(url: string, init?: RequestInit) => Response | Promise<Response>>>;
-	let env: QBSyncEnv;
-
-	beforeEach(async () => {
-		harness = installFakeFetch();
-		_clearHeaderCacheForTests();
-		harness.spreadsheet.setTab('QBCustomers', [Object.keys(qbCustomerSchema.shape)]);
-		harness.spreadsheet.setTab('QBInvoices', [Object.keys(qbInvoiceSchema.shape)]);
-		harness.spreadsheet.setTab('ActivityLog', [ACTIVITY_LOG_HEADERS]);
-
-		const sheetsFetch = globalThis.fetch;
-		qbFetchMock = vi.fn();
-		globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-			const url = typeof input === 'string' ? input : input.toString();
-			if (url.includes('quickbooks.api.intuit.com')) return qbFetchMock(url, init);
-			return sheetsFetch(input, init);
-		}) as typeof fetch;
-
-		const qbTokens = new FakeKV();
-		const tokens: QBTokens = { accessToken: 'valid', refreshToken: 'r', realmId: 'realm-1', accessExpiresAt: Date.now() + 3_600_000, refreshExpiresAt: Date.now() + 999_999_999 };
-		await qbTokens.put('qb-tokens', JSON.stringify(tokens));
-		env = { ...harness.env, QB_TOKENS: qbTokens, QB_CLIENT_ID: 'id', QB_CLIENT_SECRET: 'secret', QB_REDIRECT_URI: 'https://x.test/api/qb/callback' };
+// Guardrail for the simplification pass: all QuickBooks activity is manual.
+// This module must only verify and parse — it must never regain the ability
+// to apply a webhook event (which previously pulled from QuickBooks, wrote
+// mirror rows, soft-deleted records, and created Pipeline cards with no
+// human involvement).
+describe('webhook module surface (no automatic sync)', () => {
+	it('exports only signature verification and parsing — no event applier', () => {
+		expect(Object.keys(webhookModule).sort()).toEqual(['parseWebhookEvents', 'verifyWebhookSignature']);
 	});
 
-	afterEach(() => harness.restore());
-
-	function jsonResponse(body: unknown): Response {
-		return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } });
-	}
-
-	it('Create/Update triggers a targeted sync of that entity', async () => {
-		qbFetchMock.mockImplementation((rawUrl: string) => {
-			const url = decodeURIComponent(rawUrl);
-			if (url.includes("Id = '1'")) return jsonResponse({ QueryResponse: { Customer: [{ Id: '1', DisplayName: 'Webhook Synced' }] } });
-			return jsonResponse({ QueryResponse: {} });
-		});
-
-		await handleWebhookEvent(env, { realmId: 'realm-1', name: 'Customer', id: '1', operation: 'Update' });
-
-		const rows = harness.spreadsheet.getTab('QBCustomers');
-		const headers = rows[0];
-		const row = rows.find((r) => r[headers.indexOf('QB Customer ID')] === '1');
-		expect(row?.[headers.indexOf('Display Name')]).toBe('Webhook Synced');
-	});
-
-	it('Delete soft-deletes the mirror row for that id', async () => {
-		qbFetchMock.mockImplementation((rawUrl: string) => {
-			const url = decodeURIComponent(rawUrl);
-			if (url.includes("Id = '1'")) return jsonResponse({ QueryResponse: { Customer: [{ Id: '1', DisplayName: 'To Delete' }] } });
-			return jsonResponse({ QueryResponse: {} });
-		});
-		await handleWebhookEvent(env, { realmId: 'realm-1', name: 'Customer', id: '1', operation: 'Update' });
-
-		await handleWebhookEvent(env, { realmId: 'realm-1', name: 'Customer', id: '1', operation: 'Delete' });
-
-		const rows = harness.spreadsheet.getTab('QBCustomers');
-		const headers = rows[0];
-		const row = rows.find((r) => r[headers.indexOf('QB Customer ID')] === '1');
-		expect(row?.[headers.indexOf('Archived At')]).toBeTruthy();
-	});
-
-	it('Merge deletes the losing id and re-fetches the surviving one', async () => {
-		qbFetchMock.mockImplementation((rawUrl: string) => {
-			const url = decodeURIComponent(rawUrl);
-			if (url.includes("Id = '10'")) return jsonResponse({ QueryResponse: { Invoice: [{ Id: '10', TotalAmt: 100 }] } });
-			if (url.includes("Id = '11'")) return jsonResponse({ QueryResponse: { Invoice: [{ Id: '11', TotalAmt: 250 }] } });
-			return jsonResponse({ QueryResponse: {} });
-		});
-		await handleWebhookEvent(env, { realmId: 'realm-1', name: 'Invoice', id: '10', operation: 'Update' });
-
-		await handleWebhookEvent(env, { realmId: 'realm-1', name: 'Invoice', id: '11', operation: 'Merge', deletedId: '10' });
-
-		const rows = harness.spreadsheet.getTab('QBInvoices');
-		const headers = rows[0];
-		const oldRow = rows.find((r) => r[headers.indexOf('QB Invoice ID')] === '10');
-		const newRow = rows.find((r) => r[headers.indexOf('QB Invoice ID')] === '11');
-		expect(oldRow?.[headers.indexOf('Archived At')]).toBeTruthy();
-		expect(newRow?.[headers.indexOf('Total')]).toBe('250');
-	});
-
-	it('silently ignores an unsupported entity type', async () => {
-		await expect(handleWebhookEvent(env, { realmId: 'realm-1', name: 'Bill', id: '1', operation: 'Update' })).resolves.toBeUndefined();
-		expect(qbFetchMock).not.toHaveBeenCalled();
+	it('does not depend on the sync module at all', async () => {
+		const source = await import('node:fs').then((fs) => fs.readFileSync(new URL('./webhook.ts', import.meta.url), 'utf8'));
+		expect(source).not.toMatch(/^\s*import .* from '\.\/sync'/m);
 	});
 });

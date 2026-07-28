@@ -12,12 +12,24 @@ import { queryAllPages, queryById } from './client';
 import { mapCustomer, mapEstimate, mapInvoice, mapPayment, type RawQBCustomer, type RawQBEstimate, type RawQBInvoice, type RawQBPayment } from './mapping';
 import type { QBOAuthEnv } from './oauth';
 import type { QBTokenStore } from './tokens';
-import { syncPipelineFromEstimates, type PipelineSyncResult } from './pipelineSync';
 
 export type QBSyncEnv = SheetsEnv & QBOAuthEnv;
 
 const WATERMARK_KEY = 'qb-sync-watermark';
 const LAST_SYNC_KEY = 'qb-last-sync-at';
+const COMPANY_NAME_KEY = 'qb-company-name';
+
+/** The connected company's name as of the last time it was explicitly
+ * looked up. Cached in KV so the settings page can display it without
+ * making a QuickBooks call on every load — looking it up is a manual
+ * action like every other QuickBooks operation. */
+export async function getCachedCompanyName(store: QBTokenStore): Promise<string | null> {
+	return store.get(COMPANY_NAME_KEY);
+}
+
+export async function setCachedCompanyName(store: QBTokenStore, name: string): Promise<void> {
+	await store.put(COMPANY_NAME_KEY, name);
+}
 
 async function getWatermark(store: QBTokenStore): Promise<string> {
 	return (await store.get(WATERMARK_KEY)) ?? '';
@@ -70,7 +82,6 @@ export interface SyncResult {
 	estimates: { created: number; updated: number };
 	invoices: { created: number; updated: number };
 	payments: { created: number; updated: number };
-	pipeline: PipelineSyncResult;
 }
 
 /** Full paginated sync of all four entities, incremental since the last
@@ -97,7 +108,6 @@ export async function runFullSync(env: QBSyncEnv, meta: { user?: string; request
 			estimates: await upsertMirrorRows(env, qbEstimateConfig, rawEstimates.map(mapEstimate)),
 			invoices: await upsertMirrorRows(env, qbInvoiceConfig, rawInvoices.map((r) => mapInvoice(r, today))),
 			payments: await upsertMirrorRows(env, qbPaymentConfig, rawPayments.map(mapPayment)),
-			pipeline: await syncPipelineFromEstimates(env, meta),
 		};
 
 		await setWatermark(env.QB_TOKENS, syncStartedAt);
@@ -109,7 +119,7 @@ export async function runFullSync(env: QBSyncEnv, meta: { user?: string; request
 			action: 'QuickBooks sync succeeded',
 			user: meta.user,
 			requestId: meta.requestId,
-			notes: `Customers +${result.customers.created}/${result.customers.updated} · Estimates +${result.estimates.created}/${result.estimates.updated} · Invoices +${result.invoices.created}/${result.invoices.updated} · Payments +${result.payments.created}/${result.payments.updated} · Pipeline +${result.pipeline.created}/${result.pipeline.updated} (${result.pipeline.skippedUnlinked} skipped — unlinked QB Customer)`,
+			notes: `Customers +${result.customers.created}/${result.customers.updated} · Estimates +${result.estimates.created}/${result.estimates.updated} · Invoices +${result.invoices.created}/${result.invoices.updated} · Payments +${result.payments.created}/${result.payments.updated}`,
 		});
 
 		return result;
@@ -147,14 +157,10 @@ export async function syncSingleEntity(env: QBSyncEnv, entityType: QBEntityType,
 		if (raw) await upsertMirrorRows(env, qbCustomerConfig, [mapCustomer(raw)]);
 	} else if (entityType === 'Estimate') {
 		const raw = await queryById<RawQBEstimate>(env, 'Estimate', qbId);
-		if (raw) {
-			await upsertMirrorRows(env, qbEstimateConfig, [mapEstimate(raw)]);
-			// Keeps the linked Pipeline card (if any) in step with this
-			// Estimate's new status right away, rather than waiting for the
-			// next full sync — cheap here since it's the same small
-			// reconciliation the full sync runs, just triggered a beat sooner.
-			await syncPipelineFromEstimates(env);
-		}
+		// Mirror row only. This deliberately does NOT touch Pipeline —
+		// QuickBooks never creates or moves a Pipeline card (see the
+		// simplification pass); the board is entirely owner-driven.
+		if (raw) await upsertMirrorRows(env, qbEstimateConfig, [mapEstimate(raw)]);
 	} else if (entityType === 'Invoice') {
 		const raw = await queryById<RawQBInvoice>(env, 'Invoice', qbId);
 		if (raw) await upsertMirrorRows(env, qbInvoiceConfig, [mapInvoice(raw, today)]);
@@ -164,24 +170,9 @@ export async function syncSingleEntity(env: QBSyncEnv, entityType: QBEntityType,
 	}
 }
 
-const CONFIG_BY_ENTITY: Record<QBEntityType, TabConfig<QBCustomer | QBEstimate | QBInvoice | QBPayment>> = {
-	Customer: qbCustomerConfig as unknown as TabConfig<QBCustomer | QBEstimate | QBInvoice | QBPayment>,
-	Estimate: qbEstimateConfig as unknown as TabConfig<QBCustomer | QBEstimate | QBInvoice | QBPayment>,
-	Invoice: qbInvoiceConfig as unknown as TabConfig<QBCustomer | QBEstimate | QBInvoice | QBPayment>,
-	Payment: qbPaymentConfig as unknown as TabConfig<QBCustomer | QBEstimate | QBInvoice | QBPayment>,
-};
-
-/** Soft-deletes the mirror row for a webhook's Delete operation. A
- * harmless no-op if the row was never synced in the first place. */
-export async function deleteMirrorRow(env: SheetsEnv, entityType: QBEntityType, qbId: string): Promise<void> {
-	const config = CONFIG_BY_ENTITY[entityType];
-	const existing = await findById(env, config, qbId);
-	if (existing) await softDeleteRow(env, config, qbId);
-}
-
-/** A webhook Merge operation: the losing id's mirror row is deleted, then
- * the surviving record is re-fetched and upserted under its own id. */
-export async function mergeMirrorRow(env: QBSyncEnv, entityType: QBEntityType, deletedId: string, survivingId: string): Promise<void> {
-	await deleteMirrorRow(env, entityType, deletedId);
-	await syncSingleEntity(env, entityType, survivingId);
-}
+// deleteMirrorRow / mergeMirrorRow used to live here to service the
+// webhook's Delete and Merge operations. The webhook no longer applies
+// events (all QuickBooks activity is manual now), leaving them with no
+// caller, so they were removed rather than left as dormant automation.
+// A record deleted or merged inside QuickBooks is reconciled by the next
+// manual "Sync now".

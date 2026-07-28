@@ -1,10 +1,14 @@
-// Verifies and parses QuickBooks webhook deliveries. Explicitly non-
-// critical: the manual full sync (lib/qb/sync.ts's runFullSync) remains
-// authoritative regardless of anything that happens here — this is only a
-// latency optimization.
-import { deleteMirrorRow, mergeMirrorRow, syncSingleEntity, type QBEntityType, type QBSyncEnv } from './sync';
-
-const SUPPORTED_ENTITIES = new Set<QBEntityType>(['Customer', 'Estimate', 'Invoice', 'Payment']);
+// Verifies and parses QuickBooks webhook deliveries — nothing more.
+//
+// All QuickBooks activity in this app is manual (button press only), so
+// webhook deliveries are deliberately NOT applied. The route that consumes
+// this module (src/pages/api/qb/webhook.ts) verifies the signature, records
+// that a change happened in QuickBooks, and stops there; pulling those
+// changes in is the owner's explicit "Sync now" action. The event-applying
+// function that used to live here (handleWebhookEvent → deleteMirrorRow /
+// mergeMirrorRow / syncSingleEntity) was removed rather than left dormant,
+// so there is no path back to automatic syncing without a deliberate
+// rewrite.
 
 function base64ToBytes(base64: string): Uint8Array {
 	const binary = atob(base64);
@@ -65,23 +69,4 @@ export function parseWebhookEvents(body: unknown): WebhookEvent[] {
 		}
 	}
 	return events;
-}
-
-/** Applies one webhook event. Unsupported/unrecognized entity types are
- * silently ignored (this app only mirrors Customer/Estimate/Invoice/
- * Payment) rather than throwing. */
-export async function handleWebhookEvent(env: QBSyncEnv, event: WebhookEvent): Promise<void> {
-	if (!SUPPORTED_ENTITIES.has(event.name as QBEntityType)) return;
-	const entityType = event.name as QBEntityType;
-
-	if (event.operation === 'Delete') {
-		await deleteMirrorRow(env, entityType, event.id);
-	} else if (event.operation === 'Merge') {
-		const deletedId = event.deletedId ?? event.id;
-		await mergeMirrorRow(env, entityType, deletedId, event.id);
-	} else {
-		// Create/Update (and anything else QB might send) — a targeted
-		// re-fetch is always correct and idempotent regardless of which.
-		await syncSingleEntity(env, entityType, event.id);
-	}
 }

@@ -5,7 +5,10 @@ import { readRows } from '../lib/sheets/rows';
 import { buildAuthorizeUrl, disconnectQuickBooks } from '../lib/qb/oauth';
 import { getCompanyName, getRawEntityCount } from '../lib/qb/client';
 import { getStoredTokens } from '../lib/qb/tokens';
-import { getLastSyncAt, runFullSync } from '../lib/qb/sync';
+import { getCachedCompanyName, getLastSyncAt, runFullSync, setCachedCompanyName } from '../lib/qb/sync';
+import { listActiveRows } from '../lib/sheets';
+import { quoteConfig } from '../lib/models/quote';
+import { qbEstimateConfig } from '../lib/models/qbEstimate';
 import { formatTimestamp } from '../lib/format';
 
 // Reuses the app's session cookie convention (see lib/auth.ts's
@@ -16,6 +19,12 @@ const STATE_COOKIE_NAME = 'qb_oauth_state';
 let error: string | null = null;
 let syncResult: string | null = null;
 
+// Every QuickBooks API call in this app happens inside this block — i.e.
+// only in response to a button press. Nothing below the POST handler may
+// contact QuickBooks; the rest of the page renders from the local Sheets
+// mirror and from values cached in KV by a previous manual action.
+const rawCounts: Record<string, number | string> = {};
+
 if (Astro.request.method === 'POST') {
 	const form = await Astro.request.formData();
 	const action = String(form.get('_action') ?? '');
@@ -25,7 +34,22 @@ if (Astro.request.method === 'POST') {
 			return Astro.redirect('/qb-settings?disconnected=1');
 		} else if (action === 'sync-now') {
 			const result = await runFullSync(env);
-			syncResult = `Customers +${result.customers.created}/${result.customers.updated} · Estimates +${result.estimates.created}/${result.estimates.updated} · Invoices +${result.invoices.created}/${result.invoices.updated} · Payments +${result.payments.created}/${result.payments.updated} · Pipeline +${result.pipeline.created}/${result.pipeline.updated}${result.pipeline.skippedUnlinked > 0 ? ` (${result.pipeline.skippedUnlinked} skipped — link the QB Customer first)` : ''}`;
+			syncResult = `Customers +${result.customers.created}/${result.customers.updated} · Estimates +${result.estimates.created}/${result.estimates.updated} · Invoices +${result.invoices.created}/${result.invoices.updated} · Payments +${result.payments.created}/${result.payments.updated}`;
+		} else if (action === 'refresh-company-info') {
+			const name = await getCompanyName(env);
+			await setCachedCompanyName(env.QB_TOKENS, name);
+		} else if (action === 'raw-counts') {
+			// Four extra QuickBooks calls, entirely independent of this app's
+			// own pagination/mapping/upsert path. Answers one question
+			// directly: does QuickBooks itself see any records at all for this
+			// company, regardless of what our own sync reports.
+			for (const entity of ['Customer', 'Estimate', 'Invoice', 'Payment'] as const) {
+				try {
+					rawCounts[entity] = await getRawEntityCount(env, entity);
+				} catch (e) {
+					rawCounts[entity] = `error: ${(e as Error).message}`;
+				}
+			}
 		}
 	} catch (e) {
 		error = (e as Error).message;
@@ -48,43 +72,16 @@ let lastSyncAt: string | null = null;
 let authorizeUrl: string | null = null;
 let syncHistory: Record<string, string>[] = [];
 let companyName: string | null = null;
-let companyNameError: string | null = null;
-const rawCounts: Record<string, number | string> = {};
+let unlinkedEstimates = 0;
+let quotesWithoutEstimate = 0;
 
 try {
 	const tokens = await getStoredTokens(env);
 	connected = Boolean(tokens);
 	lastSyncAt = await getLastSyncAt(env.QB_TOKENS);
-
-	if (connected) {
-		// Separate try/catch, deliberately non-fatal: a bad company lookup
-		// (or a transient QBO API blip) shouldn't take down the whole page —
-		// it's a diagnostic aid (confirms which real company this realmId
-		// points at, since a wrong-company connection otherwise only shows up
-		// as a silent 0-record sync), not something the page's core function
-		// depends on.
-		try {
-			companyName = await getCompanyName(env);
-		} catch (e) {
-			companyNameError = (e as Error).message;
-		}
-
-		// Raw QBO record counts, entirely independent of this app's own
-		// pagination/mapping/upsert path — only run on demand (?diag=1) since
-		// it's four extra QBO API calls, not part of normal page load. Exists
-		// to answer one question directly: does QuickBooks itself see any
-		// records at all for this company, regardless of what our own sync
-		// reports.
-		if (Astro.url.searchParams.get('diag') === '1') {
-			for (const entity of ['Customer', 'Estimate', 'Invoice', 'Payment'] as const) {
-				try {
-					rawCounts[entity] = await getRawEntityCount(env, entity);
-				} catch (e) {
-					rawCounts[entity] = `error: ${(e as Error).message}`;
-				}
-			}
-		}
-	}
+	// Whatever the last explicit "Check company" lookup found. Reading KV,
+	// not QuickBooks — this page never calls QuickBooks just by being opened.
+	companyName = await getCachedCompanyName(env.QB_TOKENS);
 
 	if (credentialsConfigured && !connected) {
 		const state = crypto.randomUUID();
@@ -113,6 +110,14 @@ try {
 		.filter((r) => r['Entity Type'] === 'QBSync')
 		.sort((a, b) => String(b.Timestamp).localeCompare(String(a.Timestamp)))
 		.slice(0, 20);
+
+	// Plain read-only counts off the local mirror — deliberately not a
+	// reconciliation queue. Enough to notice drift and go look; nothing here
+	// matches, resolves, or remembers an "ignore" state.
+	const [quotes, estimates] = await Promise.all([listActiveRows(env, quoteConfig), listActiveRows(env, qbEstimateConfig)]);
+	const linkedEstimateIds = new Set(quotes.map((q) => q['QB Estimate ID']).filter(Boolean));
+	unlinkedEstimates = estimates.filter((e) => !linkedEstimateIds.has(e['QB Estimate ID'])).length;
+	quotesWithoutEstimate = quotes.filter((q) => !q['QB Estimate ID']).length;
 } catch (e) {
 	error = error ?? `Could not load current connection status (${(e as Error).message}) — this is usually transient, try refreshing.`;
 }
@@ -124,7 +129,7 @@ try {
 		{error && <p role="alert">{error}</p>}
 		{justConnected && <p>Connected to QuickBooks.</p>}
 		{justDisconnected && <p>Disconnected from QuickBooks.</p>}
-		{syncResult && <p>Sync complete — {syncResult}</p>}
+		{syncResult && <p>Manual sync complete — {syncResult}</p>}
 
 		<section class="card">
 			<h2>Connection</h2>
@@ -133,12 +138,17 @@ try {
 				<li>Credentials configured: {credentialsConfigured ? 'Yes' : 'No — set QB_CLIENT_ID, QB_CLIENT_SECRET, QB_WEBHOOK_VERIFIER_TOKEN, QB_REDIRECT_URI as Cloudflare secrets'}</li>
 				<li>Status: <span class="badge">{connected ? 'Connected' : 'Not connected'}</span></li>
 				{connected && (
-					<li>
-						Connected company: {companyName ?? (companyNameError ? `Could not look up (${companyNameError})` : 'Looking up…')}
-					</li>
+					<li>Connected company: {companyName ?? 'Not checked yet'}</li>
 				)}
-				<li>Last sync: {lastSyncAt || 'never'}</li>
+				<li>{lastSyncAt ? `Last manually synced ${formatTimestamp(lastSyncAt)}` : 'Never manually synced'}</li>
 			</ul>
+
+			{connected && (
+				<p class="field-hint">
+					QuickBooks data shown anywhere in this app comes from the last manual sync — it may have changed in QuickBooks since then.
+					Nothing is pulled automatically; use <strong>Sync now</strong> to bring changes in.
+				</p>
+			)}
 
 			{!credentialsConfigured && <p class="field-hint">This app never writes back to QuickBooks — one-way, read-only mirror only. See docs/data-dictionary.md's QuickBooks section for the setup checklist.</p>}
 
@@ -151,6 +161,10 @@ try {
 					<form method="POST">
 						<input type="hidden" name="_action" value="sync-now" />
 						<button type="submit">Sync now</button>
+					</form>
+					<form method="POST">
+						<input type="hidden" name="_action" value="refresh-company-info" />
+						<button type="submit" class="btn-secondary">Check connected company</button>
 					</form>
 					<form method="POST">
 						<input type="hidden" name="_action" value="disconnect" />
@@ -171,9 +185,26 @@ try {
 				</>
 			)}
 			{connected && Object.keys(rawCounts).length === 0 && (
-				<p><a href="/qb-settings?diag=1">Show raw QuickBooks record counts →</a></p>
+				<form method="POST">
+					<input type="hidden" name="_action" value="raw-counts" />
+					<button type="submit" class="btn-secondary">Show raw QuickBooks record counts</button>
+				</form>
 			)}
 		</section>
+
+		{connected && (
+			<section class="card">
+				<h2>Linking status</h2>
+				<p class="field-hint">
+					From the last manual sync{lastSyncAt ? ` (${formatTimestamp(lastSyncAt)})` : ''} — a quick look at what isn't linked up, not a reconciliation queue.
+				</p>
+				<ul>
+					<li>{unlinkedEstimates} QuickBooks estimate{unlinkedEstimates === 1 ? ' is' : 's are'} not linked to an app quote.</li>
+					<li>{quotesWithoutEstimate} app quote{quotesWithoutEstimate === 1 ? ' has' : 's have'} no linked QuickBooks estimate.</li>
+				</ul>
+				<p><a href="/quotes">Go to Quotes →</a></p>
+			</section>
+		)}
 
 		<section class="card">
 			<div class="card-header-row">

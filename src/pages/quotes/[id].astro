@@ -417,7 +417,7 @@ const invoiceMismatch = linkedInvoice && job?.['Final Price ($)'] && Number(job[
 							<label>Search <input type="text" name="estimateQuery" value={estimateQuery ?? ''} placeholder="Customer, number, date, total..." /></label>
 							{client?.['QB Customer ID'] && (
 								<label>
-									<input type="checkbox" name="estimateScope" value="all" checked={estimateScope === 'all'} /> Search All QuickBooks Records
+									<input type="checkbox" name="estimateScope" value="all" checked={estimateScope === 'all'} /> Search all synced records (not just this client's)
 								</label>
 							)}
 							<button type="submit">Search</button>
@@ -568,7 +568,7 @@ const invoiceMismatch = linkedInvoice && job?.['Final Price ($)'] && Number(job[
 							<label>Search <input type="text" name="invoiceQuery" value={invoiceQuery ?? ''} placeholder="Customer, number, date, total..." /></label>
 							{client?.['QB Customer ID'] && (
 								<label>
-									<input type="checkbox" name="invoiceScope" value="all" checked={invoiceScope === 'all'} /> Search All QuickBooks Records
+									<input type="checkbox" name="invoiceScope" value="all" checked={invoiceScope === 'all'} /> Search all synced records (not just this client's)
 								</label>
 							)}
 							<button type="submit">Search</button>

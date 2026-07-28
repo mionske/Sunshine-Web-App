@@ -7,7 +7,7 @@ import { qbCustomerSchema } from '../models/qbCustomer';
 import { qbEstimateSchema } from '../models/qbEstimate';
 import { qbInvoiceSchema } from '../models/qbInvoice';
 import { qbPaymentSchema } from '../models/qbPayment';
-import { deleteMirrorRow, getLastSyncAt, mergeMirrorRow, runFullSync, syncSingleEntity, type QBSyncEnv } from './sync';
+import { getLastSyncAt, runFullSync, syncSingleEntity, type QBSyncEnv } from './sync';
 import type { QBTokenStore, QBTokens } from './tokens';
 
 const ACTIVITY_LOG_HEADERS = [
@@ -166,40 +166,26 @@ describe('QB sync', () => {
 		expect(row?.[headers.indexOf('Display Name')]).toBe('Targeted Customer');
 	});
 
-	it('deleteMirrorRow soft-deletes an existing mirror row and no-ops if never synced', async () => {
+	// Syncing an Estimate must never touch Pipeline — QuickBooks does not
+	// create or move Pipeline cards (simplification pass: all QB activity is
+	// manual, and the board is entirely owner-driven).
+	it('syncSingleEntity for an Estimate writes only the mirror row, never a Pipeline opportunity', async () => {
+		harness.spreadsheet.setTab('Pipeline', [Object.keys(pipelineSchema.shape)]);
 		qbFetchMock.mockImplementation((rawUrl: string) => {
 			const url = decodeURIComponent(rawUrl);
-			if (url.includes("Id = '5'")) return jsonResponse({ QueryResponse: { Customer: [{ Id: '5', DisplayName: 'To Delete' }] } });
+			if (url.includes("Id = '77'")) {
+				return jsonResponse({
+					QueryResponse: { Estimate: [{ Id: '77', DocNumber: 'E-77', TotalAmt: 500, TxnStatus: 'Pending', CustomerRef: { value: 'cust-1' } }] },
+				});
+			}
 			return jsonResponse({ QueryResponse: {} });
 		});
-		await syncSingleEntity(env, 'Customer', '5');
 
-		await deleteMirrorRow(env, 'Customer', '5');
-		const rows = harness.spreadsheet.getTab('QBCustomers');
-		const headers = rows[0];
-		const row = rows.find((r) => r[headers.indexOf('QB Customer ID')] === '5');
-		expect(row?.[headers.indexOf('Archived At')]).toBeTruthy();
+		await syncSingleEntity(env, 'Estimate', '77');
 
-		// No-op for an id that was never synced.
-		await expect(deleteMirrorRow(env, 'Customer', 'never-existed')).resolves.not.toThrow();
-	});
-
-	it('mergeMirrorRow deletes the losing id and re-fetches the surviving one', async () => {
-		qbFetchMock.mockImplementation((rawUrl: string) => {
-			const url = decodeURIComponent(rawUrl);
-			if (url.includes("Id = '1'")) return jsonResponse({ QueryResponse: { Customer: [{ Id: '1', DisplayName: 'Original' }] } });
-			if (url.includes("Id = '2'")) return jsonResponse({ QueryResponse: { Customer: [{ Id: '2', DisplayName: 'Surviving Merged Customer' }] } });
-			return jsonResponse({ QueryResponse: {} });
-		});
-		await syncSingleEntity(env, 'Customer', '1');
-
-		await mergeMirrorRow(env, 'Customer', '1', '2');
-
-		const rows = harness.spreadsheet.getTab('QBCustomers');
-		const headers = rows[0];
-		const oldRow = rows.find((r) => r[headers.indexOf('QB Customer ID')] === '1');
-		const newRow = rows.find((r) => r[headers.indexOf('QB Customer ID')] === '2');
-		expect(oldRow?.[headers.indexOf('Archived At')]).toBeTruthy();
-		expect(newRow?.[headers.indexOf('Display Name')]).toBe('Surviving Merged Customer');
+		const estimates = harness.spreadsheet.getTab('QBEstimates');
+		expect(estimates.slice(1).length).toBe(1);
+		// The Pipeline tab still holds nothing but its header row.
+		expect(harness.spreadsheet.getTab('Pipeline').slice(1)).toHaveLength(0);
 	});
 });
