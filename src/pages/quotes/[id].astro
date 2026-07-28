@@ -276,14 +276,29 @@ const invoiceMismatch = linkedInvoice && job?.['Final Price ($)'] && Number(job[
 					<span class="field-display-label">Expected revenue/labor hr</span>
 					<span class="field-display-value">${Number(quote['Expected Revenue Per Labor Hour']).toFixed(2)}</span>
 				</div>
-				<div>
-					<span class="field-display-label">Target hourly rate</span>
-					<span class="field-display-value">${quote['Target Hourly Rate']}</span>
-				</div>
-				<div>
-					<span class="field-display-label">Pricing Config</span>
-					<span class="field-display-value">{quote['Pricing Config ID']} (v{quote['Calculator Version']})</span>
-				</div>
+				{quote['Labor Model Version'] ? (
+					<>
+						<div>
+							<span class="field-display-label">Suggested range</span>
+							<span class="field-display-value">${quote['Suggested Low Price']} – ${quote['Suggested High Price']}</span>
+						</div>
+						<div>
+							<span class="field-display-label">Labor model</span>
+							<span class="field-display-value">{quote['Labor Model Version']}</span>
+						</div>
+					</>
+				) : (
+					<>
+						<div>
+							<span class="field-display-label">Target hourly rate</span>
+							<span class="field-display-value">${quote['Target Hourly Rate']}</span>
+						</div>
+						<div>
+							<span class="field-display-label">Calculator</span>
+							<span class="field-display-value">v{quote['Calculator Version']}</span>
+						</div>
+					</>
+				)}
 			</div>
 			{(Number(quote['Manual Adjustment']) !== 0 || Number(quote.Discount) !== 0) && (
 				<div class="field-display-grid">

@@ -344,24 +344,18 @@ input.field-numeric {
 	}
 }
 
+/* No negative top margin. It was there to tuck a hint up under its own
+ * input, but .field-hint is used in four different positions across the app
+ * — under label text, after a control, after a list, and as the caption in a
+ * stats tile — and in three of those it dragged the hint up ON TOP of the
+ * content above it. Overlapping text is a far worse failure than a slightly
+ * looser gap. */
 .field-hint {
 	display: block;
 	font-weight: 400;
 	font-size: 0.85rem;
 	color: var(--color-ink-muted);
-	margin: -0.5rem 0 0.75rem;
-}
-
-/* The negative top margin above exists to tuck a hint under its own input.
- * After a list or a table it instead drags the hint up over the last row —
- * those need the normal gap back. */
-ul + .field-hint,
-ol + .field-hint,
-table + .field-hint,
-input + .field-hint,
-select + .field-hint,
-textarea + .field-hint {
-	margin-top: 0.5rem;
+	margin: 0.15rem 0 0.6rem;
 }
 
 /* Informative but subtle — a small inline line under the field it
