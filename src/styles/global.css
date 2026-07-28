@@ -2199,3 +2199,18 @@ details.card[open] > summary {
 	padding: 0.35rem 0.9rem;
 	font-size: 0.85rem;
 }
+
+/* A calendar appointment whose time has passed. Dimmed, not struck through:
+ * the app knows the hour has gone by, not that the work was done, and a
+ * strikethrough would claim the second and read as "cancelled" besides. */
+.event-past {
+	opacity: 0.55;
+}
+
+.event-past a {
+	color: var(--color-text-muted);
+}
+
+.event-past a:hover {
+	color: var(--color-link);
+}

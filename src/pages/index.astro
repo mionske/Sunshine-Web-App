@@ -115,6 +115,23 @@ function eventTimeLabel(e: CalendarEvent): string {
 	return new Date(e.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: CALENDAR_TZ });
 }
 
+/**
+ * Whether an appointment's time has already passed.
+ *
+ * Deliberately NOT "completed" — nothing here knows whether the work
+ * actually happened, so past events are dimmed rather than struck through.
+ * A strikethrough would claim something this page can't know, and would read
+ * as "cancelled" besides.
+ *
+ * An all-day event is only past once the whole day is over; one on today's
+ * date is still outstanding at 9am, whatever the clock says.
+ */
+const nowMs = Date.now();
+function isPastEvent(e: CalendarEvent): boolean {
+	if (e.allDay) return e.start.slice(0, 10) < todayInCalendarTz;
+	return new Date(e.end || e.start).getTime() < nowMs;
+}
+
 // --- Lookups -----------------------------------------------------------------
 
 const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
@@ -328,7 +345,7 @@ function money(amount: number): string {
 						<h3>Appointments ({todayCalendarEvents.length})</h3>
 						<ul>
 							{todayCalendarEvents.map((e) => (
-								<li>
+								<li class={isPastEvent(e) ? 'event-past' : undefined}>
 									<strong>{eventTimeLabel(e)}</strong> —{' '}
 									{e.htmlLink ? (
 										<a href={e.htmlLink} target="_blank" rel="noopener noreferrer">{e.summary}</a>
@@ -408,7 +425,7 @@ function money(amount: number): string {
 										{dayEvents.length > 0 && (
 											<ul>
 												{dayEvents.map((e) => (
-													<li>
+													<li class={isPastEvent(e) ? 'event-past' : undefined}>
 														<strong>{eventTimeLabel(e)}</strong>{' '}
 														{e.htmlLink ? (
 															<a href={e.htmlLink} target="_blank" rel="noopener noreferrer">{e.summary}</a>
