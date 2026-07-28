@@ -197,6 +197,28 @@ textarea {
 	min-height: 5rem;
 }
 
+/* Checkboxes/radios never had the iOS oversized-native-chrome problem the
+ * appearance reset above exists for (that was specifically <select> and
+ * <input type="date">) — resetting their appearance too stripped their
+ * only checked-state indicator with nothing to replace it, making every
+ * checkbox in the app (bulk-select columns, Access & Equipment Modifiers,
+ * Restoration Services, etc.) look identical whether checked or not, and
+ * making plain (non-.segmented) radio groups lose their dot. .segmented's
+ * own radios are unaffected either way — they use a separate visually-
+ * hidden clip-rect technique, not `appearance`, so restoring native
+ * rendering here is safe for them too. */
+input[type='checkbox'],
+input[type='radio'] {
+	display: inline-block;
+	width: auto;
+	padding: 0;
+	border: revert;
+	border-radius: revert;
+	background: revert;
+	-webkit-appearance: auto;
+	appearance: auto;
+}
+
 /* Resetting appearance above removes the native dropdown arrow — replaced
  * with a custom one (ink-muted, matches .field-hint's tone) so a <select>
  * still reads as a select. */
