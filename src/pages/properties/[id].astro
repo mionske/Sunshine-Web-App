@@ -280,99 +280,577 @@ const timeline = activityRows
 	.map((r) => r.data)
 	.filter((entry) => relevantIds.has(String(entry['Entity ID'] ?? '')))
 	.sort((a, b) => String(b.Timestamp ?? '').localeCompare(String(a.Timestamp ?? '')));
+
+// --- Option 1B workspace ---------------------------------------------------
+
+const TABS = [
+	{ key: 'overview', label: 'Overview' },
+	{ key: 'access', label: 'Access & Setup' },
+	{ key: 'inventory', label: 'Inventory' },
+	{ key: 'photos', label: 'Photos' },
+	{ key: 'notes', label: 'Notes' },
+	{ key: 'walkthroughs', label: 'Walkthroughs' },
+	{ key: 'quotes', label: 'Quotes' },
+	{ key: 'jobs', label: 'Jobs' },
+	{ key: 'history', label: 'History' },
+] as const;
+type TabKey = (typeof TABS)[number]['key'];
+
+// Tab state lives in the URL so it survives a reload, a Save redirect, and a
+// shared link. An unrecognised value falls back to Overview rather than
+// rendering an empty panel.
+const requestedTab = Astro.url.searchParams.get('tab') ?? '';
+const activeTab: TabKey = (TABS.find((t) => t.key === requestedTab)?.key ?? 'overview') as TabKey;
+function tabHref(tab: TabKey): string {
+	return tab === 'overview' ? `/properties/${id}` : `/properties/${id}?tab=${tab}`;
+}
+
+const yes = (value: string) => value === 'Y';
+
+/** The seven permanent setup considerations. Only true ones are shown as
+ * chips; the rest are summarised in one muted line, because seven unchecked
+ * boxes at rest tell you nothing you didn't already assume. */
+const CONSIDERATION_FLAGS = [
+	{ label: 'Roof access required', on: yes(property['Roof Access Required (Y/N)']) },
+	{ label: 'High interior glass', on: yes(property['High Interior Glass (Y/N)']) },
+	{ label: 'Steep terrain', on: yes(property['Steep Or Uneven Terrain (Y/N)']) },
+	{ label: 'Restricted setup', on: yes(property['Restricted Work Or Setup Area (Y/N)']) },
+	{ label: 'Long hose run', on: yes(property['Long Hose Run (Y/N)']) },
+	{ label: 'Gate restriction', on: yes(property['Gate Or Entry Restriction (Y/N)']) },
+	{ label: 'Limited water access', on: yes(property['Water Source Far From Work Area (Y/N)']) },
+];
+const trueFlags = CONSIDERATION_FLAGS.filter((f) => f.on);
+const falseFlagLabels = CONSIDERATION_FLAGS.filter((f) => !f.on).map((f) => f.label.toLowerCase());
+
+/** Permanent property difficulty — not this visit's condition, which lives
+ * on the walkthrough. */
+const interiorAccess = property['Interior Access Difficulty'];
+const exteriorAccess = property['Exterior Access Difficulty'];
+const difficultySummary =
+	exteriorAccess === 'Difficult'
+		? 'Hard exterior'
+		: interiorAccess === 'Difficult'
+			? 'Hard interior'
+			: trueFlags.length >= 3
+				? 'Complex access'
+				: 'Straightforward';
+const difficultyIsHard = difficultySummary !== 'Straightforward';
+
+function difficultyFill(value: string): number {
+	if (value === 'Difficult') return 100;
+	if (value === 'Standard') return 62;
+	if (value === 'Easy') return 28;
+	return 0;
+}
+
+const DIFFICULTY_BARS = [
+	{ label: 'Exterior', value: exteriorAccess },
+	{ label: 'Interior', value: interiorAccess },
+	{ label: 'Parking', value: parkingAndSetupValue === 'Limited' ? 'Standard' : parkingAndSetupValue === 'Difficult' ? 'Difficult' : parkingAndSetupValue === 'Easy' ? 'Easy' : '' },
+];
+
+const difficultyFooter = [ladderRequirementValue, exteriorCleaningMethodValue ? `${exteriorCleaningMethodValue.toLowerCase()} method` : '', yes(property['Roof Access Required (Y/N)']) ? 'roof access' : '']
+	.filter(Boolean)
+	.join(' · ');
+
+/** Four-stage stepper. Each is "done" if the record it represents exists —
+ * derived from real rows, never a stored stage field. */
+const PIPELINE_STEPS = [
+	{ label: 'Prospect', done: true },
+	{ label: 'Walkthrough', done: propertyWalkthroughs.length > 0 },
+	{ label: 'Quoted', done: propertyQuotes.length > 0 },
+	{ label: 'Won', done: propertyJobs.length > 0 },
+];
+const currentStepIndex = PIPELINE_STEPS.reduce((last, step, i) => (step.done ? i : last), 0);
+
+const latestWalkthrough = [...propertyWalkthroughs].sort((a, b) =>
+	(b['Walkthrough Date'] || b['Created At']).localeCompare(a['Walkthrough Date'] || a['Created At'])
+)[0];
+
+function pipelineStatusLine(): string {
+	if (upcomingScheduledJobs[0]) return `Job scheduled ${upcomingScheduledJobs[0]['Scheduled Date']}.`;
+	if (mostRecentCompletedJob) {
+		return `Last completed ${mostRecentCompletedJob['Date Completed']}. ${nextServiceLabel === 'Not scheduled' ? 'Next service not scheduled.' : nextServiceLabel + '.'}`;
+	}
+	if (propertyQuotes.length > 0) {
+		const sent = propertyQuotes.find((q) => q['Quote Status'] === 'Sent');
+		if (sent) return `Quote sent ${(sent['Sent At'] || '').slice(0, 10)}. Awaiting customer response.`;
+		return `${propertyQuotes.length} quote${propertyQuotes.length === 1 ? '' : 's'} on file. No job scheduled yet.`;
+	}
+	if (latestWalkthrough) return `Walkthrough ${latestWalkthrough.Status.toLowerCase()} ${latestWalkthrough['Walkthrough Date']}. Quote not yet created.`;
+	return 'No walkthrough, quote, or job yet. Next service not scheduled.';
+}
+
+const inventoryVerifiedAt = property['Inventory Verified At'];
+const inventoryVerifiedBy = property['Inventory Verified By'];
+const scaleFooter = [
+	inventoryVerifiedAt ? `Verified ${formatTimestamp(inventoryVerifiedAt)}${inventoryVerifiedBy ? ` by ${inventoryVerifiedBy}` : ''}` : 'Never verified',
+	Number(property['Track Count'] || 0) > 0 ? null : 'tracks not counted',
+]
+	.filter(Boolean)
+	.join(' · ');
+
+/** Fields worth chasing. An empty one that matters reads "Missing"; a
+ * genuinely optional one gets an em dash. */
+/** Thousands separators on the numbers big enough to need them. A square
+ * footage reads as a quantity at a glance with them and as a serial number
+ * without. */
+function grouped(value: string): string {
+	const n = Number(value);
+	return value && Number.isFinite(n) ? n.toLocaleString('en-US') : value;
+}
+
+const RECORD_ROWS = [
+	{ label: 'Square footage', value: grouped(property['Square Footage']), important: false },
+	{ label: 'Stories', value: property.Stories, important: true },
+	{ label: 'Year built', value: property['Year Built'], important: true },
+	{ label: 'Unit / building', value: [property['Building/Complex Name'], property['Unit Identifier']].filter(Boolean).join(' — '), important: false },
+];
+
+const railBadges: Record<TabKey, { text: string; alert?: boolean } | null> = {
+	overview: null,
+	access: trueFlags.length > 0 ? { text: String(trueFlags.length), alert: true } : null,
+	inventory: property['Total Window Units'] ? { text: property['Total Window Units'] } : null,
+	photos: propertyPhotoDtos.length > 0 ? { text: String(propertyPhotoDtos.length) } : null,
+	notes: null,
+	walkthroughs: propertyWalkthroughs.length > 0 ? { text: String(propertyWalkthroughs.length) } : null,
+	quotes: propertyQuotes.length > 0 ? { text: String(propertyQuotes.length) } : null,
+	jobs: propertyJobs.length > 0 ? { text: String(propertyJobs.length) } : null,
+	history: timeline.length > 0 ? { text: String(timeline.length) } : null,
+};
+
+const identityMeta = [property['Property Type'], property.Stories ? `${property.Stories} ${property.Stories === '1' ? 'story' : 'stories'}` : '']
+	.filter(Boolean)
+	.join(' · ');
+
 ---
-
 <BaseLayout title={property['Unit Identifier'] ? `${property['Street Address']} — Unit ${property['Unit Identifier']}` : property['Street Address']}>
-	<main>
-		<p><a href={`/clients/${property['Client ID']}`}>← Client</a></p>
-		<div style="display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1.5rem;">
-			<h1 style="margin: 0; white-space: nowrap;">
-				<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">
-					{property['Street Address']}, {property.City}{property['Unit Identifier'] && <> — Unit {property['Unit Identifier']}</>}
-				</a>
-			</h1>
-			<span class="badge badge-accent">{propertyStatus}</span>
-			{property['Repeat Business Status'] && <span class="badge">{property['Repeat Business Status']}</span>}
-			{property['Building/Complex Name'] && <span class="badge">{property['Building/Complex Name']}</span>}
-		</div>
-		{error && <p role="alert">{error}</p>}
-
-		<div class="stats-grid">
-			<div class="card">
-				<span class="stat-label">Type</span>
-				<div class="stat" style="font-size: 1.25rem;">{property['Property Type']}</div>
-			</div>
-			<div class="card">
-				<span class="stat-label">Window Units</span>
-				<div class="stat" style="font-size: 1.25rem;">{property['Total Window Units'] || '0'}</div>
-			</div>
-			<div class="card">
-				<span class="stat-label">Glass Panes</span>
-				<div class="stat" style="font-size: 1.25rem;">{property['Total Glass Panes'] || '0'}</div>
-			</div>
-			<div class="card">
-				<span class="stat-label">Stories</span>
-				<div class="stat" style="font-size: 1.25rem;">{property.Stories || '— not set'}</div>
-			</div>
-			<div class="card">
-				<span class="stat-label">Next Service</span>
-				<div class="stat" style={{ fontSize: '1.25rem', color: nextServiceLabel === 'Not scheduled' ? 'var(--color-ink-muted)' : undefined }}>
-					{nextServiceLabel}
+	<main class="property-workspace">
+		<div class="property-frame">
+			<!-- Identity bar. The address is plain heading text, not a link to
+			     the page you're already on, and not rust — rust is reserved for
+			     things you can act on. -->
+			<div class="property-identity">
+				<div class="property-identity-left">
+					<div class="property-identity-heading">
+						<h1>{property['Street Address']}{property.City ? `, ${property.City}` : ''}{property['Unit Identifier'] ? ` — Unit ${property['Unit Identifier']}` : ''}</h1>
+						<span class="property-status-pill">{propertyStatus}</span>
+						{property['Repeat Business Status'] && <span class="property-status-pill">{property['Repeat Business Status']}</span>}
+					</div>
+					<p class="property-identity-meta">
+						{identityMeta}
+						{client && (
+							<>
+								{identityMeta ? ' · ' : ''}
+								<a class="plink" href={`/clients/${client['Client ID']}`}>{client['First Name']} {client['Last Name']}</a>
+							</>
+						)}
+					</p>
+				</div>
+				<div class="property-identity-actions">
+					<a class="btn btn-primary" href={`/walkthroughs/new?propertyId=${id}`}>Start walkthrough</a>
+					<a class="btn" href={`/quoter?propertyId=${id}`}>Create quote</a>
+					<a class="btn" href={tabHref('edit')}>Edit</a>
+					<details class="property-overflow">
+						<summary>⋯</summary>
+						<div>
+							<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">Open in Maps</a>
+							<a href={`/historical-entry?propertyId=${id}`}>Add historical record</a>
+							{client && <a href={`/clients/${client['Client ID']}?edit=1`}>Edit client</a>}
+							<form method="POST" onsubmit="return confirm('Duplicate this property?')">
+								<input type="hidden" name="_action" value="duplicate-property" />
+								<button type="submit">Duplicate property</button>
+							</form>
+							{property['Archived At'] ? (
+								<form method="POST" onsubmit="return confirm('Restore this property? It will reappear everywhere in the app.')">
+									<input type="hidden" name="_action" value="restore-property" />
+									<button type="submit">Restore property</button>
+								</form>
+							) : (
+								<form method="POST" onsubmit="return confirm('Delete this property? It is archived, not destroyed, and can be restored.')">
+									<input type="hidden" name="_action" value="delete-property" />
+									<button type="submit">Delete property</button>
+								</form>
+							)}
+						</div>
+					</details>
 				</div>
 			</div>
-		</div>
 
-		<p class="field-hint" style="margin-top: -0.75rem;">
-			<a href={`/walkthroughs/new?propertyId=${property['Property ID']}`}><strong>Start walkthrough</strong></a>
-			{' · '}
-			<a href={`/quoter?propertyId=${property['Property ID']}&clientId=${property['Client ID']}`}>Create quote</a>
-			{' · '}
-			<a href={`/clients/${property['Client ID']}`}>Edit client</a>
-			{' · '}
-			<a href={`/historical-entry?propertyId=${property['Property ID']}&clientId=${property['Client ID']}`}>Add historical record</a>
-			{' · '}
-			<form method="POST" style="display:inline">
-				<input type="hidden" name="_action" value="duplicate-property" />
-				<button type="submit" class="link-button">Duplicate property</button>
-			</form>
-			{!property['Archived At'] && (
-				<>
-					{' · '}
-					<form
-						method="POST"
-						style="display:inline"
-						onsubmit="return confirm('Delete this property? It will be archived and removed from view everywhere in the app.')"
-					>
-						<input type="hidden" name="_action" value="delete-property" />
-						<button type="submit" class="link-button">Delete property</button>
-					</form>
-				</>
-			)}
-			{client?.['Referral Source'] && <> · Referral source: {client['Referral Source']}</>}
-			{client?.['Desired Maintenance Frequency'] && <> · Maintenance: {client['Desired Maintenance Frequency']}</>}
-		</p>
+			<div class="property-shell">
+				<nav class="property-rail" aria-label="Property sections">
+					{TABS.map((tab, index) => (
+						<>
+							{index === 5 && <div class="property-rail-divider"></div>}
+							<a href={tabHref(tab.key)} aria-current={activeTab === tab.key ? 'page' : undefined}>
+								<span>{tab.label}</span>
+								{railBadges[tab.key] && (
+									<span class={railBadges[tab.key]!.alert ? 'property-rail-badge-alert' : 'property-rail-badge'}>
+										{railBadges[tab.key]!.text}
+									</span>
+								)}
+							</a>
+						</>
+					))}
+				</nav>
 
-		{property['Archived At'] && (
-			<div class="card">
-				<p role="alert">This property was deleted {formatTimestamp(property['Archived At'])}. It's hidden from lists but still reachable by direct link.</p>
-				<form method="POST" onsubmit="return confirm('Restore this property? It will reappear everywhere in the app.')">
-					<input type="hidden" name="_action" value="restore-property" />
-					<button type="submit" class="btn-secondary">Restore this property</button>
-				</form>
-			</div>
-		)}
+				<div class="property-panel">
+					{error && <p role="alert">{error}</p>}
+					{property['Archived At'] && (
+						<div class="pcard"><p style="margin:0">This property is archived. Restore it from the ⋯ menu to bring it back into every list.</p></div>
+					)}
+					{showLegacyMigrationNotice && (
+						<form method="POST" class="pcard">
+							<input type="hidden" name="_action" value="migrate-legacy-condition" />
+							<p>Legacy condition information exists on this property. Copy it into a historical walkthrough so it stays attached to a date rather than to the property record?</p>
+							<button type="submit">Create historical walkthrough</button>
+						</form>
+					)}
 
-		{showLegacyMigrationNotice && (
-			<form method="POST" class="diff-notice">
-				Legacy condition information exists on this property — copy it into a historical walkthrough?
-				<br />
-				<button type="submit" class="pipeline-card-add-property">Copy into a historical walkthrough</button>
-				<input type="hidden" name="_action" value="migrate-legacy-condition" />
-			</form>
-		)}
+					{activeTab === 'overview' && (
+						<>
+							<div class="pcard-row pcard-row-2">
+								<section class="pcard">
+									<div class="pcard-header"><h2>Scale of work</h2></div>
+									<div class="pmetrics">
+										<div class="pmetric"><strong>{grouped(property['Total Window Units']) || '—'}</strong><span>Window units</span></div>
+										<div class="pmetric"><strong>{grouped(property['Total Glass Panes']) || '—'}</strong><span>Glass panes</span></div>
+										<div class="pmetric"><strong>{grouped(property['Screen Count']) || '—'}</strong><span>Screens</span></div>
+										<div class="pmetric"><strong>{grouped(property['Track Count']) || '—'}</strong><span>Tracks</span></div>
+									</div>
+									<div class="pcard-footer">
+										<span class={inventoryVerifiedAt ? 'pdot pdot-ok' : 'pdot'}></span>
+										<span>{scaleFooter}</span>
+										<a class="plink" href={tabHref('inventory')}>verify</a>
+									</div>
+								</section>
 
-		<div class="property-layout">
-			<div>
+								<section class="pcard">
+									<div class="pcard-header"><h2>Difficulty</h2></div>
+									<p class={difficultyIsHard ? 'pdifficulty-headline pdifficulty-hard' : 'pdifficulty-headline'}>{difficultySummary}</p>
+									{DIFFICULTY_BARS.map((bar) => (
+										<div class="pbar-row">
+											<span>{bar.label}</span>
+											<span class={bar.value === 'Difficult' ? 'pbar pbar-hard' : 'pbar'}>
+												<span style={`width:${difficultyFill(bar.value)}%`}></span>
+											</span>
+											<span>{bar.value || 'Not set'}</span>
+										</div>
+									))}
+									{difficultyFooter && <div class="pcard-footer"><span>{difficultyFooter}</span></div>}
+								</section>
+							</div>
+
+							<section class="pcard porder-first">
+								<div class="pcard-header">
+									<h2>Before the truck leaves</h2>
+									<a class="plink" href={tabHref('access')}>Access &amp; setup →</a>
+								</div>
+								<div class="pinset-grid">
+									<div class="pinset"><span>Ladder</span><strong>{ladderRequirementValue || '—'}</strong></div>
+									<div class="pinset"><span>Water</span><strong>{waterAccessValue || '—'}</strong></div>
+									<div class="pinset"><span>Supply</span><strong>{waterSupplyValue || '—'}</strong></div>
+									<div class="pinset"><span>Gate / hose</span><strong>{yes(property['Gate Or Entry Restriction (Y/N)']) ? 'Gate restriction' : yes(property['Long Hose Run (Y/N)']) ? 'Long hose run' : 'No restriction'}</strong></div>
+								</div>
+								{trueFlags.length > 0 && (
+									<div class="pflags">{trueFlags.map((f) => <span class="pflag">{f.label}</span>)}</div>
+								)}
+								{falseFlagLabels.length > 0 && (
+									<p class="pflags-none">{falseFlagLabels.join(', ')}: not flagged</p>
+								)}
+								<p class="pcallout">
+									{accessNotesValue || (
+										<>Access &amp; setup notes empty — <a class="plink" href={tabHref('edit')}>add gate code, parking, spigot location, roof route</a></>
+									)}
+									{accessNotesValue && <> <a class="plink" href={tabHref('edit')}>Edit</a></>}
+								</p>
+							</section>
+
+							<div class="pcard-row pcard-row-2">
+								<section class="pcard">
+									<div class="pcard-header"><h2>Pipeline</h2></div>
+									<div class="pstepper">
+										{PIPELINE_STEPS.map((step, i) => (
+											<div class={`pstep${i <= currentStepIndex ? ' pstep-done' : ''}${i === currentStepIndex ? ' pstep-current' : ''}`}>
+												<span class="pstep-bar"></span>
+												<span>{step.label}</span>
+											</div>
+										))}
+									</div>
+									<p class="pstatus-line">{pipelineStatusLine()}</p>
+									<div class="pactions">
+										<a class="pactions-primary" href={`/walkthroughs/new?propertyId=${id}`}>
+											{latestWalkthrough && latestWalkthrough.Status === 'Draft' ? 'Continue walkthrough' : 'Start walkthrough'}
+										</a>
+										<a href={`/historical-entry?propertyId=${id}`}>Add historical record</a>
+									</div>
+								</section>
+
+								<section class="pcard">
+									<div class="pcard-header">
+										<h2>Record</h2>
+										<a class="plink" href={tabHref('edit')}>Edit</a>
+									</div>
+									<div class="prows">
+										{RECORD_ROWS.map((row) => (
+											<div class="prow">
+												<span>{row.label}</span>
+												<span class={row.value ? '' : 'pmissing'}>{row.value || (row.important ? 'Missing' : '—')}</span>
+											</div>
+										))}
+									</div>
+									<div class="pcard-footer">
+										<span>Last updated {property['Updated At'] ? formatTimestamp(property['Updated At']) : 'never'} ·</span>
+										<a class="plink" href={tabHref('history')}>history</a>
+									</div>
+								</section>
+							</div>
+						</>
+					)}
+
+					{activeTab === 'access' && (
+						<>
+							<section class="pcard">
+								<div class="pcard-header"><h2>Access</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
+								<div class="prows">
+									<div class="prow"><span>Typical interior access</span><span class={interiorAccess ? '' : 'pmissing'}>{interiorAccess || 'Missing'}</span></div>
+									<div class="prow"><span>Typical exterior access</span><span class={exteriorAccess ? '' : 'pmissing'}>{exteriorAccess || 'Missing'}</span></div>
+									<div class="prow"><span>Typical exterior method</span><span class={exteriorCleaningMethodValue ? '' : 'pmissing'}>{exteriorCleaningMethodValue || 'Missing'}</span></div>
+									<div class="prow"><span>Ladder requirement</span><span class={ladderRequirementValue ? '' : 'pmissing'}>{ladderRequirementValue || 'Missing'}</span></div>
+								</div>
+							</section>
+
+							<section class="pcard">
+								<div class="pcard-header"><h2>Considerations</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
+								{trueFlags.length > 0 ? (
+									<div class="pflags">{trueFlags.map((f) => <span class="pflag">{f.label}</span>)}</div>
+								) : (
+									<p class="pflags-none">Nothing flagged.</p>
+								)}
+								<p class="pflags-none">{trueFlags.length} of {CONSIDERATION_FLAGS.length} flagged{falseFlagLabels.length > 0 ? ` — ${falseFlagLabels.join(', ')}: not flagged` : ''}</p>
+							</section>
+
+							<section class="pcard">
+								<div class="pcard-header"><h2>Water</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
+								<div class="prows">
+									<div class="prow"><span>Water access</span><span class={waterAccessValue ? '' : 'pmissing'}>{waterAccessValue || 'Missing'}</span></div>
+									<div class="prow"><span>Water supply</span><span class={waterSupplyValue ? '' : 'pmissing'}>{waterSupplyValue || 'Missing'}</span></div>
+								</div>
+							</section>
+
+							<section class="pcard">
+								<div class="pcard-header"><h2>Parking &amp; setup</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
+								<div class="prows">
+									<div class="prow"><span>Parking difficulty</span><span class={parkingAndSetupValue ? '' : 'pmissing'}>{parkingAndSetupValue || 'Missing'}</span></div>
+									<div class="prow"><span>Gate or entry restriction</span><span>{yes(property['Gate Or Entry Restriction (Y/N)']) ? 'Yes' : 'No'}</span></div>
+									<div class="prow"><span>Long hose run</span><span>{yes(property['Long Hose Run (Y/N)']) ? 'Yes' : 'No'}</span></div>
+									<div class="prow"><span>Water far from work area</span><span>{yes(property['Water Source Far From Work Area (Y/N)']) ? 'Yes' : 'No'}</span></div>
+								</div>
+							</section>
+
+							<section class="pcard">
+								<div class="pcard-header"><h2>Notes</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
+								<p class="pcallout">{accessNotesValue || 'No access & setup notes yet.'}</p>
+							</section>
+						</>
+					)}
+
+					{activeTab === 'inventory' && (
+						<>
+							<section class="pcard">
+								<div class="pcard-header"><h2>Standing reference counts</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
+								<div class="pmetrics">
+									<div class="pmetric"><strong>{grouped(property['Total Window Units']) || '—'}</strong><span>Window units</span></div>
+									<div class="pmetric"><strong>{grouped(property['Total Glass Panes']) || '—'}</strong><span>Glass panes</span></div>
+									<div class="pmetric"><strong>{grouped(property['Screen Count']) || '—'}</strong><span>Screens</span></div>
+									<div class="pmetric"><strong>{grouped(property['Track Count']) || '—'}</strong><span>Tracks</span></div>
+								</div>
+								<p class="pcallout" style="margin-top:12px">
+									Window units and panes measure different things and are kept separate. Neither is calculated from the
+									other. A specific visit records its own counts on the walkthrough; these are the property&apos;s standing
+									reference numbers.
+								</p>
+								<form method="POST" class="pcard-footer">
+									<input type="hidden" name="_action" value="update-property" />
+									<span class={inventoryVerifiedAt ? 'pdot pdot-ok' : 'pdot'}></span>
+									<span>{scaleFooter}</span>
+									<button type="submit" name="markInventoryVerified" value="1" class="plink" style="background:none;border:none;padding:0;width:auto;cursor:pointer">
+										Mark inventory verified
+									</button>
+								</form>
+							</section>
+
+							{latestWalkthrough && (
+								<section class="pcard">
+									<div class="pcard-header"><h2>Latest walkthrough counts</h2></div>
+									<div class="prows">
+										<div class="prow"><span>Window units</span><span>{latestWalkthrough['Total Window Units'] || '—'}</span></div>
+										<div class="prow"><span>Glass panes</span><span>{latestWalkthrough['Total Glass Panes'] || '—'}</span></div>
+										<div class="prow"><span>Screens</span><span>{latestWalkthrough['Total Screens'] || '—'}</span></div>
+										<div class="prow"><span>Tracks</span><span>{latestWalkthrough['Total Tracks'] || '—'}</span></div>
+									</div>
+									<div class="pcard-footer">
+										<span>Recorded {latestWalkthrough['Walkthrough Date']} — visit-specific, separate from the standing counts above ·</span>
+										<a class="plink" href={`/walkthroughs/${latestWalkthrough['Walkthrough ID']}`}>open walkthrough</a>
+									</div>
+								</section>
+							)}
+						</>
+					)}
+
+					{activeTab === 'photos' && (
+						<section class="pcard">
+							<div class="pcard-header"><h2>Photos</h2></div>
+							<PropertyPhotos client:load propertyId={id} photos={propertyPhotoDtos} />
+						</section>
+					)}
+
+					{activeTab === 'notes' && (
+						<>
+							<section class="pcard">
+								<div class="pcard-header"><h2>Repeat business</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
+								<p class="pcallout">{property['Repeat Business Status'] || 'Not set.'}</p>
+							</section>
+							<section class="pcard">
+								<div class="pcard-header"><h2>Pet notes</h2><a class="plink" href={tabHref('edit')}>{property['Pet Notes'] ? 'Edit' : 'Add'}</a></div>
+								<p class="pcallout">{property['Pet Notes'] || 'No pet notes.'}</p>
+							</section>
+							<section class="pcard">
+								<div class="pcard-header"><h2>Property notes</h2><a class="plink" href={tabHref('edit')}>{property['General Notes'] ? 'Edit' : 'Add'}</a></div>
+								<p class="pcallout">{property['General Notes'] || 'No property notes.'}</p>
+							</section>
+						</>
+					)}
+
+					{activeTab === 'walkthroughs' && (
+						<section class="pcard">
+							<div class="pcard-header">
+								<h2>Walkthroughs</h2>
+								<a class="plink" href={`/walkthroughs/new?propertyId=${id}`}>Start new walkthrough</a>
+							</div>
+							{propertyWalkthroughs.length === 0 ? (
+								<p class="pflags-none">No walkthroughs yet.</p>
+							) : (
+								<table>
+									<thead><tr><th>Date</th><th>Status</th><th>Units</th><th>Labor</th><th>Price</th></tr></thead>
+									<tbody>
+										{propertyWalkthroughs.map((w) => (
+											<tr>
+												<td><a href={`/walkthroughs/${w['Walkthrough ID']}`}>{w['Walkthrough Date'] || '—'}</a></td>
+												<td>{w.Status}{w['Inventory Model'] === 'grouped-v2' ? '' : ' · legacy'}</td>
+												<td>{w['Total Window Units'] || '—'}</td>
+												<td>{w['Productive Labor Minutes'] ? `${(Number(w['Productive Labor Minutes']) / 60).toFixed(1)} h` : w['Estimated On-Site Labor Hours'] ? `${w['Estimated On-Site Labor Hours']} h` : '—'}</td>
+												<td>{w['Owner Override Price'] ? `$${w['Owner Override Price']}` : w['Suggested Target Price'] ? `$${w['Suggested Target Price']}` : '—'}</td>
+											</tr>
+										))}
+									</tbody>
+								</table>
+							)}
+						</section>
+					)}
+
+					{activeTab === 'quotes' && (
+						<section class="pcard">
+							<div class="pcard-header">
+								<h2>Quotes</h2>
+								<a class="plink" href={`/quoter?propertyId=${id}`}>Create quote</a>
+							</div>
+							{propertyQuotes.length === 0 ? (
+								<p class="pflags-none">No quotes yet.</p>
+							) : (
+								<table>
+									<thead><tr><th>Created</th><th>Status</th><th>Amount</th><th>Labor</th></tr></thead>
+									<tbody>
+										{propertyQuotes.map((q) => (
+											<tr>
+												<td><a href={`/quotes/${q['Quote ID']}`}>{(q['Created At'] || '').slice(0, 10)}</a></td>
+												<td>{q['Quote Status']}</td>
+												<td>${q['Final Quoted Price']}</td>
+												<td>{q['Estimated Labor Hours'] ? `${Number(q['Estimated Labor Hours']).toFixed(1)} h` : '—'}</td>
+											</tr>
+										))}
+									</tbody>
+								</table>
+							)}
+						</section>
+					)}
+
+					{activeTab === 'jobs' && (
+						<>
+							<section class="pcard">
+								<div class="pcard-header"><h2>Jobs</h2></div>
+								{propertyJobs.length === 0 ? (
+									<p class="pflags-none">No jobs yet.</p>
+								) : (
+									<table>
+										<thead><tr><th>Scheduled</th><th>Status</th><th>Revenue</th><th>Actual hours</th></tr></thead>
+										<tbody>
+											{jobRows.map(({ job, perf }) => (
+												<tr>
+													<td>{job['Quote ID'] ? <a href={`/quotes/${job['Quote ID']}`}>{job['Scheduled Date'] || '—'}</a> : job['Scheduled Date'] || '—'}</td>
+													<td>{job['Job Status']}</td>
+													<td>{job['Final Price ($)'] ? `$${job['Final Price ($)']}` : '—'}</td>
+													<td>{perf.actualHours ? `${perf.actualHours.toFixed(1)} h` : '—'}</td>
+												</tr>
+											))}
+										</tbody>
+									</table>
+								)}
+							</section>
+							{performance.completedJobCount > 0 && (
+								<section class="pcard">
+									<div class="pcard-header"><h2>Historical performance</h2></div>
+									<div class="prows">
+										<div class="prow"><span>Completed jobs</span><span>{performance.completedJobCount}</span></div>
+										<div class="prow"><span>Total revenue</span><span>${performance.totalRevenue.toFixed(2)}</span></div>
+										<div class="prow"><span>Average revenue per hour</span><span>${performance.averageRevenuePerHour.toFixed(2)}</span></div>
+									</div>
+								</section>
+							)}
+						</>
+					)}
+
+					{activeTab === 'history' && (
+						<section class="pcard">
+							<div class="pcard-header"><h2>History</h2></div>
+							<form method="POST">
+								<input type="hidden" name="_action" value="add-note" />
+								<label>Add a note<input type="text" name="note" placeholder="What happened?" /></label>
+								<button type="submit">Add note</button>
+							</form>
+							{timeline.length === 0 ? (
+								<p class="pflags-none">Nothing recorded yet.</p>
+							) : (
+								<div class="prows">
+									{timeline.map((entry) => {
+										const href = timelineLink(String(entry['Entity Type'] ?? ''), String(entry['Entity ID'] ?? ''));
+										return (
+											<div class="prow">
+												<span>
+													<span class="badge">{String(entry['Entity Type'] ?? '')}</span>{' '}
+													{String(entry.Action ?? '')}
+													{entry.Notes ? ` — ${entry.Notes}` : ''}
+													{href && <> · <a class="plink" href={href}>view</a></>}
+												</span>
+												<span>{entry.Timestamp ? formatTimestamp(String(entry.Timestamp)) : ''}</span>
+											</div>
+										);
+									})}
+								</div>
+							)}
+						</section>
+					)}
+
+					{activeTab === 'edit' && (
+						<section class="pcard">
+							<div class="pcard-header">
+								<h2>Edit property</h2>
+								<a class="plink" href={tabHref('overview')}>Cancel</a>
+							</div>
+							<p class="pflags-none">
+								Every permanent property field, in one form. Per-card inline editing lands in the next pass — until then
+								nothing has been taken away.
+							</p>
 				<form method="POST">
 					<input type="hidden" name="_action" value="update-property" />
 
@@ -518,120 +996,10 @@ const timeline = activityRows
 
 					<button type="submit">Save</button>
 				</form>
-			</div>
-
-			<div>
-				<section class="card">
-					<h2>Walkthroughs</h2>
-					{propertyWalkthroughs.map((w) => (
-						<div class="sidebar-row">
-							<div class="sidebar-row-main">
-								<a href={`/walkthroughs/${w['Walkthrough ID']}`}>{w['Walkthrough Date']}</a>
-								<span class="badge">{w.Status}</span>
-							</div>
-							{w['Suggested Target Price'] && <div class="sidebar-row-meta">${w['Suggested Target Price']} suggested</div>}
-						</div>
-					))}
-					{propertyWalkthroughs.length === 0 && <p>No walkthroughs yet.</p>}
-				</section>
-
-				<section class="card">
-					<h2>Quotes</h2>
-					{propertyQuotes.map((q) => (
-						<div class="sidebar-row">
-							<div class="sidebar-row-main">
-								<a href={`/quotes/${q['Quote ID']}`}>{q['Quote ID'].slice(0, 8)}</a>
-								<span class="badge">{q['Quote Status']}</span>
-							</div>
-							<div class="sidebar-row-meta">
-								${q['Final Quoted Price']} · calc v{q['Calculator Version']} · created {q['Created At']}
-								{q['Sent At'] && <> · sent {q['Sent At']}</>}
-								{q['Accepted At'] && <> · accepted {q['Accepted At']}</>}
-							</div>
-						</div>
-					))}
-					{propertyQuotes.length === 0 && <p>No quotes yet.</p>}
-				</section>
-
-				<section class="card">
-					<h2>Jobs</h2>
-					{jobRows.map(({ job, perf }) => (
-						<div class="sidebar-row">
-							<div class="sidebar-row-main">
-								<span>{job['Date Completed']}</span>
-								<span class="badge">{job['Job Status']}</span>
-							</div>
-							<div class="sidebar-row-meta">
-								${perf.finalRevenue.toFixed(2)} · {perf.actualHours.toFixed(2)} on-site hrs · ${perf.actualRevenuePerLaborHour.toFixed(2)}/hr
-								{job['Callback Required (Y/N)'] === 'Y' && <> · callback</>}
-							</div>
-							<div class="sidebar-row-meta">
-								{job['Quote ID'] && <a href={`/quotes/${job['Quote ID']}`}>View quote</a>}
-								{' '}<a href={`/jobs/${job['Job ID']}`}>Job Day</a>
-							</div>
-						</div>
-					))}
-					{jobRows.length === 0 && <p>No jobs logged yet.</p>}
-				</section>
-
-				<section class="card">
-					<h2>Photos</h2>
-					<PropertyPhotos client:load propertyId={id} photos={propertyPhotoDtos} />
-				</section>
-
-				{performance.completedJobCount > 0 && (
-					<section class="card">
-						<h2>Historical property performance</h2>
-						{performance.completedJobCount <= 2 && <p><em>Limited history. Treat as directional only.</em></p>}
-						<p>
-							<span class="stat-label">Completed jobs</span>
-							<span class="stat">{performance.completedJobCount}</span>
-						</p>
-						<ul>
-							<li>Included in calibration: {performance.includedCount}</li>
-							<li>Excluded from calibration: {performance.excludedCount}</li>
-							<li>Average on-site hours: {performance.averageOnSiteHours.toFixed(2)}</li>
-							<li>Average final revenue: ${performance.averageFinalRevenue.toFixed(2)}</li>
-							<li>Average revenue per on-site hour: ${performance.averageRevenuePerOnSiteHour.toFixed(2)}</li>
-							<li>Total callbacks: {performance.totalCallbacks}</li>
-							<li>Most recent service date: {performance.mostRecentServiceDate || 'unknown'}</li>
-						</ul>
-					</section>
-				)}
-
-				<section class="card timeline-card">
-					<h2>Activity timeline</h2>
-					<form method="POST" style="margin-bottom: 1rem;">
-						<input type="hidden" name="_action" value="add-note" />
-						<label>Add a note <textarea name="note" required></textarea></label>
-						<button type="submit">Add note</button>
-					</form>
-					{timeline.map((entry) => {
-						const link = timelineLink(String(entry['Entity Type'] ?? ''), String(entry['Entity ID'] ?? ''));
-						return (
-							<div class="sidebar-row">
-								<div class="sidebar-row-main">
-									<span class="badge">{String(entry['Entity Type'] ?? '')}</span>
-									<span>{formatTimestamp(String(entry.Timestamp ?? ''))}</span>
-								</div>
-								<div class="sidebar-row-meta">
-									{String(entry.Action ?? '')}
-									{entry.Notes ? ` — ${entry.Notes}` : ''}
-									{link && <> (<a href={link}>view</a>)</>}
-								</div>
-							</div>
-						);
-					})}
-					{timeline.length === 0 && <p>No activity recorded yet.</p>}
-				</section>
+						</section>
+					)}
+				</div>
 			</div>
 		</div>
 	</main>
-
-	<script>
-		// The pane-breakdown validator lived here. It cross-checked Total Glass
-		// Panes against a per-window-style breakdown that the field workflow no
-		// longer collects — with those inputs gone there is nothing left to
-		// reconcile, so the check went with it.
-	</script>
 </BaseLayout>
