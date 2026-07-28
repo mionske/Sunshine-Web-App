@@ -15,7 +15,7 @@ import { getActivePricingConfig } from './config';
 import { pricingConfigConfig } from '../models/pricingConfig';
 import { listServices } from './services';
 import { calculateQuote } from './engine';
-import type { QuoteInput } from './types';
+import type { CalculatedLineItem, QuoteInput } from './types';
 
 export interface CreateQuoteParams {
 	clientId: string;
@@ -47,6 +47,89 @@ export interface CreateQuoteParams {
 		confidence?: string;
 		notes?: string;
 	};
+	/** Set only by the grouped-inventory walkthrough path. When present, the
+	 * labor model — not the per-service count engine — decides this quote's
+	 * hours, price and line items. See applyLaborModel below. */
+	laborModel?: LaborModelQuoteInput;
+}
+
+/** A finished labor estimate, handed to createQuote so the quote records the
+ * same numbers the operator saw and approved on the walkthrough. */
+export interface LaborModelQuoteInput {
+	productiveMinutes: number;
+	laborModelVersion: string;
+	suggestedLow: number;
+	suggestedTarget: number;
+	suggestedHigh: number;
+	ownerSelectedPrice?: number;
+	ownerOverrideReason?: string;
+	/** Component name to minutes, from the walkthrough's stored breakdown. */
+	breakdown: Record<string, number>;
+}
+
+/** How each labor component reads on a quote. Keys match LaborBreakdown. */
+const LABOR_LINE_LABELS: Record<string, string> = {
+	fixedOverhead: 'Setup, inspection and breakdown',
+	interiorGlass: 'Interior glass',
+	exteriorGlass: 'Exterior glass',
+	exteriorFrames: 'Exterior frames and sills',
+	screens: 'Screens',
+	tracks: 'Tracks',
+	interiorAccess: 'Interior access',
+	exteriorAccess: 'Exterior access',
+	storyLogistics: 'Story logistics',
+	condition: 'Condition adjustments',
+	restoration: 'Restoration work',
+	propertyModifiers: 'Property-level factors',
+};
+
+/**
+ * Turns a labor breakdown into quote line items priced at the rate that makes
+ * them sum to the suggested target, plus an adjustment line when the owner
+ * chose a different number.
+ *
+ * A labor-model quote is priced as hours x rate, not as a bag of per-service
+ * unit prices — so writing the count engine's line items here would produce a
+ * quote whose itemisation contradicts its own total. These lines are the
+ * things that actually drove the price, and they add up.
+ */
+function laborModelLineItems(labor: LaborModelQuoteInput): CalculatedLineItem[] {
+	// The rate divides the target by the sum of the COMPONENTS, not by the
+	// separately-stored productive total. Those two differ by a rounding step
+	// — the total is persisted to one decimal — and dividing by one while
+	// multiplying by the other leaves the line items failing to add up to the
+	// price they're itemising. Deriving both from the same number makes them
+	// reconcile exactly.
+	const breakdownMinutes = Object.values(labor.breakdown).reduce((sum, minutes) => sum + minutes, 0);
+	const rate = breakdownMinutes > 0 ? labor.suggestedTarget / (breakdownMinutes / 60) : 0;
+
+	const lines: CalculatedLineItem[] = Object.entries(labor.breakdown)
+		.filter(([, minutes]) => minutes > 0)
+		.map(([key, minutes]) => ({
+			serviceCode: `LABOR_${key.replace(/([A-Z])/g, '_$1').toUpperCase()}`,
+			description: LABOR_LINE_LABELS[key] ?? key,
+			quantity: Number((minutes / 60).toFixed(2)),
+			unit: 'hour',
+			unitPrice: rate,
+			estimatedLaborMinutes: minutes,
+			lineTotal: (minutes / 60) * rate,
+		}));
+
+	const finalPrice = labor.ownerSelectedPrice ?? labor.suggestedTarget;
+	const delta = finalPrice - labor.suggestedTarget;
+	if (delta !== 0) {
+		lines.push({
+			serviceCode: 'MANUAL_ADJUSTMENT',
+			description: labor.ownerOverrideReason || 'Owner-selected price',
+			quantity: 1,
+			unit: 'job',
+			unitPrice: delta,
+			estimatedLaborMinutes: 0,
+			lineTotal: delta,
+		});
+	}
+
+	return lines;
 }
 
 export interface CreateQuoteResult {
@@ -84,7 +167,18 @@ export async function createQuote(env: SheetsEnv, params: CreateQuoteParams): Pr
 		throw new Error('No active PricingConfig for this property\'s type — cannot calculate a quote without one.');
 	}
 	const services = await listServices(env);
+	// Still run the count engine even on a labor-model quote: its Input and
+	// Calculation Result snapshots are what keep the quote auditable, and its
+	// config/version/rounding metadata is the same either way. Only the money
+	// and the line items get replaced below.
 	const result = calculateQuote(config, services, params.input);
+
+	const labor = params.laborModel;
+	const lineItems = labor ? laborModelLineItems(labor) : result.lineItems;
+	const estimatedLaborHours = labor ? labor.productiveMinutes / 60 : result.estimatedLaborHours;
+	const finalQuotedPrice = labor ? (labor.ownerSelectedPrice ?? labor.suggestedTarget) : result.finalQuotedPrice;
+	const expectedRevenuePerLaborHour =
+		estimatedLaborHours > 0 ? finalQuotedPrice / estimatedLaborHours : result.expectedRevenuePerLaborHour;
 
 	const quoteId = crypto.randomUUID();
 	const { created } = await createRelatedRows(env, [
@@ -106,14 +200,24 @@ export async function createQuote(env: SheetsEnv, params: CreateQuoteParams): Pr
 					'Calculated Base Amount': String(result.calculatedBaseAmount),
 					'Calculated Add-ons': String(result.calculatedAddOns),
 					'Calculated Surcharges': String(result.calculatedSurcharges),
-					'Estimated Labor Hours': String(result.estimatedLaborHours),
+					'Estimated Labor Hours': String(estimatedLaborHours),
 					'Target Hourly Rate': String(result.targetHourlyRate),
-					'Target Price Before Adjustments': String(result.targetPriceBeforeAdjustments),
+					'Target Price Before Adjustments': String(labor ? labor.suggestedTarget : result.targetPriceBeforeAdjustments),
 					'Manual Adjustment': String(result.manualAdjustment),
 					Discount: String(result.discount),
-					'Final Quoted Price': String(result.finalQuotedPrice),
-					'Expected Revenue Per Labor Hour': String(result.expectedRevenuePerLaborHour),
+					'Final Quoted Price': String(finalQuotedPrice),
+					'Expected Revenue Per Labor Hour': String(expectedRevenuePerLaborHour),
 					'Override Reason': params.input.overrideReason ?? '',
+					// Labor-model band. Blank on a count-engine quote rather than
+					// zero — a quote that never had a band is not a quote with a
+					// band of nothing.
+					'Suggested Low Price': labor ? String(labor.suggestedLow) : '',
+					'Suggested Target Price': labor ? String(labor.suggestedTarget) : '',
+					'Suggested High Price': labor ? String(labor.suggestedHigh) : '',
+					'Owner Selected Price': labor?.ownerSelectedPrice !== undefined ? String(labor.ownerSelectedPrice) : '',
+					'Labor Model Version': labor?.laborModelVersion ?? '',
+					'Pricing Model Version': labor ? result.pricingConfigId : '',
+					'Owner Override Reason': labor?.ownerOverrideReason ?? '',
 					'Quote Status': 'Draft',
 					'Created By': params.createdBy ?? '',
 					'Difficult Access Item Count': params.difficultAccessItemCount !== undefined ? String(params.difficultAccessItemCount) : '',
@@ -129,7 +233,7 @@ export async function createQuote(env: SheetsEnv, params: CreateQuoteParams): Pr
 		},
 		{
 			config: quoteItemConfig,
-			records: result.lineItems.map((item, index) => ({
+			records: lineItems.map((item, index) => ({
 				'Quote ID': quoteId,
 				'Service Code': item.serviceCode,
 				'Service Category': '',

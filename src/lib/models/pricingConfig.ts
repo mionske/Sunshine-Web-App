@@ -39,6 +39,18 @@ export const pricingConfigSchema = z.object({
 	'Access Surcharge Minimum': blank(),
 	'Estimate Low Variance': blank(),
 	'Estimate High Variance': blank(),
+	// Revenue per PRODUCTIVE labor hour, used by the labor model to turn an
+	// estimate into a suggested price band (see lib/labor/price.ts). Target is
+	// the default recommendation; low and high are shown as guidance either
+	// side of it. Distinct from 'Target Hourly Rate' above, which the older
+	// per-service engine still uses to price standard window line items.
+	//
+	// These three are a stable reference point, not a tuning knob: when an
+	// estimate comes out wrong the fix belongs in the production model —
+	// classes, access, condition, screens, tracks — not in moving the rate.
+	'Low Hourly Production Target': blank(),
+	'Target Hourly Production Target': blank(),
+	'High Hourly Production Target': blank(),
 	'Created At': blank(),
 	'Updated At': blank(),
 	'Archived At': blank(),

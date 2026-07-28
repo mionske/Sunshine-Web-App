@@ -4,9 +4,10 @@ import { env } from 'cloudflare:workers';
 import { findById, listActiveRows } from '../../lib/sheets';
 import { walkthroughConfig } from '../../lib/models/walkthrough';
 import { walkthroughItemConfig } from '../../lib/models/walkthroughItem';
+import { walkthroughAdjustmentConfig } from '../../lib/models/walkthroughAdjustment';
 import { propertyConfig } from '../../lib/models/property';
 import { clientConfig } from '../../lib/models/client';
-import { createQuoteFromWalkthrough } from '../../lib/pricing/walkthroughToQuote';
+import { createQuoteFromWalkthrough, isGroupedInventoryWalkthrough } from '../../lib/pricing/walkthroughToQuote';
 
 const { id } = Astro.params;
 let error: string | null = null;
@@ -29,6 +30,59 @@ const property = walkthrough['Property ID'] ? await findById(env, propertyConfig
 const client = walkthrough['Client ID'] ? await findById(env, clientConfig, walkthrough['Client ID']) : null;
 const allItems = await listActiveRows(env, walkthroughItemConfig);
 const items = allItems.filter((i) => i['Walkthrough ID'] === id);
+
+// A grouped walkthrough explains itself from its stored breakdown. Anything
+// older shows the summary it actually recorded and is labelled as such —
+// never back-filled with numbers it never had.
+const grouped = isGroupedInventoryWalkthrough(walkthrough);
+const groups = grouped ? items.filter((i) => i['Production Class']) : [];
+
+const adjustments = grouped
+	? (await listActiveRows(env, walkthroughAdjustmentConfig)).filter((a) => a['Walkthrough ID'] === id)
+	: [];
+
+interface StoredBreakdown {
+	breakdown?: Record<string, number>;
+	explanation?: string;
+	scheduleReasons?: string[];
+}
+
+let stored: StoredBreakdown = {};
+if (grouped) {
+	try {
+		stored = JSON.parse(walkthrough['Labor Breakdown (JSON)'] || '{}') as StoredBreakdown;
+	} catch {
+		// A breakdown that won't parse costs the itemisation, not the page.
+		stored = {};
+	}
+}
+
+const BREAKDOWN_LABELS: Record<string, string> = {
+	fixedOverhead: 'Fixed job overhead',
+	interiorGlass: 'Interior glass',
+	exteriorGlass: 'Exterior glass',
+	exteriorFrames: 'Exterior frames and sills',
+	screens: 'Screens',
+	tracks: 'Tracks',
+	interiorAccess: 'Interior access',
+	exteriorAccess: 'Exterior access',
+	storyLogistics: 'Story logistics',
+	condition: 'Component condition',
+	restoration: 'Restoration',
+	propertyModifiers: 'Property modifiers',
+};
+
+function hours(minutes: string | number): string {
+	return (Number(minutes || 0) / 60).toFixed(1);
+}
+
+const COMPONENT_CONDITION_ROWS = [
+	{ label: 'Interior glass', value: walkthrough['Interior Glass Condition'] },
+	{ label: 'Exterior glass', value: walkthrough['Exterior Glass Condition'] },
+	{ label: 'Frames and sills', value: walkthrough['Exterior Frame Condition'] },
+	{ label: 'Screens', value: walkthrough['Screen Condition'] },
+	{ label: 'Tracks', value: walkthrough['Track Condition'] },
+];
 ---
 
 <BaseLayout title="Walkthrough">
@@ -41,31 +95,50 @@ const items = allItems.filter((i) => i['Walkthrough ID'] === id);
 		</h1>
 		<p>
 			<span class="badge badge-accent">{walkthrough.Status}</span>
+			{!grouped && <> <span class="badge">Legacy aggregate estimate</span></>}
 			{client && <> — {client['First Name']} {client['Last Name']}</>}
 			{' '}— {walkthrough['Walkthrough Date']}
 		</p>
+		{!grouped && (
+			<p class="field-hint">
+				Recorded before window groups existed, so it holds totals rather than a per-group breakdown. Its numbers are
+				preserved exactly as entered — nothing has been back-filled.
+			</p>
+		)}
 		{error && <p role="alert">{error}</p>}
 
 		<div class="card-grid">
 			<section class="card">
 				<h2>Summary</h2>
 				<div class="field-display-grid">
-					<div><span class="field-display-label">Stories observed</span><span class="field-display-value">{walkthrough['Story Count Observed']}</span></div>
-					<div><span class="field-display-label">Exterior condition</span><span class="field-display-value">{walkthrough['Exterior Condition']}</span></div>
-					<div><span class="field-display-label">Interior condition</span><span class="field-display-value">{walkthrough['Interior Condition']}</span></div>
-					<div><span class="field-display-label">Access difficulty</span><span class="field-display-value">{walkthrough['Access Difficulty']}</span></div>
-					<div><span class="field-display-label">Hard water present</span><span class="field-display-value">{walkthrough['Hard Water Present (Y/N)']}</span></div>
-					<div><span class="field-display-label">Construction debris present</span><span class="field-display-value">{walkthrough['Construction Debris Present (Y/N)']}</span></div>
+					<div><span class="field-display-label">Stories observed</span><span class="field-display-value">{walkthrough['Story Count Observed'] || '—'}</span></div>
+					<div><span class="field-display-label">Window units</span><span class="field-display-value">{walkthrough['Total Window Units'] || '—'}</span></div>
+					<div><span class="field-display-label">Glass panes</span><span class="field-display-value">{walkthrough['Total Glass Panes'] || '—'}</span></div>
+					<div>
+						<span class="field-display-label">Screens</span>
+						<span class="field-display-value">
+							{walkthrough['Total Screens'] || '—'}{walkthrough['Manual Screen Total'] ? ' (manual)' : ''}
+						</span>
+					</div>
+					<div>
+						<span class="field-display-label">Tracks</span>
+						<span class="field-display-value">
+							{walkthrough['Total Tracks'] || '—'}{walkthrough['Manual Track Total'] ? ' (manual)' : ''}
+						</span>
+					</div>
+					{grouped ? (
+						COMPONENT_CONDITION_ROWS.filter((row) => row.value).map((row) => (
+							<div><span class="field-display-label">{row.label} condition</span><span class="field-display-value">{row.value}</span></div>
+						))
+					) : (
+						<>
+							<div><span class="field-display-label">Exterior condition</span><span class="field-display-value">{walkthrough['Exterior Condition']}</span></div>
+							<div><span class="field-display-label">Interior condition</span><span class="field-display-value">{walkthrough['Interior Condition']}</span></div>
+							<div><span class="field-display-label">Access difficulty</span><span class="field-display-value">{walkthrough['Access Difficulty']}</span></div>
+						</>
+					)}
 					<div><span class="field-display-label">Water-fed pole suitable</span><span class="field-display-value">{walkthrough['Water-Fed Pole Suitable (Y/N)']}</span></div>
 					{walkthrough['Ladder Required'] && <div><span class="field-display-label">Ladder requirement</span><span class="field-display-value">{walkthrough['Ladder Required']}</span></div>}
-					<div><span class="field-display-label">Window stickers / adhesive</span><span class="field-display-value">{walkthrough['Silicone Adhesive Or Sticker Residue (Y/N)']}</span></div>
-					<div><span class="field-display-label">Paint overspray</span><span class="field-display-value">{walkthrough['Paint Overspray (Y/N)']}</span></div>
-					<div><span class="field-display-label">Razor scraping required</span><span class="field-display-value">{walkthrough['Razor Scraping Required (Y/N)']}</span></div>
-					<div><span class="field-display-label">Steel wool required</span><span class="field-display-value">{walkthrough['Steel Wool Required (Y/N)']}</span></div>
-					<div><span class="field-display-label">Non-scratch pad required</span><span class="field-display-value">{walkthrough['Non-Scratch Pad Required (Y/N)']}</span></div>
-					<div><span class="field-display-label">Heavy interior residue</span><span class="field-display-value">{walkthrough['Heavy Interior Residue (Y/N)']}</span></div>
-					<div><span class="field-display-label">Oxidized frames or screens</span><span class="field-display-value">{walkthrough['Oxidized Frames Or Screens (Y/N)']}</span></div>
-					<div><span class="field-display-label">Condition varies by area</span><span class="field-display-value">{walkthrough['Condition Varies By Area (Y/N)']}</span></div>
 					<div><span class="field-display-label">Exterior access obstructed</span><span class="field-display-value">{walkthrough['Exterior Access Obstructed (Y/N)']}</span></div>
 					<div><span class="field-display-label">Furniture/belongings movement required</span><span class="field-display-value">{walkthrough['Furniture Or Belongings Movement Required (Y/N)']}</span></div>
 				</div>
@@ -76,40 +149,132 @@ const items = allItems.filter((i) => i['Walkthrough ID'] === id);
 			</section>
 
 			<section class="card">
-				<h2>Pricing summary</h2>
-				<p>Estimated on-site labor: {walkthrough['Estimated On-Site Labor Hours']} hours</p>
+				<h2>Labor &amp; price</h2>
+				{grouped ? (
+					<>
+						<div class="stats-grid">
+							<div>
+								<strong>{hours(walkthrough['Productive Labor Minutes'])} h</strong>
+								<span class="field-hint">productive labor</span>
+							</div>
+							<div>
+								<strong>{hours(walkthrough['Scheduled Minutes'])} h</strong>
+								<span class="field-hint">scheduled time</span>
+							</div>
+							<div>
+								<strong>{walkthrough['Schedule Recommendation'] || '—'}</strong>
+								<span class="field-hint">recommendation</span>
+							</div>
+						</div>
+						{stored.explanation && <p>{stored.explanation}</p>}
+						{stored.breakdown && (
+							<details>
+								<summary>Labor breakdown</summary>
+								<table>
+									<tbody>
+										{Object.entries(stored.breakdown)
+											.filter(([, minutes]) => minutes > 0)
+											.map(([key, minutes]) => (
+												<tr>
+													<td>{BREAKDOWN_LABELS[key] ?? key}</td>
+													<td>{hours(minutes)} h</td>
+												</tr>
+											))}
+									</tbody>
+								</table>
+							</details>
+						)}
+						{stored.scheduleReasons && stored.scheduleReasons.length > 0 && (
+							<ul>{stored.scheduleReasons.map((reason) => <li class="field-hint">{reason}</li>)}</ul>
+						)}
+					</>
+				) : (
+					<p>Estimated on-site labor: {walkthrough['Estimated On-Site Labor Hours']} hours</p>
+				)}
 				<p>
 					Suggested low: ${walkthrough['Suggested Low Price']} — Suggested target:{' '}
 					<strong>${walkthrough['Suggested Target Price']}</strong> — Suggested high: ${walkthrough['Suggested High Price']}
 				</p>
-				{walkthrough['Owner Override Price'] && <p>Owner-selected price: ${walkthrough['Owner Override Price']}</p>}
-				<p>Pricing Config used: {walkthrough['Pricing Config ID']}</p>
+				{walkthrough['Owner Override Price'] && <p>Owner-selected price: <strong>${walkthrough['Owner Override Price']}</strong></p>}
+				<p class="field-hint">
+					{grouped && walkthrough['Labor Model Version']
+						? `Labor model: ${walkthrough['Labor Model Version']}`
+						: 'Legacy count-based estimate'}
+				</p>
 			</section>
 		</div>
 
-		<section class="card">
-			<h2>Items ({items.length})</h2>
-			<table>
-				<thead>
-					<tr><th>Area</th><th>Type</th><th>Qty</th><th>Ext</th><th>Int</th><th>Screen</th><th>Track</th><th>Condition</th></tr>
-				</thead>
-				<tbody>
-					{items.map((i) => (
-						<tr>
-							<td>{i.Area}</td>
-							<td>{i['Item Type']}{i['Item Type'] === 'Window' ? ` (${i['Size Class']})` : ''}</td>
-							<td>{i.Quantity}</td>
-							<td>{i['Exterior Included']}</td>
-							<td>{i['Interior Included']}</td>
-							<td>{i['Screen Included']}</td>
-							<td>{i['Track Included']}</td>
-							<td>{i.Condition}</td>
-						</tr>
-					))}
-					{items.length === 0 && <tr><td colspan="8">No items recorded.</td></tr>}
-				</tbody>
-			</table>
-		</section>
+		{grouped ? (
+			<section class="card">
+				<h2>Window groups ({groups.length})</h2>
+				<table>
+					<thead>
+						<tr><th>Qty</th><th>Class</th><th>Size</th><th>Story</th><th>Interior access</th><th>Exterior access</th><th>Notes</th></tr>
+					</thead>
+					<tbody>
+						{groups.map((g) => (
+							<tr>
+								<td>{g.Quantity}</td>
+								<td>{g['Production Class']}{g['Specialty Description'] ? ` — ${g['Specialty Description']}` : ''}</td>
+								<td>{g['Size Class'] || '—'}</td>
+								<td>{g.Story || '—'}</td>
+								<td>{g['Interior Access'] || '—'}</td>
+								<td>{g['Exterior Access'] || '—'}</td>
+								<td>{g.Notes}</td>
+							</tr>
+						))}
+						{groups.length === 0 && <tr><td colspan="7">No window groups recorded.</td></tr>}
+					</tbody>
+				</table>
+			</section>
+		) : (
+			<section class="card">
+				<h2>Items ({items.length})</h2>
+				<table>
+					<thead>
+						<tr><th>Area</th><th>Type</th><th>Qty</th><th>Ext</th><th>Int</th><th>Screen</th><th>Track</th><th>Condition</th></tr>
+					</thead>
+					<tbody>
+						{items.map((i) => (
+							<tr>
+								<td>{i.Area}</td>
+								<td>{i['Item Type']}{i['Item Type'] === 'Window' ? ` (${i['Size Class']})` : ''}</td>
+								<td>{i.Quantity}</td>
+								<td>{i['Exterior Included']}</td>
+								<td>{i['Interior Included']}</td>
+								<td>{i['Screen Included']}</td>
+								<td>{i['Track Included']}</td>
+								<td>{i.Condition}</td>
+							</tr>
+						))}
+						{items.length === 0 && <tr><td colspan="8">No items recorded.</td></tr>}
+					</tbody>
+				</table>
+			</section>
+		)}
+
+		{adjustments.length > 0 && (
+			<section class="card">
+				<h2>Restoration &amp; property factors</h2>
+				<table>
+					<thead>
+						<tr><th>Kind</th><th>Item</th><th>Units</th><th>Panes</th><th>Added time</th><th>Notes</th></tr>
+					</thead>
+					<tbody>
+						{adjustments.map((a) => (
+							<tr>
+								<td>{a.Kind}</td>
+								<td>{a.Label}</td>
+								<td>{a['Affected Units'] || '—'}</td>
+								<td>{a['Affected Panes'] || '—'}</td>
+								<td>{a['Additional Minutes'] ? `${a['Additional Minutes']} min` : '—'}</td>
+								<td>{a.Notes}</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			</section>
+		)}
 
 		{walkthrough['Quote ID'] ? (
 			<p><a href={`/quotes/${walkthrough['Quote ID']}`}>View quote →</a></p>

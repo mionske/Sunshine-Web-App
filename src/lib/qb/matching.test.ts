@@ -124,7 +124,7 @@ describe('scoreMatch', () => {
 			'Equipment Suitability': '', 'Hard Water History (Y/N)': '', 'Construction Debris (Y/N)': '', 'Window Condition': '',
 			'Silicone Adhesive Or Sticker Residue (Y/N)': '', 'Heavy Interior Residue (Y/N)': '', 'Oxidized Frames Or Screens (Y/N)': '',
 			'Condition Varies By Area (Y/N)': '', 'Condition Notes': '',
-			'Total Window Units': '', 'Total Glass Panes': '', 'Count - Standard': '', 'Inventory Verified At': '',
+			'Total Window Units': '', 'Total Glass Panes': '', 'Count - Standard': '', 'Inventory Verified At': '', 'Inventory Verified By': '',
 			'Count - Double Hung': '', 'Count - Casement': '', 'Count - Picture': '', 'Count - Sliding': '', 'Count - French': '',
 			'Count - Awning': '', 'Count - Skylights': '', 'Count - Solar Panels': '', 'Screen Count': '', 'Track Count': '', 'Desired Maintenance Frequency': '',
 			'Preferred Service Season': '', 'Next Recommended Service Date': '', 'Maintenance Notes': '', 'Next Scheduled Visit': '', 'Last Review Requested Date': '',

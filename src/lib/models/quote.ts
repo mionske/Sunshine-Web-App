@@ -122,7 +122,31 @@ export const quoteSchema = z.object({
 	'Job Silicone Or Sticker Residue (Y/N)': blank(),
 	'Job Heavy Interior Residue (Y/N)': blank(),
 	'Job Other Condition Notes': blank(),
-});
+
+	// --- Labor-model price band ---
+	// Written only for quotes built from a grouped-inventory walkthrough. The
+	// three suggestions come from productive hours x the low/target/high
+	// hourly production targets in PricingConfig; 'Owner Selected Price' is
+	// whatever the owner actually decided and is never clamped toward the
+	// suggestion. A ten-hour job priced at $1,700 is a legitimate answer, and
+	// the app's job is to record it, not argue with it.
+	'Suggested Low Price': blank(),
+	'Suggested Target Price': blank(),
+	'Suggested High Price': blank(),
+	'Owner Selected Price': blank(),
+	// Both versions are stored so a past quote stays explainable after either
+	// model changes. 'Labor Model Version' is the LaborConfig version label
+	// (e.g. "Residential v2"); 'Pricing Model Version' is the PricingConfig
+	// the hourly targets came from.
+	'Labor Model Version': blank(),
+	'Pricing Model Version': blank(),
+	// Optional. Asked for when the owner's price sits well outside the
+	// suggested band — recorded for later calibration, never required to save.
+	'Owner Override Reason': blank(),
+})
+	// Insurance against the whole-row-rewrite blanking trap — see the same
+	// note on models/property.ts and models/walkthrough.ts.
+	.catchall(z.union([z.string(), z.number(), z.boolean(), z.null()]));
 
 export type Quote = z.infer<typeof quoteSchema>;
 

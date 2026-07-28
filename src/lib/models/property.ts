@@ -173,6 +173,11 @@ export const propertySchema = z.object({
 	// explicit "I checked this is still accurate" moment, not just "someone
 	// once edited a count."
 	'Inventory Verified At': blank(),
+	// Who confirmed the standing counts are still accurate. Solo business
+	// today, so this is nearly always the owner — recorded anyway because
+	// "verified July 28 by Greg" is a claim someone made, and an unattributed
+	// verification date is worth noticeably less a year later.
+	'Inventory Verified By': blank(),
 	// The per-window-style counts (Count - Standard/Double Hung/Casement/
 	// Picture/Sliding/French/Awning/Skylights/Solar Panels and Sliding Glass
 	// Door Pane Count) were removed here. Identifying every window type in a

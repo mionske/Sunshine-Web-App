@@ -296,6 +296,13 @@ describe('deriveJobSegmentation', () => {
 			'Job Silicone Or Sticker Residue (Y/N)': '',
 			'Job Heavy Interior Residue (Y/N)': '',
 			'Job Other Condition Notes': '',
+			'Suggested Low Price': '',
+			'Suggested Target Price': '',
+			'Suggested High Price': '',
+			'Owner Selected Price': '',
+			'Labor Model Version': '',
+			'Pricing Model Version': '',
+			'Owner Override Reason': '',
 			...overrides,
 		};
 	}

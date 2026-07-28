@@ -1,21 +1,52 @@
-/* Design tokens — reused from the Sunshine Window Works marketing site
- * (~/Code/sunshine-website) so the internal app and the public estimator
- * page feel like the same company rather than a generic admin panel.
- * Navy and red are the only two "loud" colors and are never both loud on
- * the same element (navy = authority/headings, red = action). Tan is
- * purely structural (borders/dividers). No box-shadows — flat color and
- * border contrast only, matching the marketing site. */
+/* Design tokens. Originally lifted from the Sunshine Window Works marketing
+ * site so the internal app and the public estimator felt like one company;
+ * now holding the values from the property-detail design handoff, which is a
+ * deliberate step away from an exact marketing-site match and toward a denser
+ * working palette. Same principles either way: navy and rust are the only two
+ * "loud" colors and are never both loud on the same element (navy =
+ * authority/headings, rust = action), tan is purely structural, and cards use
+ * borders rather than shadows. */
 :root {
-	--color-navy: #012441;
-	--color-red: #9d1518;
-	--color-cream: #faf5eb;
-	--color-tan: #d8c6ac;
-	--color-ink: #1d242a;
-	--color-ink-muted: #4c545b;
-	--color-cream-text: #fff8ea;
+	/* The four originals keep their names — every existing rule in this file
+	 * refers to them — but now hold the design-handoff values. They are close
+	 * cousins of the marketing site's: a slightly lighter navy, a warmer
+	 * rust, a warmer cream. Redefining them here rather than adding a second
+	 * parallel palette is what keeps the whole app moving together instead of
+	 * leaving the redesigned pages looking like a different product. */
+	--color-navy: #0f2544;
+	--color-red: #c9452f;
+	--color-cream: #faf4e8;
+	--color-tan: #d9cfbb;
+	--color-ink: #0f2544;
+	--color-ink-muted: #55503f;
+	--color-cream-text: #fdf8ee;
+
+	/* The rest of the handoff's scale. Named for the job each does, not for
+	 * the hue, so a later palette revision doesn't leave the names lying. */
+	--color-navy-muted: #9fb0c6; /* secondary text on navy */
+	--color-link: #a32b21;
+	--color-link-hover: #7c1e17;
+	--color-flag-text: #8e2318;
+	--color-flag-fill: #fbeae4;
+	--color-flag-border: #e8bcb0;
+
+	--color-canvas: #efe7d6; /* page behind the app frame */
+	--color-surface: #fffdf8; /* cards */
+	--color-inset: #fbf6ec; /* read cells inside a card */
+	--color-rail: #f6efe1; /* left rail, callouts */
+	--color-rail-hover: #efe7d6;
+
+	--color-border-soft: #eae1ce;
+	--color-divider: #f1e9d8;
+	--color-chip: #e4dac6;
+
+	--color-text-secondary: #55503f;
+	--color-text-tertiary: #6a6151;
+	--color-text-muted: #857a63;
+	--color-text-missing: #a0967e;
 
 	--font-heading: 'Barlow Condensed', 'Arial Narrow', sans-serif;
-	--font-body: 'Source Sans 3', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+	--font-body: 'Barlow', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
 
 	--radius-card: 0.75rem;
 	--radius-field: 0.375rem;
@@ -313,12 +344,18 @@ input.field-numeric {
 	}
 }
 
+/* No negative top margin. It was there to tuck a hint up under its own
+ * input, but .field-hint is used in four different positions across the app
+ * — under label text, after a control, after a list, and as the caption in a
+ * stats tile — and in three of those it dragged the hint up ON TOP of the
+ * content above it. Overlapping text is a far worse failure than a slightly
+ * looser gap. */
 .field-hint {
 	display: block;
 	font-weight: 400;
 	font-size: 0.85rem;
 	color: var(--color-ink-muted);
-	margin: -0.5rem 0 0.75rem;
+	margin: 0.15rem 0 0.6rem;
 }
 
 /* Informative but subtle — a small inline line under the field it
@@ -484,12 +521,16 @@ tr:last-child td {
 
 /* App nav ------------------------------------------------------------------ */
 
+/* 52px bar, full width. Links sit in the muted on-navy tone and only the
+ * current page comes up to full cream with a rust underline — so "where am
+ * I" is answerable at a glance instead of by reading every label. */
 .app-nav {
 	display: flex;
 	flex-wrap: wrap;
 	align-items: center;
-	gap: 0.75rem 1.5rem;
-	padding: 0.9rem 1.5rem;
+	gap: 0.75rem 28px;
+	min-height: 52px;
+	padding: 0 24px;
 	background: var(--color-navy);
 	color: var(--color-cream-text);
 	margin-bottom: 2rem;
@@ -497,36 +538,40 @@ tr:last-child td {
 
 .app-nav strong {
 	font-family: var(--font-heading);
+	font-weight: 700;
 	text-transform: uppercase;
-	letter-spacing: 0.05em;
-	font-size: 1.25rem;
+	letter-spacing: 0.08em;
+	font-size: 17px;
 }
 
 .app-nav nav ul {
 	display: flex;
 	flex-wrap: wrap;
-	gap: 1.25rem;
+	align-items: center;
+	gap: 20px;
 	list-style: none;
 	margin: 0;
 	padding: 0;
 }
 
 .app-nav nav a {
-	color: var(--color-cream-text);
+	color: var(--color-navy-muted);
 	font-family: var(--font-heading);
+	font-weight: 600;
 	text-transform: uppercase;
-	letter-spacing: 0.04em;
-	font-size: 0.95rem;
+	letter-spacing: 0.09em;
+	font-size: 13px;
 	text-decoration: none;
 	padding-bottom: 0.15rem;
 	border-bottom: 2px solid transparent;
 }
 
 .app-nav nav a:hover {
-	border-bottom-color: var(--color-cream-text);
+	color: var(--color-cream-text);
 }
 
 .app-nav nav a[aria-current='page'] {
+	color: var(--color-cream-text);
 	border-bottom-color: var(--color-red);
 }
 
@@ -539,11 +584,12 @@ tr:last-child td {
 .nav-menu > summary {
 	list-style: none;
 	cursor: pointer;
-	color: var(--color-cream-text);
+	color: var(--color-navy-muted);
 	font-family: var(--font-heading);
+	font-weight: 600;
 	text-transform: uppercase;
-	letter-spacing: 0.04em;
-	font-size: 0.95rem;
+	letter-spacing: 0.09em;
+	font-size: 13px;
 	padding-bottom: 0.15rem;
 	border-bottom: 2px solid transparent;
 }
@@ -557,10 +603,11 @@ tr:last-child td {
 }
 
 .nav-menu > summary:hover {
-	border-bottom-color: var(--color-cream-text);
+	color: var(--color-cream-text);
 }
 
 .nav-menu > summary[aria-current='page'] {
+	color: var(--color-cream-text);
 	border-bottom-color: var(--color-red);
 }
 
@@ -955,7 +1002,10 @@ tr:last-child td {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 1rem;
+	gap: 0.5rem 1rem;
+	/* Wraps rather than letting a long heading and a trailing badge or
+	 * button row overlap each other on a narrow screen. */
+	flex-wrap: wrap;
 }
 
 .card-header-row h2 {
@@ -1407,4 +1457,745 @@ details.card[open] > summary {
  * columns (e.g. Clients' "Add client" form). */
 .card-narrow {
 	max-width: 40rem;
+}
+
+/* Property workspace (Option 1B) --------------------------------------------
+ *
+ * A tabbed workspace rather than one long scrolling form: a left rail of
+ * tabs, and panels that render readable values at rest. Nothing here is a
+ * live input until an Edit link is used, which is what keeps the page
+ * scannable when you're standing at a property with a phone.
+ *
+ * Breaks out of <main>'s centered max-width — the rail needs to reach the
+ * left edge of the frame, not float in a column.
+ */
+.property-workspace {
+	margin: -2rem calc(50% - 50vw) 0;
+	padding: 0;
+	max-width: none;
+	background: var(--color-canvas);
+	min-height: calc(100vh - 52px);
+}
+
+.property-frame {
+	background: var(--color-cream);
+	box-shadow: 0 1px 2px rgba(15, 37, 68, 0.06);
+}
+
+/* Identity bar -------------------------------------------------------------- */
+
+.property-identity {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 20px;
+	flex-wrap: wrap;
+	padding: 16px 26px;
+	background: var(--color-surface);
+	border-bottom: 1px solid var(--color-tan);
+}
+
+.property-identity-left {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	min-width: 0;
+}
+
+.property-identity-heading {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	flex-wrap: wrap;
+}
+
+/* Plain heading text. Deliberately not a link — it would point at the page
+ * you are already on — and deliberately not rust, which is reserved for
+ * things you can act on. */
+.property-identity h1 {
+	font-family: var(--font-heading);
+	font-weight: 700;
+	font-size: 28px;
+	line-height: 1;
+	letter-spacing: 0;
+	text-transform: none;
+	color: var(--color-navy);
+	margin: 0;
+}
+
+.property-status-pill {
+	font-family: var(--font-heading);
+	font-weight: 700;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	background: var(--color-chip);
+	color: var(--color-text-secondary);
+	padding: 4px 9px;
+	border-radius: var(--radius-pill);
+	white-space: nowrap;
+}
+
+.property-identity-meta {
+	font-size: 14px;
+	color: var(--color-text-muted);
+	margin: 0;
+}
+
+.property-identity-actions {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	flex-wrap: wrap;
+}
+
+.property-identity-actions .btn,
+.property-identity-actions button {
+	font-family: var(--font-heading);
+	font-weight: 700;
+	font-size: 13px;
+	text-transform: uppercase;
+	letter-spacing: 0.09em;
+	padding: 10px 16px;
+	border-radius: 4px;
+	white-space: nowrap;
+	border: 1px solid #c3b9a4;
+	background: var(--color-surface);
+	color: var(--color-navy);
+	text-decoration: none;
+	cursor: pointer;
+	display: inline-block;
+	width: auto;
+}
+
+.property-identity-actions .btn-primary {
+	background: var(--color-red);
+	color: #fff8ee;
+	border-color: var(--color-red);
+}
+
+.property-identity-actions .btn:hover,
+.property-identity-actions button:hover {
+	filter: brightness(0.92);
+}
+
+.property-identity-actions .btn:focus-visible,
+.property-identity-actions button:focus-visible {
+	outline: 2px solid rgba(15, 37, 68, 0.4);
+	outline-offset: 2px;
+}
+
+/* Rare and destructive actions live behind this rather than as a row of
+ * inline links under the heading. */
+.property-overflow {
+	position: relative;
+}
+
+.property-overflow > summary {
+	list-style: none;
+	cursor: pointer;
+	font-family: var(--font-heading);
+	font-weight: 700;
+	font-size: 13px;
+	letter-spacing: 0.09em;
+	padding: 10px 14px;
+	border: 1px solid #c3b9a4;
+	border-radius: 4px;
+	background: var(--color-surface);
+	color: var(--color-navy);
+}
+
+.property-overflow > summary::-webkit-details-marker {
+	display: none;
+}
+
+.property-overflow > div {
+	position: absolute;
+	right: 0;
+	top: calc(100% + 6px);
+	z-index: 20;
+	min-width: 15rem;
+	padding: 6px;
+	background: var(--color-surface);
+	border: 1px solid var(--color-tan);
+	border-radius: 6px;
+	box-shadow: 0 1px 2px rgba(15, 37, 68, 0.06);
+}
+
+.property-overflow a,
+.property-overflow button {
+	display: block;
+	width: 100%;
+	text-align: left;
+	padding: 9px 11px;
+	font-family: var(--font-body);
+	font-size: 14px;
+	font-weight: 500;
+	text-transform: none;
+	letter-spacing: 0;
+	color: var(--color-navy);
+	background: none;
+	border: none;
+	border-radius: 5px;
+	text-decoration: none;
+	cursor: pointer;
+}
+
+.property-overflow a:hover,
+.property-overflow button:hover {
+	background: var(--color-rail-hover);
+}
+
+.property-overflow form {
+	margin: 0;
+}
+
+/* Shell + rail -------------------------------------------------------------- */
+
+.property-shell {
+	display: grid;
+	grid-template-columns: 208px 1fr;
+	align-items: stretch;
+}
+
+.property-rail {
+	display: flex;
+	flex-direction: column;
+	gap: 3px;
+	padding: 18px 14px;
+	background: var(--color-rail);
+	border-right: 1px solid var(--color-tan);
+}
+
+.property-rail a {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	gap: 8px;
+	padding: 11px 13px;
+	border-radius: 5px;
+	font-family: var(--font-body);
+	font-size: 14px;
+	font-weight: 500;
+	color: var(--color-text-secondary);
+	text-decoration: none;
+}
+
+.property-rail a:hover {
+	background: var(--color-rail-hover);
+}
+
+.property-rail a[aria-current='page'] {
+	background: var(--color-navy);
+	color: var(--color-cream-text);
+	font-weight: 600;
+}
+
+.property-rail-divider {
+	height: 1px;
+	background: var(--color-tan);
+	margin: 9px 4px;
+}
+
+.property-rail-badge {
+	font-size: 13px;
+	color: var(--color-text-muted);
+}
+
+/* An access flag is the one badge worth interrupting for — it is the thing
+ * that changes what you load on the truck. */
+.property-rail-badge-alert {
+	color: var(--color-red);
+	font-weight: 700;
+}
+
+.property-rail a[aria-current='page'] .property-rail-badge,
+.property-rail a[aria-current='page'] .property-rail-badge-alert {
+	color: var(--color-navy-muted);
+}
+
+.property-panel {
+	display: flex;
+	flex-direction: column;
+	gap: 18px;
+	padding: 22px 26px 30px;
+	min-width: 0;
+}
+
+/* Panel cards --------------------------------------------------------------- */
+
+.pcard {
+	background: var(--color-surface);
+	border: 1px solid var(--color-tan);
+	border-radius: 8px;
+	padding: 18px 20px;
+}
+
+.pcard-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 12px;
+	margin-bottom: 14px;
+}
+
+.pcard h2,
+.pcard h3 {
+	font-family: var(--font-heading);
+	font-weight: 700;
+	font-size: 15px;
+	text-transform: uppercase;
+	letter-spacing: 0.1em;
+	color: var(--color-navy);
+	margin: 0;
+}
+
+.pcard-row {
+	display: grid;
+	gap: 18px;
+}
+
+.pcard-row-2 {
+	grid-template-columns: 1.15fr 1fr;
+}
+
+/* Action links. Rust, weight 600, underline only on hover — visually
+ * distinct from a button, because they do smaller things. */
+.plink {
+	color: var(--color-link);
+	font-weight: 600;
+	font-size: 13px;
+	text-decoration: none;
+}
+
+.plink:hover {
+	color: var(--color-link-hover);
+	text-decoration: underline;
+}
+
+/* Big-number read cells (Scale of Work, Inventory) --------------------------- */
+
+.pmetrics {
+	display: grid;
+	/* Always exactly four cells, so the column count is fixed rather than
+	 * auto-fit — auto-fit wraps to 3+1 at intermediate widths and leaves a
+	 * visible empty block where the fourth cell's neighbour should be. */
+	grid-template-columns: repeat(4, 1fr);
+	gap: 1px;
+	background: var(--color-border-soft);
+	border: 1px solid var(--color-border-soft);
+	border-radius: 6px;
+	overflow: hidden;
+}
+
+.pmetric {
+	background: var(--color-inset);
+	padding: 14px 16px;
+}
+
+.pmetric strong {
+	display: block;
+	font-family: var(--font-body);
+	font-weight: 700;
+	font-size: 40px;
+	line-height: 1;
+	color: var(--color-navy);
+	font-variant-numeric: tabular-nums;
+}
+
+.pmetric span {
+	display: block;
+	font-size: 13px;
+	color: var(--color-text-tertiary);
+	margin-top: 6px;
+}
+
+.pcard-footer {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	flex-wrap: wrap;
+	margin-top: 14px;
+	padding-top: 12px;
+	border-top: 1px solid var(--color-divider);
+	font-size: 13px;
+	color: var(--color-text-muted);
+}
+
+.pdot {
+	width: 7px;
+	height: 7px;
+	border-radius: 999px;
+	background: var(--color-red);
+	flex: 0 0 auto;
+}
+
+.pdot-ok {
+	background: var(--color-navy);
+}
+
+/* Difficulty card ------------------------------------------------------------ */
+
+.pdifficulty-headline {
+	font-family: var(--font-heading);
+	font-weight: 700;
+	font-size: 34px;
+	line-height: 1;
+	color: var(--color-navy);
+	margin: 0 0 14px;
+}
+
+.pdifficulty-hard {
+	color: var(--color-link);
+}
+
+.pbar-row {
+	display: grid;
+	grid-template-columns: 72px 1fr auto;
+	align-items: center;
+	gap: 10px;
+	margin-bottom: 9px;
+	font-size: 13px;
+	color: var(--color-text-tertiary);
+}
+
+.pbar {
+	height: 7px;
+	border-radius: 4px;
+	background: var(--color-border-soft);
+	overflow: hidden;
+}
+
+.pbar > span {
+	display: block;
+	height: 100%;
+	background: var(--color-navy);
+}
+
+.pbar-hard > span {
+	background: var(--color-red);
+}
+
+/* Flags + inset grids -------------------------------------------------------- */
+
+.pinset-grid {
+	display: grid;
+	grid-template-columns: repeat(4, 1fr);
+	gap: 1px;
+	background: var(--color-border-soft);
+	border: 1px solid var(--color-border-soft);
+	border-radius: 6px;
+	overflow: hidden;
+	margin-bottom: 12px;
+}
+
+.pinset {
+	background: var(--color-inset);
+	padding: 11px 13px;
+}
+
+.pinset span {
+	display: block;
+	font-size: 12px;
+	text-transform: uppercase;
+	letter-spacing: 0.08em;
+	color: var(--color-text-muted);
+	margin-bottom: 4px;
+}
+
+.pinset strong {
+	font-size: 15px;
+	font-weight: 600;
+	color: var(--color-navy);
+}
+
+.pflags {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-bottom: 8px;
+}
+
+/* Only true flags get a chip. Seven empty checkboxes at rest tells you
+ * nothing; the false ones are summarised in one muted line instead. */
+.pflag {
+	background: var(--color-flag-fill);
+	border: 1px solid var(--color-flag-border);
+	color: var(--color-flag-text);
+	font-size: 13px;
+	font-weight: 600;
+	padding: 7px 11px;
+	border-radius: 4px;
+}
+
+.pflags-none {
+	font-size: 13px;
+	color: var(--color-text-muted);
+	padding: 7px 4px;
+	margin: 0;
+}
+
+.pcallout {
+	background: var(--color-rail);
+	border-radius: 6px;
+	padding: 12px 14px;
+	font-size: 14px;
+	color: var(--color-text-tertiary);
+	margin: 0;
+}
+
+/* Label/value rows (Record card, Access groups) ------------------------------ */
+
+.prows {
+	display: flex;
+	flex-direction: column;
+}
+
+.prow {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	gap: 12px;
+	padding: 6px 0;
+	border-bottom: 1px solid var(--color-divider);
+	font-size: 14px;
+}
+
+.prow:last-child {
+	border-bottom: none;
+}
+
+.prow > span:first-child {
+	color: var(--color-text-tertiary);
+}
+
+.prow > span:last-child {
+	font-weight: 600;
+	color: var(--color-navy);
+	text-align: right;
+}
+
+/* A field that matters and is empty says "Missing". A genuinely optional
+ * one gets an em dash. Both muted — neither is an error. */
+.pmissing {
+	color: var(--color-text-missing) !important;
+	font-weight: 400 !important;
+}
+
+/* Pipeline stepper ----------------------------------------------------------- */
+
+.pstepper {
+	display: flex;
+	gap: 6px;
+	margin-bottom: 12px;
+}
+
+.pstep {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	flex: 1;
+}
+
+.pstep-bar {
+	height: 6px;
+	background: var(--color-border-soft);
+}
+
+.pstep:first-child .pstep-bar {
+	border-radius: 3px 0 0 3px;
+}
+
+.pstep:last-child .pstep-bar {
+	border-radius: 0 3px 3px 0;
+}
+
+.pstep-done .pstep-bar {
+	background: var(--color-navy);
+}
+
+.pstep span {
+	font-size: 13px;
+	color: var(--color-text-muted);
+}
+
+.pstep-current span {
+	font-weight: 600;
+	color: var(--color-navy);
+}
+
+.pstatus-line {
+	margin: 0 0 12px;
+	padding-top: 12px;
+	border-top: 1px solid var(--color-divider);
+	font-size: 14px;
+	color: var(--color-text-tertiary);
+}
+
+.pactions {
+	display: flex;
+	gap: 9px;
+	flex-wrap: wrap;
+}
+
+.pactions a,
+.pactions button {
+	font-family: var(--font-heading);
+	font-weight: 700;
+	font-size: 13px;
+	text-transform: uppercase;
+	letter-spacing: 0.09em;
+	padding: 10px 15px;
+	border-radius: 4px;
+	text-decoration: none;
+	border: 1px solid #c3b9a4;
+	background: transparent;
+	color: var(--color-navy);
+	width: auto;
+	cursor: pointer;
+}
+
+.pactions .pactions-primary {
+	background: var(--color-navy);
+	color: var(--color-cream-text);
+	border-color: var(--color-navy);
+}
+
+.pactions a:hover,
+.pactions button:hover {
+	filter: brightness(0.92);
+}
+
+/* Phone --------------------------------------------------------------------- */
+
+@media (max-width: 900px) {
+	.property-shell {
+		grid-template-columns: 1fr;
+	}
+
+	/* The rail becomes a horizontally scrolling strip pinned under the
+	 * identity bar. */
+	.property-rail {
+		flex-direction: row;
+		overflow-x: auto;
+		border-right: none;
+		border-bottom: 1px solid var(--color-tan);
+		padding: 10px 12px;
+		position: sticky;
+		top: 0;
+		z-index: 10;
+	}
+
+	.property-rail a {
+		white-space: nowrap;
+	}
+
+	.property-rail-divider {
+		width: 1px;
+		height: auto;
+		margin: 4px 5px;
+	}
+
+	.property-panel {
+		padding: 16px 14px 28px;
+	}
+
+	.pcard-row-2 {
+		grid-template-columns: 1fr;
+	}
+
+	/* Field crews want the setup facts before the counts. */
+	.porder-first {
+		order: -1;
+	}
+
+	.pmetrics,
+	.pinset-grid {
+		grid-template-columns: repeat(2, 1fr);
+	}
+
+	/* Below 900px the identity bar collapses to the one action you actually
+	 * take standing at a property, plus the overflow. Everything else moves
+	 * into that menu rather than wrapping the bar onto a second row and
+	 * pushing the content further down a screen that has none to spare. */
+	.property-identity-actions .btn:not(.btn-primary) {
+		display: none;
+	}
+
+	.property-overflow > summary {
+		display: block;
+	}
+
+	.overflow-only {
+		display: block;
+	}
+}
+
+/* Overflow entries that exist only to hold what the identity bar drops on
+ * a narrow screen — duplicating them at desktop width would be clutter. */
+.overflow-only {
+	display: none;
+}
+
+/* The main nav scrolls sideways on a phone instead of wrapping. Wrapped, it
+ * took three rows and most of the first screen before any content appeared —
+ * on the surface most likely to be used one-handed at a property. */
+@media (max-width: 640px) {
+	.app-nav {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		gap: 16px;
+		padding: 0 14px;
+	}
+
+	.app-nav strong {
+		font-size: 15px;
+		white-space: nowrap;
+	}
+
+	.app-nav nav ul {
+		flex-wrap: nowrap;
+		gap: 14px;
+	}
+
+	.app-nav nav a,
+	.nav-menu > summary {
+		white-space: nowrap;
+	}
+
+	/* The dropdown panels have to stay positioned here — in-flow inside a
+	 * horizontally scrolling bar would push the whole strip sideways. */
+	.app-nav nav .nav-menu > ul {
+		position: absolute;
+		min-width: 12rem;
+		border: 2px solid var(--color-tan);
+		padding: 0.5rem 0;
+	}
+}
+
+/* Category picker on a photo tile. Sits over the bottom of the image so it
+ * doesn't cost a row of grid height, and stays legible on any photo. */
+.photo-tile-category {
+	position: absolute;
+	left: 6px;
+	right: 6px;
+	bottom: 6px;
+	width: auto;
+	margin: 0;
+	padding: 4px 22px 4px 8px;
+	font-size: 12px;
+	border: 1px solid var(--color-tan);
+	border-radius: 4px;
+	background-color: rgba(255, 253, 248, 0.92);
+	color: var(--color-navy);
+}
+
+/* Secondary actions attached to a repeated row (a window group's Duplicate /
+ * Remove). The default 8rem min-width is sized for a form's primary action
+ * and turns these into oversized pills on a phone. */
+.button-row-compact button {
+	min-width: 0;
+	min-height: 2.25rem;
+	padding: 0.35rem 0.9rem;
+	font-size: 0.85rem;
 }

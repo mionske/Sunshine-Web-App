@@ -1,259 +1,69 @@
-// Source of truth for every tab's name + header row, mirroring
-// docs/data-dictionary.md. Used to bootstrap brand-new tabs (never touches
-// Jobs — that tab is extended separately, under its own preservation
-// protocol).
+// Every tab's name + header row, used to bootstrap brand-new tabs. Never
+// touches Jobs — that tab predates this app and is extended separately, under
+// its own preservation protocol.
+//
+// Header lists are DERIVED from each tab's zod schema rather than spelled out
+// again here. They used to be hand-maintained copies, and they drifted: the
+// Walkthroughs list was ~25 columns behind its model by the time anyone
+// looked. Since every read and write in this app goes by header name and
+// bootstrapping only ever creates a tab that doesn't exist yet, key order is
+// the only thing this determines — so the model can simply be the one source
+// of truth. A new column now reaches a fresh environment automatically.
+import { z } from 'zod';
 import { addSheetTab, ensureGridSize, listSheetTitles, updateValues } from './client';
 import { columnLetterAt, readHeaders } from './rows';
 import type { SheetsEnv } from './types';
+import { clientSchema } from '../models/client';
+import { propertySchema } from '../models/property';
+import { propertyPhotoSchema } from '../models/propertyPhoto';
+import { leadSchema } from '../models/lead';
+import { pipelineSchema } from '../models/pipeline';
+import { quoteSchema } from '../models/quote';
+import { quoteItemSchema } from '../models/quoteItem';
+import { serviceSchema } from '../models/service';
+import { pricingConfigSchema } from '../models/pricingConfig';
+import { laborConfigSchema } from '../models/laborConfig';
+import { windowProductionProfileSchema } from '../models/windowProductionProfile';
+import { calibrationSnapshotSchema } from '../models/calibrationSnapshot';
+import { walkthroughSchema } from '../models/walkthrough';
+import { walkthroughItemSchema } from '../models/walkthroughItem';
+import { walkthroughAdjustmentSchema } from '../models/walkthroughAdjustment';
+import { jobTimeEntrySchema } from '../models/jobTimeEntry';
+import { qbCustomerSchema } from '../models/qbCustomer';
+import { qbEstimateSchema } from '../models/qbEstimate';
+import { qbInvoiceSchema } from '../models/qbInvoice';
+import { qbPaymentSchema } from '../models/qbPayment';
+
+function headersFor(schema: z.ZodObject<z.ZodRawShape>): string[] {
+	return Object.keys(schema.shape);
+}
 
 export const TAB_SCHEMAS: Record<string, string[]> = {
-	Clients: [
-		'Client ID',
-		'First Name',
-		'Last Name',
-		'Phone',
-		'Email',
-		'Address',
-		'Referral Source',
-		'First Contact Date',
-		'Customer Since',
-		'Preferred Contact Method',
-		'Notes',
-		'Created At',
-		'Updated At',
-		'Archived At',
-	],
-	// Mirrors propertySchema in lib/models/property.ts exactly (that file is
-	// the actual source of truth for field names/order — this bootstrap
-	// list is only consulted for a brand-new environment's first tab
-	// creation, but keeping the two in sync avoids a stale bootstrap here).
-	Properties: [
-		'Property ID',
-		'Client ID',
-		'Property Type',
-		'Street Address',
-		'City',
-		'State',
-		'Zip',
-		'Year Built',
-		'Square Footage',
-		'Stories',
-		'Interior Access Difficulty',
-		'Exterior Access Difficulty',
-		'Roof Access Required (Y/N)',
-		'Water Source',
-		'Exterior Cleaning Method',
-		'Roof Access Difficulty',
-		'Overall Access Difficulty',
-		'Water Access',
-		'Equipment Suitability',
-		'Hard Water History (Y/N)',
-		'Construction Debris (Y/N)',
-		'Window Condition',
-		'Total Window Units',
-		'Total Glass Panes',
-		'Screen Count',
-		'Track Count',
-		'Desired Maintenance Frequency',
-		'Preferred Service Season',
-		'Next Recommended Service Date',
-		'Maintenance Notes',
-		'Next Scheduled Visit',
-		'Last Review Requested Date',
-		'Last Review Received Date',
-		'Water-Fed Pole Suitable (Y/N)',
-		'Ladder Requirement',
-		'Access Notes',
-		'Pet Notes',
-		'General Notes',
-		'Building/Complex Name',
-		'Unit Identifier',
-		'Repeat Business Status',
-		'Created At',
-		'Updated At',
-		'Archived At',
-	],
-	// Mirrors propertyPhotoSchema in lib/models/propertyPhoto.ts exactly.
-	// Photo bytes live in R2 (lib/propertyPhotos.ts) — this tab only holds
-	// metadata pointing at an R2 object key.
-	PropertyPhotos: [
-		'Photo ID',
-		'Property ID',
-		'R2 Key',
-		'Original Filename',
-		'Content Type',
-		'Size Bytes',
-		'Caption',
-		'Created At',
-		'Updated At',
-		'Archived At',
-	],
-	// Mirrors leadSchema in lib/models/lead.ts exactly.
-	Leads: [
-		'Lead ID',
-		'First Name',
-		'Last Name',
-		'Phone',
-		'Email',
-		'Street Address',
-		'City',
-		'State',
-		'Zip',
-		'Source',
-		'Stage',
-		'Next Follow-up Date',
-		'Notes',
-		'Quote Link',
-		'Outcome',
-		'Converted Client ID',
-		'Converted Property ID',
-		'Created At',
-		'Updated At',
-		'Closed At',
-		'Archived At',
-	],
-	Pipeline: [
-		'Opportunity ID',
-		'Client ID',
-		'Property ID',
-		'Stage',
-		'Status',
-		'Estimated Value',
-		'Referral Source',
-		'Next Follow-up Date',
-		'Last Contact Date',
-		'Created At',
-		'Updated At',
-		'Closed At',
-		'Archived At',
-		'Lost Reason',
-		'Notes',
-	],
-	Quotes: [
-		'Quote ID',
-		'Quote Type',
-		'Client ID',
-		'Property ID',
-		'Opportunity ID',
-		'Walkthrough ID',
-		'Pricing Config ID',
-		'Calculator Version',
-		'Input Snapshot',
-		'Calculation Result Snapshot',
-		'Rounding Policy',
-		'Currency',
-		'Calculated Base Amount',
-		'Calculated Add-ons',
-		'Calculated Surcharges',
-		'Estimated Labor Hours',
-		'Target Hourly Rate',
-		'Target Price Before Adjustments',
-		'Manual Adjustment',
-		'Discount',
-		'Final Quoted Price',
-		'Expected Revenue Per Labor Hour',
-		'Override Reason',
-		'Quote Status',
-		'Created At',
-		'Updated At',
-		'Sent At',
-		'Accepted At',
-		'Declined At',
-		'Expired At',
-		'Archived At',
-		'Created By',
-		'Notes',
-		'Difficult Access Item Count',
-		'Specialty Access Item Count',
-	],
-	Services: [
-		'Service Code',
-		'Service Name',
-		'Service Category',
-		'Default Unit',
-		'Default Labor Minutes',
-		'Pricing Method',
-		'Publicly Available',
-		'Internally Available',
-		'Active',
-		'Sort Order',
-		'Created At',
-		'Updated At',
-		'Archived At',
-		'Notes',
-	],
-	QuoteItems: [
-		'Quote Item ID',
-		'Quote ID',
-		'Service Code',
-		'Service Category',
-		'Description',
-		'Quantity',
-		'Unit',
-		'Unit Price',
-		'Estimated Labor Minutes',
-		'Line Total',
-		'Taxable',
-		'Sort Order',
-		'Created At',
-		'Updated At',
-		'Archived At',
-		'Internal Notes',
-	],
-	PricingConfig: [
-		'Pricing Config ID',
-		'Config Name',
-		'Effective Date',
-		'End Date',
-		'Status',
-		'Calculator Version',
-		'Target Hourly Rate',
-		'Minimum Job Price',
-		'Exterior Labor Weight',
-		'Interior Labor Weight',
-		'Screen Unit Price',
-		'Track Unit Price',
-		'Deep Track Unit Price',
-		'Skylight Unit Price',
-		'Sliding Door Unit Price',
-		'French Pane Unit Price',
-		'Oversized Glass Unit Price',
-		'Second Story Factor',
-		'Third Story Factor',
-		'Moderate Condition Factor',
-		'Heavy Condition Factor',
-		'First-Time Cleaning Factor',
-		'Hard Water Minimum',
-		'Construction Debris Minimum',
-		'Access Surcharge Minimum',
-		'Estimate Low Variance',
-		'Estimate High Variance',
-		'Created At',
-		'Updated At',
-		'Archived At',
-		'Notes',
-	],
-	// JobItems was declared here but never had a model file, a reader or a
-	// writer — bootstrapping only ever created an empty tab in each new
-	// environment. Removed rather than left as a tab that looks meaningful.
-	CalibrationSnapshot: [
-		'Calibration Snapshot ID',
-		'Generated At',
-		'Calculator Version',
-		'Completed Job Count',
-		'Comparable Job Count',
-		'Observed Revenue Per Hour',
-		'Median Revenue Per Hour',
-		'Average Estimate Variance',
-		'Median Estimate Variance',
-		'Average Minutes Per Pane',
-		'Average Minutes Per Window',
-		'Average Windows-to-Panes Ratio',
-		'Confidence Level',
-		'Date Range Start',
-		'Date Range End',
-		'Notes',
-	],
+	Clients: headersFor(clientSchema),
+	Properties: headersFor(propertySchema),
+	PropertyPhotos: headersFor(propertyPhotoSchema),
+	Leads: headersFor(leadSchema),
+	Pipeline: headersFor(pipelineSchema),
+	Quotes: headersFor(quoteSchema),
+	QuoteItems: headersFor(quoteItemSchema),
+	Services: headersFor(serviceSchema),
+	PricingConfig: headersFor(pricingConfigSchema),
+	// The labor model's own configuration: one versioned row of assumptions,
+	// plus one profile row per production class. See lib/labor/estimate.ts.
+	LaborConfig: headersFor(laborConfigSchema),
+	WindowProductionProfiles: headersFor(windowProductionProfileSchema),
+	CalibrationSnapshot: headersFor(calibrationSnapshotSchema),
+	Walkthroughs: headersFor(walkthroughSchema),
+	WalkthroughItems: headersFor(walkthroughItemSchema),
+	// Restoration services and property-level labor modifiers, one row each.
+	WalkthroughLaborAdjustments: headersFor(walkthroughAdjustmentSchema),
+	JobTimeEntries: headersFor(jobTimeEntrySchema),
+	QBCustomers: headersFor(qbCustomerSchema),
+	QBEstimates: headersFor(qbEstimateSchema),
+	QBInvoices: headersFor(qbInvoiceSchema),
+	QBPayments: headersFor(qbPaymentSchema),
+	// The one tab with no model file of its own — activityLog.ts writes it
+	// directly, so its header list is spelled out here.
 	ActivityLog: [
 		'Activity ID',
 		'Entity Type',
@@ -265,129 +75,6 @@ export const TAB_SCHEMAS: Record<string, string[]> = {
 		'Timestamp',
 		'Request ID',
 		'Notes',
-	],
-	Walkthroughs: [
-		'Walkthrough ID',
-		'Client ID',
-		'Property ID',
-		'Opportunity ID',
-		'Quote ID',
-		'Walkthrough Date',
-		'Status',
-		'Conducted By',
-		'Exterior Condition',
-		'Interior Condition',
-		'Story Count Observed',
-		'Access Difficulty',
-		'Hard Water Present (Y/N)',
-		'Construction Debris Present (Y/N)',
-		'Total Window Units',
-		'Total Glass Panes',
-		'Total Screens',
-		'Total Tracks',
-		'Total Skylights',
-		'Total Sliding Doors',
-		'Interior Included (Y/N)',
-		'Exterior Included (Y/N)',
-		'Count Entry Mode',
-		'Water-Fed Pole Suitable (Y/N)',
-		'Ladder Required',
-		'Roof Access Required',
-		'Estimated On-Site Labor Hours',
-		'Suggested Low Price',
-		'Suggested Target Price',
-		'Suggested High Price',
-		'Owner Override Price',
-		'Pricing Config ID',
-		'Notes',
-		'Created At',
-		'Updated At',
-		'Archived At',
-	],
-	WalkthroughItems: [
-		'Walkthrough Item ID',
-		'Walkthrough ID',
-		'Area',
-		'Window Units',
-		'Pane Count',
-		'Item Type',
-		'Quantity',
-		'Size Class',
-		'Interior Included',
-		'Exterior Included',
-		'Screen Included',
-		'Track Included',
-		'Condition',
-		'Access Difficulty',
-		'Hard Water',
-		'Construction Debris',
-		'Estimated Labor Minutes',
-		'Notes',
-		'Sort Order',
-		'Created At',
-		'Updated At',
-		'Archived At',
-	],
-	JobTimeEntries: [
-		'Job Time Entry ID',
-		'Job ID',
-		'Time Category',
-		'Started At',
-		'Ended At',
-		'Duration Minutes',
-		'Notes',
-		'Created At',
-		'Updated At',
-		'Archived At',
-	],
-	QBCustomers: [
-		'QB Customer ID',
-		'Display Name',
-		'Email',
-		'Phone',
-		'Address',
-		'QB Last Updated',
-		'Created At',
-		'Updated At',
-		'Archived At',
-	],
-	QBEstimates: [
-		'QB Estimate ID',
-		'QB Customer ID',
-		'Status',
-		'Total',
-		'Doc Number',
-		'Txn Date',
-		'QB Last Updated',
-		'Created At',
-		'Updated At',
-		'Archived At',
-	],
-	QBInvoices: [
-		'QB Invoice ID',
-		'QB Customer ID',
-		'Status',
-		'Total',
-		'Balance',
-		'Due Date',
-		'Doc Number',
-		'Txn Date',
-		'QB Last Updated',
-		'Created At',
-		'Updated At',
-		'Archived At',
-	],
-	QBPayments: [
-		'QB Payment ID',
-		'QB Customer ID',
-		'Total',
-		'Payment Date',
-		'Method',
-		'Linked Invoice IDs',
-		'QB Last Updated',
-		'Created At',
-		'Updated At',
-		'Archived At',
 	],
 };
 
@@ -415,15 +102,36 @@ export async function bootstrapMissingTabs(env: SheetsEnv): Promise<{ created: s
  * matter functionally (every read/write goes by header name), so this is
  * always a safe plain append at the end. */
 export async function ensureColumn(env: SheetsEnv, tab: string, columnName: string): Promise<boolean> {
+	const added = await ensureColumns(env, tab, [columnName]);
+	return added.length > 0;
+}
+
+/** The same thing for a batch, in one read and one write regardless of how
+ * many columns are being added. A schema change that adds thirty columns
+ * across a few tabs is otherwise sixty-odd header reads, which is most of the
+ * Sheets API's 60-reads-per-minute budget spent on bookkeeping. Returns the
+ * names actually appended, so a re-run reports an empty list rather than
+ * failing. */
+export async function ensureColumns(env: SheetsEnv, tab: string, columnNames: string[]): Promise<string[]> {
 	const headers = await readHeaders(env, tab, { fresh: true });
-	if (headers.includes(columnName)) return false;
-	const nextCol = headers.length + 1;
-	await ensureGridSize(env, tab, { minColumns: nextCol });
-	await updateValues(env, `'${tab}'!${columnLetterAt(nextCol)}1`, [[columnName]]);
+	const existing = new Set(headers);
+	const missing: string[] = [];
+	for (const name of columnNames) {
+		// Deduplicates within the request too — asking for the same column
+		// twice must not append it twice.
+		if (existing.has(name)) continue;
+		existing.add(name);
+		missing.push(name);
+	}
+	if (missing.length === 0) return [];
+
+	const firstCol = headers.length + 1;
+	await ensureGridSize(env, tab, { minColumns: headers.length + missing.length });
+	await updateValues(env, `'${tab}'!${columnLetterAt(firstCol)}1`, [missing]);
 	// Refreshes the in-process header cache immediately — otherwise any
 	// code that reads this tab's headers without {fresh: true} afterward
 	// (the normal, non-admin path) would keep seeing the pre-append header
 	// list until something else happens to force a fresh read.
 	await readHeaders(env, tab, { fresh: true });
-	return true;
+	return missing;
 }

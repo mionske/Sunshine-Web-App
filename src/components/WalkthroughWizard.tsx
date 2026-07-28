@@ -1,41 +1,60 @@
 import { useEffect, useState } from 'react';
-import { GLASS_CONDITION_LEVELS } from '../lib/models/walkthrough';
-
-const ALL_AREAS = ['Front', 'Left', 'Rear', 'Right', 'Interior', 'Garage', 'Basement', 'Other'];
-const ITEM_TYPES = ['Window', 'Sliding Door', 'Skylight'];
-const SIZE_CLASSES = ['Standard', 'Oversized', 'French/Divided-Light'];
-const CONDITION_LEVELS = ['Maintenance', 'Moderate Buildup', 'Heavy Buildup', 'Restoration Required', 'Unknown'];
-const ACCESS_LEVELS = ['Easy', 'Standard', 'Difficult', 'Specialty Access', 'Unknown'];
+import {
+	COMPONENT_CONDITIONS,
+	EXTERIOR_ACCESS_LEVELS,
+	INTERIOR_ACCESS_LEVELS,
+	PRODUCTION_CLASSES,
+	PRODUCTION_CLASS_HINTS,
+	PROPERTY_MODIFIERS,
+	RESTORATION_SERVICES,
+	SCHEDULE_RECOMMENDATIONS,
+	SIZE_CLASSES,
+	STORIES,
+} from '../lib/labor/types';
 
 function newId(): string {
 	return crypto.randomUUID();
 }
 
-// Glass Condition (how dirty) vs. Restoration Services Required (what
-// specialized technique the job needs) are two separate concepts now —
-// this is the shared radio-pill control for the two Glass Condition
-// fields, reusing the app's existing .segmented CSS (see Property
-// Detail's Access Difficulty/Ladder Requirement controls for the same
-// visual pattern elsewhere).
-function GlassConditionRadios({
+function hours(minutes: number): string {
+	return (minutes / 60).toFixed(1);
+}
+
+/** Radio pills, reusing the app's existing .segmented CSS. Used for every
+ * short single-choice field in the wizard — one tap in the field beats a
+ * select that opens a native picker sheet. */
+function Segmented({
 	label,
 	name,
 	value,
+	options,
 	onChange,
+	hint,
+	allowBlank,
 }: {
 	label: string;
 	name: string;
 	value: string;
+	options: readonly string[];
 	onChange: (value: string) => void;
+	hint?: string;
+	allowBlank?: boolean;
 }) {
 	return (
 		<div>
 			<p className="field-label">{label}</p>
+			{hint && <span className="field-hint">{hint}</span>}
 			<div className="segmented">
-				{GLASS_CONDITION_LEVELS.map((level) => (
-					<label key={level}>
-						<input type="radio" name={name} value={level} checked={value === level} onChange={() => onChange(level)} />
-						{level}
+				{allowBlank && (
+					<label>
+						<input type="radio" name={name} value="" checked={value === ''} onChange={() => onChange('')} />
+						Not set
+					</label>
+				)}
+				{options.map((option) => (
+					<label key={option}>
+						<input type="radio" name={name} value={option} checked={value === option} onChange={() => onChange(option)} />
+						{option}
 					</label>
 				))}
 			</div>
@@ -43,111 +62,98 @@ function GlassConditionRadios({
 	);
 }
 
-interface ItemState {
+/** One grouped inventory row: a set of similar windows with a quantity.
+ * Never one row per physical window. */
+interface GroupState {
 	id: string;
-	area: string;
-	itemType: string;
-	sizeClass: string;
 	quantity: string;
-	interiorIncluded: boolean;
-	exteriorIncluded: boolean;
-	screenIncluded: boolean;
-	trackIncluded: boolean;
-	condition: string;
-	accessDifficulty: string;
-	hardWater: boolean;
-	constructionDebris: boolean;
+	productionClass: string;
+	sizeClass: string;
+	story: string;
+	interiorAccess: string;
+	exteriorAccess: string;
+	panesPerUnit: string;
+	screensPerUnit: string;
+	tracksPerUnit: string;
+	specialtyDescription: string;
 	notes: string;
 }
 
-function emptyItem(area: string): ItemState {
+function emptyGroup(): GroupState {
 	return {
 		id: newId(),
-		area,
-		itemType: 'Window',
-		sizeClass: 'Standard',
 		quantity: '1',
-		interiorIncluded: false,
-		exteriorIncluded: true,
-		screenIncluded: false,
-		trackIncluded: false,
-		condition: 'Maintenance',
-		accessDifficulty: 'Standard',
-		hardWater: false,
-		constructionDebris: false,
+		productionClass: 'Standard Window',
+		sizeClass: '',
+		story: 'First',
+		interiorAccess: 'Floor Level',
+		exteriorAccess: 'Ground-Level Traditional',
+		panesPerUnit: '',
+		screensPerUnit: '',
+		tracksPerUnit: '',
+		specialtyDescription: '',
 		notes: '',
 	};
 }
 
-/** One optional area in the by-area breakdown. Counts only — no window
- * types, no per-opening rows. */
-interface AreaState {
+/** A restoration service or property-level modifier the operator selected,
+ * with its own scope and its own minutes. */
+interface AdjustmentState {
 	id: string;
-	area: string;
-	windowUnits: string;
-	paneCount: string;
-	screens: string;
-	tracks: string;
+	kind: 'Restoration' | 'Modifier';
+	label: string;
+	affectedUnits: string;
+	affectedPanes: string;
+	additionalMinutes: string;
 	notes: string;
 }
 
-function emptyArea(): AreaState {
-	return { id: newId(), area: '', windowUnits: '', paneCount: '', screens: '', tracks: '', notes: '' };
+function emptyAdjustment(kind: 'Restoration' | 'Modifier', label: string): AdjustmentState {
+	return { id: newId(), kind, label, affectedUnits: '', affectedPanes: '', additionalMinutes: '', notes: '' };
 }
-
-/** How the counts on this walkthrough were entered. Whole-property is the
- * default and the fastest path; the other two are opt-in. */
-type CountMode = 'whole-property' | 'by-area' | 'detailed';
 
 interface WizardState {
-	step: number; // 0 = property & access, 1 = counts, 2 = condition, 3 = review & price
+	step: number; // 0 scope & property, 1 inventory, 2 condition, 3 review
 	walkthroughDate: string;
 	conductedBy: string;
-	exteriorCondition: string;
-	interiorCondition: string;
+	notes: string;
+
+	// Scope — every component can be excluded independently.
+	interiorIncluded: boolean;
+	exteriorIncluded: boolean;
+	screensIncluded: boolean;
+	tracksIncluded: boolean;
+	framesIncluded: boolean;
+
+	// Permanent-ish reference the operator can confirm for this visit.
 	storyCountObserved: string;
-	accessDifficulty: string;
-	hardWaterPresent: boolean;
-	constructionDebrisPresent: boolean;
-	waterFedPoleSuitable: boolean;
 	ladderRequired: string;
 	roofAccessRequired: string;
-	notes: string;
-	// Data-ownership separation: temporary condition/access observations
-	// that used to live on Property — captured per visit here instead,
-	// since a maintenance visit can change every one of them.
-	siliconeResidue: boolean;
-	heavyInteriorResidue: boolean;
-	oxidizedFramesOrScreens: boolean;
-	conditionVariesByArea: boolean;
-	conditionNotes: string;
+	waterFedPoleSuitable: boolean;
 	exteriorAccessObstructed: boolean;
 	furnitureMovementRequired: boolean;
 	temporaryAccessNotes: string;
-	// Restoration Services Required — supplements exteriorCondition/
-	// interiorCondition above, doesn't replace them. constructionDebrisPresent/
-	// hardWaterPresent/siliconeResidue above already double as three of the
-	// 8 restoration checkboxes.
-	paintOverspray: boolean;
-	razorScraping: boolean;
-	steelWool: boolean;
-	nonScratchPad: boolean;
+
+	groups: GroupState[];
+	manualScreenTotal: string;
+	manualTrackTotal: string;
+
+	// One rating per component. Blank is legitimate — a component that isn't
+	// in scope is never rated.
+	interiorGlassCondition: string;
+	trackCondition: string;
+	exteriorGlassCondition: string;
+	exteriorFrameCondition: string;
+	screenCondition: string;
+	conditionNotes: string;
+
+	adjustments: AdjustmentState[];
 	restorationNotes: string;
-	// Counts. Window units and panes of glass measure different things and
-	// are recorded independently — the app never derives one from the other.
-	countMode: CountMode;
-	totalWindowUnits: string;
-	totalGlassPanes: string;
-	totalScreens: string;
-	totalTracks: string;
-	totalSkylights: string;
-	totalSlidingDoors: string;
-	interiorIncluded: boolean;
-	exteriorIncluded: boolean;
-	areas: AreaState[];
-	/** Only used in 'detailed' mode — the per-opening breakdown, kept for
-	 * the rare job that genuinely needs it. */
-	items: ItemState[];
+
+	scheduledHoursOverride: string;
+	scheduleRecommendationOverride: string;
+	ownerSelectedPrice: string;
+	ownerOverrideReason: string;
 }
 
 function emptyState(): WizardState {
@@ -155,58 +161,89 @@ function emptyState(): WizardState {
 		step: 0,
 		walkthroughDate: new Date().toISOString().slice(0, 10),
 		conductedBy: '',
-		exteriorCondition: 'Maintenance',
-		interiorCondition: 'Maintenance',
+		notes: '',
+		interiorIncluded: false,
+		exteriorIncluded: true,
+		screensIncluded: true,
+		tracksIncluded: false,
+		framesIncluded: true,
 		storyCountObserved: '1',
-		accessDifficulty: 'Standard',
-		hardWaterPresent: false,
-		constructionDebrisPresent: false,
-		waterFedPoleSuitable: false,
 		ladderRequired: '',
 		roofAccessRequired: '',
-		notes: '',
-		siliconeResidue: false,
-		heavyInteriorResidue: false,
-		oxidizedFramesOrScreens: false,
-		conditionVariesByArea: false,
-		conditionNotes: '',
+		waterFedPoleSuitable: false,
 		exteriorAccessObstructed: false,
 		furnitureMovementRequired: false,
 		temporaryAccessNotes: '',
-		paintOverspray: false,
-		razorScraping: false,
-		steelWool: false,
-		nonScratchPad: false,
+		groups: [emptyGroup()],
+		manualScreenTotal: '',
+		manualTrackTotal: '',
+		interiorGlassCondition: '',
+		trackCondition: '',
+		exteriorGlassCondition: 'Maintenance',
+		exteriorFrameCondition: '',
+		screenCondition: '',
+		conditionNotes: '',
+		adjustments: [],
 		restorationNotes: '',
-		countMode: 'whole-property',
-		totalWindowUnits: '',
-		totalGlassPanes: '',
-		totalScreens: '',
-		totalTracks: '',
-		totalSkylights: '',
-		totalSlidingDoors: '',
-		interiorIncluded: false,
-		exteriorIncluded: true,
-		areas: [],
-		items: [],
+		scheduledHoursOverride: '',
+		scheduleRecommendationOverride: '',
+		ownerSelectedPrice: '',
+		ownerOverrideReason: '',
 	};
 }
 
-// v2: the wizard went from 8 steps to 4 and gained whole-property counts, so
-// a draft saved by the old wizard carries a step index and a shape that no
-// longer mean the same thing. Bumping the key retires those drafts rather
-// than restoring one into a form that can't represent it.
+// v3: labor is now estimated from grouped window rows rather than
+// whole-property counts, so a v2 draft carries a shape this form can't
+// represent. Bumping the key retires those drafts instead of restoring one
+// into a form that would silently drop most of it.
 function draftKey(propertyId: string): string {
-	return `sww-walkthrough-draft-v2-${propertyId}`;
+	return `sww-walkthrough-draft-v3-${propertyId}`;
 }
 
-interface PricingPreview {
-	estimatedLaborHours: number;
-	suggestedLowPrice: number;
-	suggestedTargetPrice: number;
-	suggestedHighPrice: number;
-	pricingConfigId: string;
+interface LaborBreakdown {
+	fixedOverhead: number;
+	interiorGlass: number;
+	exteriorGlass: number;
+	exteriorFrames: number;
+	screens: number;
+	tracks: number;
+	interiorAccess: number;
+	exteriorAccess: number;
+	storyLogistics: number;
+	condition: number;
+	restoration: number;
+	propertyModifiers: number;
 }
+
+interface LaborPreview {
+	estimate: {
+		breakdown: LaborBreakdown;
+		productiveMinutes: number;
+		totals: { windowUnits: number; glassPanes: number; screens: number; tracks: number; screensManual: boolean; tracksManual: boolean };
+		laborModelVersion: string;
+		explanation: string;
+		hazardousAccess: string[];
+	};
+	schedule: { scheduledMinutes: number; recommendation: string; reasons: string[] };
+	band: { low: number; target: number; high: number; minimumApplied: boolean };
+}
+
+/** The order the breakdown reads in — overhead first, then the work, then
+ * what made the work harder. */
+const BREAKDOWN_ROWS: { key: keyof LaborBreakdown; label: string }[] = [
+	{ key: 'fixedOverhead', label: 'Fixed job overhead' },
+	{ key: 'interiorGlass', label: 'Interior glass' },
+	{ key: 'exteriorGlass', label: 'Exterior glass' },
+	{ key: 'exteriorFrames', label: 'Exterior frames and sills' },
+	{ key: 'screens', label: 'Screens' },
+	{ key: 'tracks', label: 'Tracks' },
+	{ key: 'interiorAccess', label: 'Interior access' },
+	{ key: 'exteriorAccess', label: 'Exterior access' },
+	{ key: 'storyLogistics', label: 'Story logistics' },
+	{ key: 'condition', label: 'Component condition' },
+	{ key: 'restoration', label: 'Restoration' },
+	{ key: 'propertyModifiers', label: 'Property modifiers' },
+];
 
 interface PropertyReference {
 	totalWindowUnits: string;
@@ -241,10 +278,8 @@ export default function WalkthroughWizard({
 		}
 		return emptyState();
 	});
-	const [editingItem, setEditingItem] = useState<ItemState | null>(null);
-	const [pricing, setPricing] = useState<PricingPreview | null>(null);
-	const [loadingPricing, setLoadingPricing] = useState(false);
-	const [ownerOverridePrice, setOwnerOverridePrice] = useState('');
+	const [preview, setPreview] = useState<LaborPreview | null>(null);
+	const [loadingPreview, setLoadingPreview] = useState(false);
 	const [saving, setSaving] = useState(false);
 	const [saveError, setSaveError] = useState<string | null>(null);
 	const [saveResult, setSaveResult] = useState<Record<string, unknown> | null>(null);
@@ -271,159 +306,100 @@ export default function WalkthroughWizard({
 		setState((s) => ({ ...s, step }));
 	}
 
-	function saveItem(item: ItemState) {
+	function updateGroup(id: string, patch: Partial<GroupState>) {
+		setState((s) => ({ ...s, groups: s.groups.map((g) => (g.id === id ? { ...g, ...patch } : g)) }));
+	}
+
+	function addGroup() {
+		setState((s) => ({ ...s, groups: [...s.groups, emptyGroup()] }));
+	}
+
+	/** Duplicate gets a fresh id — two rows that shared one would collide on
+	 * save, and the second would overwrite the first. */
+	function duplicateGroup(group: GroupState) {
+		setState((s) => ({ ...s, groups: [...s.groups, { ...group, id: newId() }] }));
+	}
+
+	function removeGroup(id: string) {
+		setState((s) => ({ ...s, groups: s.groups.filter((g) => g.id !== id) }));
+	}
+
+	function toggleAdjustment(kind: 'Restoration' | 'Modifier', label: string) {
 		setState((s) => {
-			const exists = s.items.some((i) => i.id === item.id);
-			return { ...s, items: exists ? s.items.map((i) => (i.id === item.id ? item : i)) : [...s.items, item] };
-		});
-		setEditingItem(null);
-	}
-
-	function deleteItem(id: string) {
-		setState((s) => ({ ...s, items: s.items.filter((i) => i.id !== id) }));
-	}
-
-	function duplicateItem(item: ItemState) {
-		setState((s) => ({ ...s, items: [...s.items, { ...item, id: newId() }] }));
-	}
-
-	function updateArea(id: string, patch: Partial<AreaState>) {
-		setState((s) => ({ ...s, areas: s.areas.map((a) => (a.id === id ? { ...a, ...patch } : a)) }));
-	}
-
-	function addArea() {
-		setState((s) => ({ ...s, areas: [...s.areas, emptyArea()], countMode: 'by-area' }));
-	}
-
-	function duplicateArea(area: AreaState) {
-		setState((s) => ({ ...s, areas: [...s.areas, { ...area, id: newId() }] }));
-	}
-
-	function removeArea(id: string) {
-		setState((s) => {
-			const areas = s.areas.filter((a) => a.id !== id);
-			return { ...s, areas, countMode: areas.length === 0 && s.countMode === 'by-area' ? 'whole-property' : s.countMode };
+			const existing = s.adjustments.find((a) => a.kind === kind && a.label === label);
+			return {
+				...s,
+				adjustments: existing
+					? s.adjustments.filter((a) => a !== existing)
+					: [...s.adjustments, emptyAdjustment(kind, label)],
+			};
 		});
 	}
 
-	const areaTotals = state.areas.reduce(
-		(acc, a) => ({
-			windowUnits: acc.windowUnits + (Number(a.windowUnits) || 0),
-			panes: acc.panes + (Number(a.paneCount) || 0),
-			screens: acc.screens + (Number(a.screens) || 0),
-			tracks: acc.tracks + (Number(a.tracks) || 0),
-		}),
-		{ windowUnits: 0, panes: 0, screens: 0, tracks: 0 }
-	);
+	function updateAdjustment(id: string, patch: Partial<AdjustmentState>) {
+		setState((s) => ({ ...s, adjustments: s.adjustments.map((a) => (a.id === id ? { ...a, ...patch } : a)) }));
+	}
 
-	// What actually gets priced and saved, per entry mode. Only one mode's
-	// rows are ever sent — mixing them would make the resolver pick the
-	// detailed path and silently ignore the totals the operator entered.
-	const usingAreas = state.countMode === 'by-area' && state.areas.length > 0;
-	const usingDetailed = state.countMode === 'detailed';
+	const scope = {
+		interior: state.interiorIncluded,
+		exterior: state.exteriorIncluded,
+		screens: state.screensIncluded,
+		tracks: state.tracksIncluded,
+		frames: state.framesIncluded,
+	};
 
-	function countPayload() {
-		const totals = usingAreas
-			? { windowUnits: areaTotals.windowUnits, panes: areaTotals.panes, screens: areaTotals.screens, tracks: areaTotals.tracks }
-			: {
-					windowUnits: Number(state.totalWindowUnits) || 0,
-					panes: Number(state.totalGlassPanes) || 0,
-					screens: Number(state.totalScreens) || 0,
-					tracks: Number(state.totalTracks) || 0,
-				};
+	const conditions = {
+		interiorGlass: state.interiorGlassCondition,
+		track: state.trackCondition,
+		exteriorGlass: state.exteriorGlassCondition,
+		exteriorFrame: state.exteriorFrameCondition,
+		screen: state.screenCondition,
+	};
+
+	function laborPayload() {
 		return {
-			totalWindowUnits: String(totals.windowUnits),
-			totalGlassPanes: String(totals.panes),
-			totalScreens: String(totals.screens),
-			totalTracks: String(totals.tracks),
-			totalSkylights: state.totalSkylights,
-			totalSlidingDoors: state.totalSlidingDoors,
-			interiorIncluded: state.interiorIncluded,
-			exteriorIncluded: state.exteriorIncluded,
-			countEntryMode: state.countMode,
-			items: usingDetailed
-				? state.items
-				: usingAreas
-					? state.areas.map((a) => ({
-							id: a.id,
-							area: a.area,
-							windowUnits: a.windowUnits,
-							paneCount: a.paneCount,
-							itemType: '',
-							quantity: '',
-							sizeClass: '',
-							interiorIncluded: state.interiorIncluded,
-							exteriorIncluded: state.exteriorIncluded,
-							screenIncluded: false,
-							trackIncluded: false,
-							screenCount: a.screens,
-							trackCount: a.tracks,
-							condition: '',
-							accessDifficulty: '',
-							hardWater: false,
-							constructionDebris: false,
-							notes: a.notes,
-						}))
-					: [],
+			propertyId,
+			groups: state.groups,
+			adjustments: state.adjustments,
+			scope,
+			conditions,
+			manualScreenTotal: state.manualScreenTotal,
+			manualTrackTotal: state.manualTrackTotal,
+			scheduledMinutesOverride: state.scheduledHoursOverride
+				? String(Number(state.scheduledHoursOverride) * 60)
+				: '',
 		};
 	}
 
-	function startOver() {
-		window.localStorage.removeItem(draftKey(propertyId));
-		setState(emptyState());
-		setSaveResult(null);
+	// Fetched on demand rather than on every keystroke: each preview reads the
+	// labor config, its profiles and the pricing config, and the Sheets API
+	// allows 60 reads a minute.
+	async function loadPreview(): Promise<LaborPreview | null> {
+		setLoadingPreview(true);
 		setSaveError(null);
-		setPricing(null);
-	}
-
-	async function loadPricingPreview() {
-		setLoadingPricing(true);
 		try {
-			const counts = countPayload();
 			const res = await fetch('/api/walkthrough', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({
-					action: 'preview-pricing',
-					propertyId,
-					input: {
-						storyCountObserved: state.storyCountObserved,
-						exteriorCondition: state.exteriorCondition,
-						hardWaterPresent: state.hardWaterPresent,
-						constructionDebrisPresent: state.constructionDebrisPresent,
-						accessDifficulty: state.accessDifficulty,
-						siliconeResidue: state.siliconeResidue,
-						paintOverspray: state.paintOverspray,
-						razorScraping: state.razorScraping,
-						steelWool: state.steelWool,
-						nonScratchPad: state.nonScratchPad,
-						// Absent in detailed mode, so the engine prices from the
-						// item rows instead (see resolveWalkthroughCounts).
-						totals: usingDetailed
-							? undefined
-							: {
-									windowUnits: Number(counts.totalWindowUnits) || 0,
-									panes: Number(counts.totalGlassPanes) || 0,
-									screens: Number(counts.totalScreens) || 0,
-									tracks: Number(counts.totalTracks) || 0,
-									skylights: Number(counts.totalSkylights) || 0,
-									slidingDoors: Number(counts.totalSlidingDoors) || 0,
-								},
-						interiorIncluded: state.interiorIncluded,
-						exteriorIncluded: state.exteriorIncluded,
-					},
-					items: counts.items,
-				}),
+				body: JSON.stringify({ action: 'preview-labor', ...laborPayload() }),
 			});
-			const body = (await res.json()) as { ok: boolean; pricing?: PricingPreview; error?: string };
-			if (body.ok && body.pricing) {
-				setPricing(body.pricing);
-				setOwnerOverridePrice(String(body.pricing.suggestedTargetPrice));
-			} else {
-				setSaveError(body.error ?? 'Could not calculate pricing preview.');
+			const body = (await res.json()) as { ok: boolean; error?: string } & LaborPreview;
+			if (!body.ok) {
+				setSaveError(body.error ?? 'Could not calculate the labor estimate.');
+				return null;
 			}
+			const next: LaborPreview = { estimate: body.estimate, schedule: body.schedule, band: body.band };
+			setPreview(next);
+			// Seeded once, from the target. Never re-seeded on a later
+			// recalculation — that would quietly discard a price the owner had
+			// already decided on.
+			setState((s) => (s.ownerSelectedPrice ? s : { ...s, ownerSelectedPrice: String(next.band.target) }));
+			return next;
+		} catch (e) {
+			setSaveError((e as Error).message || 'Network error while calculating.');
+			return null;
 		} finally {
-			setLoadingPricing(false);
+			setLoadingPreview(false);
 		}
 	}
 
@@ -435,38 +411,26 @@ export default function WalkthroughWizard({
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
 				body: JSON.stringify({
-					action: 'save',
+					action: 'save-labor',
 					id: newId(),
 					clientId,
-					propertyId,
 					opportunityId,
 					walkthroughDate: state.walkthroughDate,
 					conductedBy: state.conductedBy,
-					exteriorCondition: state.exteriorCondition,
-					interiorCondition: state.interiorCondition,
+					notes: state.notes,
+					conditionNotes: state.conditionNotes,
+					restorationNotes: state.restorationNotes,
+					temporaryAccessNotes: state.temporaryAccessNotes,
 					storyCountObserved: state.storyCountObserved,
-					accessDifficulty: state.accessDifficulty,
-					hardWaterPresent: state.hardWaterPresent,
-					constructionDebrisPresent: state.constructionDebrisPresent,
-					waterFedPoleSuitable: state.waterFedPoleSuitable,
 					ladderRequired: state.ladderRequired,
 					roofAccessRequired: state.roofAccessRequired,
-					ownerOverridePrice,
-					notes: state.notes,
-					siliconeResidue: state.siliconeResidue,
-					heavyInteriorResidue: state.heavyInteriorResidue,
-					oxidizedFramesOrScreens: state.oxidizedFramesOrScreens,
-					conditionVariesByArea: state.conditionVariesByArea,
-					conditionNotes: state.conditionNotes,
+					waterFedPoleSuitable: state.waterFedPoleSuitable,
 					exteriorAccessObstructed: state.exteriorAccessObstructed,
 					furnitureMovementRequired: state.furnitureMovementRequired,
-					temporaryAccessNotes: state.temporaryAccessNotes,
-					paintOverspray: state.paintOverspray,
-					razorScraping: state.razorScraping,
-					steelWool: state.steelWool,
-					nonScratchPad: state.nonScratchPad,
-					restorationNotes: state.restorationNotes,
-					...countPayload(),
+					ownerSelectedPrice: state.ownerSelectedPrice,
+					ownerOverrideReason: state.ownerOverrideReason,
+					scheduleRecommendationOverride: state.scheduleRecommendationOverride,
+					...laborPayload(),
 				}),
 			});
 			const body = (await res.json()) as { ok: boolean; error?: string; [key: string]: unknown };
@@ -502,30 +466,52 @@ export default function WalkthroughWizard({
 		}
 	}
 
+	function startOver() {
+		window.localStorage.removeItem(draftKey(propertyId));
+		setState(emptyState());
+		setSaveResult(null);
+		setSaveError(null);
+		setPreview(null);
+	}
+
 	if (saveResult) {
+		const band = saveResult.band as { low: number; target: number; high: number } | undefined;
 		return (
 			<div className="card">
 				<h2>Walkthrough saved</h2>
 				<p>
-					Suggested price: ${String(saveResult.suggestedLowPrice)} – ${String(saveResult.suggestedHighPrice)}
-					{' '}(target ${String(saveResult.suggestedTargetPrice)})
+					{hours(Number(saveResult.productiveMinutes))} productive hours ·{' '}
+					{hours(Number(saveResult.scheduledMinutes))} scheduled · {String(saveResult.scheduleRecommendation)}
 				</p>
+				{band && (
+					<p>
+						Suggested ${band.low} – ${band.high} (target <strong>${band.target}</strong>)
+						{state.ownerSelectedPrice && ` · your price $${state.ownerSelectedPrice}`}
+					</p>
+				)}
 				<p>
 					<a href={`/properties/${propertyId}`}>View property</a>
 				</p>
 				{saveError && <p role="alert">{saveError}</p>}
-				<button type="button" disabled={creatingQuote} onClick={() => createQuote(String(saveResult.walkthroughId))}>
-					{creatingQuote ? 'Creating…' : 'Create quote from this walkthrough'}
-				</button>{' '}
-				<button type="button" onClick={startOver}>
-					Start another walkthrough
-				</button>
+				<div className="button-row">
+					<button type="button" disabled={creatingQuote} onClick={() => createQuote(String(saveResult.walkthroughId))}>
+						{creatingQuote ? 'Creating…' : 'Create quote from this walkthrough'}
+					</button>
+					<button type="button" className="btn-secondary" onClick={startOver}>
+						Start another walkthrough
+					</button>
+				</div>
 			</div>
 		);
 	}
 
-	const currentAreaItems = (area: string) => state.items.filter((i) => i.area === area);
-	const STEP_TITLES = ['Property & Access', 'Counts', 'Condition & Special Work', 'Review & Price'];
+	const groupedUnits = state.groups.reduce((sum, g) => sum + (Number(g.quantity) || 0), 0);
+	const specialtyMissingDescription = state.groups.some(
+		(g) => g.productionClass === 'Specialty Shape' && !g.specialtyDescription.trim()
+	);
+	const inventoryValid = state.groups.length > 0 && groupedUnits > 0 && !specialtyMissingDescription;
+
+	const STEP_TITLES = ['Scope & Property', 'Window Inventory', 'Condition & Special Work', 'Review, Labor & Price'];
 
 	return (
 		<div>
@@ -535,14 +521,14 @@ export default function WalkthroughWizard({
 
 			{state.step === 0 && (
 				<section className="card">
-					<h2>Property &amp; Access</h2>
+					<h2>Scope &amp; Property</h2>
 
 					{propertyReference && (
 						<div className="card" style={{ background: 'var(--color-cream)' }}>
 							<p className="field-label">Property reference</p>
 							<ul style={{ margin: 0 }}>
-								<li>{propertyReference.totalWindowUnits || '0'} window units</li>
-								<li>{propertyReference.totalGlassPanes || '0'} panes</li>
+								<li>{propertyReference.totalWindowUnits || '0'} window units on record</li>
+								<li>{propertyReference.totalGlassPanes || '0'} panes on record</li>
 								<li>
 									{propertyReference.stories || '— not set'} {propertyReference.stories === '1' ? 'story' : 'stories'}
 								</li>
@@ -553,8 +539,8 @@ export default function WalkthroughWizard({
 								{propertyReference.petNotes && <li>Pet notes: {propertyReference.petNotes}</li>}
 							</ul>
 							<span className="field-hint">
-								From the property record — for reference only. This walkthrough saves its own values below and never
-								changes the property.
+								From the property record — reference only. This walkthrough records its own counts and never changes the
+								property.
 							</span>
 						</div>
 					)}
@@ -568,21 +554,45 @@ export default function WalkthroughWizard({
 							Conducted by
 							<input type="text" value={state.conductedBy} onChange={(e) => update({ conductedBy: e.target.value })} />
 						</label>
+					</div>
+
+					<p className="field-label">What&apos;s included</p>
+					<span className="field-hint">
+						Only what&apos;s checked is estimated or asked about later. Excluded components are never rated and never
+						charged.
+					</span>
+					<div className="checkbox-grid">
 						<label>
-							Stories
-							<select value={state.storyCountObserved} onChange={(e) => update({ storyCountObserved: e.target.value })}>
-								<option value="1">1</option>
-								<option value="2">2</option>
-								<option value="3">3</option>
-							</select>
+							<input type="checkbox" checked={state.exteriorIncluded} onChange={(e) => update({ exteriorIncluded: e.target.checked })} />{' '}
+							Exterior glass
 						</label>
 						<label>
-							Overall access difficulty
-							<select value={state.accessDifficulty} onChange={(e) => update({ accessDifficulty: e.target.value })}>
-								{ACCESS_LEVELS.map((a) => (
-									<option key={a}>{a}</option>
-								))}
-							</select>
+							<input type="checkbox" checked={state.interiorIncluded} onChange={(e) => update({ interiorIncluded: e.target.checked })} />{' '}
+							Interior glass
+						</label>
+						<label>
+							<input type="checkbox" checked={state.framesIncluded} onChange={(e) => update({ framesIncluded: e.target.checked })} />{' '}
+							Exterior frames and sills
+						</label>
+						<label>
+							<input type="checkbox" checked={state.screensIncluded} onChange={(e) => update({ screensIncluded: e.target.checked })} />{' '}
+							Screens
+						</label>
+						<label>
+							<input type="checkbox" checked={state.tracksIncluded} onChange={(e) => update({ tracksIncluded: e.target.checked })} />{' '}
+							Tracks
+						</label>
+					</div>
+
+					<div className="form-grid">
+						<label>
+							Stories observed
+							<input
+								type="number"
+								min="1"
+								value={state.storyCountObserved}
+								onChange={(e) => update({ storyCountObserved: e.target.value })}
+							/>
 						</label>
 						<label>
 							Ladder requirement
@@ -613,144 +623,340 @@ export default function WalkthroughWizard({
 								checked={state.furnitureMovementRequired}
 								onChange={(e) => update({ furnitureMovementRequired: e.target.checked })}
 							/>{' '}
-							Furniture or belongings currently need to be moved
+							Furniture or belongings need moving
 						</label>
 					</div>
 
 					<label>
 						Temporary access notes
-						<span className="field-hint">Parking, gates, safety concerns, or anything else about getting set up for this specific visit.</span>
+						<span className="field-hint">Parking, gates, safety concerns — anything about getting set up for this visit.</span>
 						<textarea value={state.temporaryAccessNotes} onChange={(e) => update({ temporaryAccessNotes: e.target.value })} />
 					</label>
 
 					<button type="button" onClick={() => goTo(1)}>
-						Next: Counts
+						Next: Window Inventory
 					</button>
+				</section>
+			)}
+
+			{state.step === 1 && (
+				<section className="card">
+					<div className="card-header-row">
+						<h2>Window Inventory</h2>
+						<span className="field-hint">{groupedUnits} units in {state.groups.length} group(s)</span>
+					</div>
+					<p className="field-hint">
+						Group similar windows together and give each group a quantity — eight standard casements upstairs is one row,
+						not eight. Access is chosen per group, because that&apos;s what actually changes how long the work takes.
+					</p>
+
+					{state.groups.map((group, index) => (
+						<div key={group.id} className="card">
+							<div className="card-header-row">
+								<h3>Group {index + 1}</h3>
+								<div className="button-row button-row-compact">
+									<button type="button" className="btn-secondary" onClick={() => duplicateGroup(group)}>
+										Duplicate
+									</button>
+									<button
+										type="button"
+										className="btn-secondary"
+										onClick={() => removeGroup(group.id)}
+										disabled={state.groups.length === 1}
+									>
+										Remove
+									</button>
+								</div>
+							</div>
+
+							<div className="form-grid">
+								<label>
+									Quantity
+									<input
+										type="number"
+										min="1"
+										value={group.quantity}
+										onChange={(e) => updateGroup(group.id, { quantity: e.target.value })}
+									/>
+								</label>
+								<label>
+									Production class
+									<select
+										value={group.productionClass}
+										onChange={(e) => updateGroup(group.id, { productionClass: e.target.value })}
+									>
+										{PRODUCTION_CLASSES.map((c) => (
+											<option key={c}>{c}</option>
+										))}
+									</select>
+									<span className="field-hint">
+										{PRODUCTION_CLASS_HINTS[group.productionClass as keyof typeof PRODUCTION_CLASS_HINTS]}
+									</span>
+								</label>
+								<label>
+									Story
+									<select value={group.story} onChange={(e) => updateGroup(group.id, { story: e.target.value })}>
+										{STORIES.map((s) => (
+											<option key={s}>{s}</option>
+										))}
+									</select>
+								</label>
+							</div>
+
+							<Segmented
+								label="Size"
+								name={`size-${group.id}`}
+								value={group.sizeClass}
+								options={SIZE_CLASSES}
+								allowBlank
+								hint="Leave unset unless this group is meaningfully bigger or smaller than typical for its class."
+								onChange={(v) => updateGroup(group.id, { sizeClass: v })}
+							/>
+
+							{state.interiorIncluded && (
+								<Segmented
+									label="Interior access"
+									name={`int-access-${group.id}`}
+									value={group.interiorAccess}
+									options={INTERIOR_ACCESS_LEVELS}
+									onChange={(v) => updateGroup(group.id, { interiorAccess: v })}
+								/>
+							)}
+							{state.exteriorIncluded && (
+								<Segmented
+									label="Exterior access"
+									name={`ext-access-${group.id}`}
+									value={group.exteriorAccess}
+									options={EXTERIOR_ACCESS_LEVELS}
+									onChange={(v) => updateGroup(group.id, { exteriorAccess: v })}
+								/>
+							)}
+
+							{group.productionClass === 'Specialty Shape' && (
+								<label>
+									Specialty description
+									<span className="field-hint">Required — describe the shape so this doesn&apos;t become a new category.</span>
+									<input
+										type="text"
+										value={group.specialtyDescription}
+										onChange={(e) => updateGroup(group.id, { specialtyDescription: e.target.value })}
+									/>
+								</label>
+							)}
+
+							<details>
+								<summary>Per-unit counts and notes</summary>
+								<span className="field-hint">
+									All optional. Blank means the typical amount for this class — never a zero.
+								</span>
+								<div className="count-grid">
+									<label>
+										Panes per unit
+										<input
+											type="number"
+											min="0"
+											value={group.panesPerUnit}
+											onChange={(e) => updateGroup(group.id, { panesPerUnit: e.target.value })}
+										/>
+									</label>
+									<label>
+										Screens per unit
+										<input
+											type="number"
+											min="0"
+											value={group.screensPerUnit}
+											onChange={(e) => updateGroup(group.id, { screensPerUnit: e.target.value })}
+										/>
+									</label>
+									<label>
+										Tracks per unit
+										<input
+											type="number"
+											min="0"
+											value={group.tracksPerUnit}
+											onChange={(e) => updateGroup(group.id, { tracksPerUnit: e.target.value })}
+										/>
+									</label>
+								</div>
+								<label>
+									Notes
+									<input type="text" value={group.notes} onChange={(e) => updateGroup(group.id, { notes: e.target.value })} />
+								</label>
+							</details>
+						</div>
+					))}
+
+					<button type="button" className="btn-secondary" onClick={addGroup}>
+						+ Add window group
+					</button>
+
+					<h3>Totals</h3>
+					{preview ? (
+						<div className="stats-grid">
+							<div>
+								<strong>{preview.estimate.totals.windowUnits}</strong>
+								<span className="field-hint">window units</span>
+							</div>
+							<div>
+								<strong>{preview.estimate.totals.glassPanes}</strong>
+								<span className="field-hint">glass panes</span>
+							</div>
+							<div>
+								<strong>{preview.estimate.totals.screens}</strong>
+								<span className="field-hint">
+									screens{preview.estimate.totals.screensManual ? ' — manual' : ' — calculated'}
+								</span>
+							</div>
+							<div>
+								<strong>{preview.estimate.totals.tracks}</strong>
+								<span className="field-hint">
+									tracks{preview.estimate.totals.tracksManual ? ' — manual' : ' — calculated'}
+								</span>
+							</div>
+						</div>
+					) : (
+						<p className="field-hint">
+							{groupedUnits} window units entered. Panes, screens and tracks are calculated from the groups — update
+							totals to see them.
+						</p>
+					)}
+
+					<details>
+						<summary>Override screen or track totals</summary>
+						<span className="field-hint">
+							Use when the grouped totals don&apos;t match reality. A value here wins over the calculation and is labelled
+							as manual — it&apos;s never silently merged.
+						</span>
+						<div className="pane-grid">
+							<label>
+								Total screens (manual)
+								<input
+									type="number"
+									min="0"
+									value={state.manualScreenTotal}
+									onChange={(e) => update({ manualScreenTotal: e.target.value })}
+								/>
+							</label>
+							<label>
+								Total tracks (manual)
+								<input
+									type="number"
+									min="0"
+									value={state.manualTrackTotal}
+									onChange={(e) => update({ manualTrackTotal: e.target.value })}
+								/>
+							</label>
+						</div>
+					</details>
+
+					{specialtyMissingDescription && (
+						<p role="alert" className="field-hint">
+							Every Specialty Shape group needs a description before you can continue.
+						</p>
+					)}
+					{saveError && <p role="alert">{saveError}</p>}
+
+					<div className="button-row">
+						<button type="button" className="btn-secondary" onClick={() => goTo(0)}>
+							Back
+						</button>
+						<button type="button" className="btn-secondary" disabled={loadingPreview || !inventoryValid} onClick={loadPreview}>
+							{loadingPreview ? 'Calculating…' : 'Update totals'}
+						</button>
+						<button type="button" disabled={!inventoryValid} onClick={() => goTo(2)}>
+							Next: Condition
+						</button>
+					</div>
 				</section>
 			)}
 
 			{state.step === 2 && (
 				<section className="card">
 					<h2>Condition &amp; Special Work</h2>
+					<p className="field-hint">
+						Rate each component separately. A rating only affects its own labor — moderate frames cost frame time, they
+						don&apos;t make the glass take longer.
+					</p>
 
-					<GlassConditionRadios
-						label="Interior Glass Condition"
-						name="interiorGlassCondition"
-						value={state.interiorCondition}
-						onChange={(v) => update({ interiorCondition: v })}
-					/>
-					<GlassConditionRadios
-						label="Exterior Glass Condition"
-						name="exteriorGlassCondition"
-						value={state.exteriorCondition}
-						onChange={(v) => update({ exteriorCondition: v })}
-					/>
-
-					<div className="card" style={{ background: 'var(--color-cream)' }}>
-						<h3>Restoration Services Required</h3>
-						<span className="field-hint">
-							Specialized cleaning beyond a standard window cleaning — supplements the condition rating above, doesn't
-							replace it.
-						</span>
-						<div className="checkbox-grid">
-							<label>
-								<input
-									type="checkbox"
-									checked={state.constructionDebrisPresent}
-									onChange={(e) => update({ constructionDebrisPresent: e.target.checked })}
-								/>{' '}
-								Construction Debris
-							</label>
-							<label>
-								<input
-									type="checkbox"
-									checked={state.siliconeResidue}
-									onChange={(e) => update({ siliconeResidue: e.target.checked })}
-								/>{' '}
-								Window Stickers / Adhesive
-							</label>
-							<label>
-								<input
-									type="checkbox"
-									checked={state.paintOverspray}
-									onChange={(e) => update({ paintOverspray: e.target.checked })}
-								/>{' '}
-								Paint Overspray
-							</label>
-							<label>
-								<input
-									type="checkbox"
-									checked={state.hardWaterPresent}
-									onChange={(e) => update({ hardWaterPresent: e.target.checked })}
-								/>{' '}
-								Hard Water / Mineral Deposits
-							</label>
-							<label>
-								<input
-									type="checkbox"
-									checked={state.razorScraping}
-									onChange={(e) => update({ razorScraping: e.target.checked })}
-								/>{' '}
-								Razor Scraping Required
-							</label>
-							<label>
-								<input
-									type="checkbox"
-									checked={state.steelWool}
-									onChange={(e) => update({ steelWool: e.target.checked })}
-								/>{' '}
-								Steel Wool Required
-							</label>
-							<label>
-								<input
-									type="checkbox"
-									checked={state.nonScratchPad}
-									onChange={(e) => update({ nonScratchPad: e.target.checked })}
-								/>{' '}
-								Non-Scratch Pad Required
-							</label>
-						</div>
-						<label>
-							Other
-							<textarea value={state.restorationNotes} onChange={(e) => update({ restorationNotes: e.target.value })} />
-						</label>
-					</div>
-
-					<div className="checkbox-grid">
-						<label>
-							<input
-								type="checkbox"
-								checked={state.heavyInteriorResidue}
-								onChange={(e) => update({ heavyInteriorResidue: e.target.checked })}
-							/>{' '}
-							Heavy interior residue
-						</label>
-						<label>
-							<input
-								type="checkbox"
-								checked={state.oxidizedFramesOrScreens}
-								onChange={(e) => update({ oxidizedFramesOrScreens: e.target.checked })}
-							/>{' '}
-							Oxidized frames or screens
-						</label>
-						<label>
-							<input
-								type="checkbox"
-								checked={state.conditionVariesByArea}
-								onChange={(e) => update({ conditionVariesByArea: e.target.checked })}
-							/>{' '}
-							Condition varies by area
-						</label>
-					</div>
+					{state.interiorIncluded && (
+						<Segmented
+							label="Interior glass"
+							name="interiorGlassCondition"
+							value={state.interiorGlassCondition}
+							options={COMPONENT_CONDITIONS}
+							allowBlank
+							onChange={(v) => update({ interiorGlassCondition: v })}
+						/>
+					)}
+					{state.tracksIncluded && (
+						<Segmented
+							label="Tracks"
+							name="trackCondition"
+							value={state.trackCondition}
+							options={COMPONENT_CONDITIONS}
+							allowBlank
+							onChange={(v) => update({ trackCondition: v })}
+						/>
+					)}
+					{state.exteriorIncluded && (
+						<Segmented
+							label="Exterior glass"
+							name="exteriorGlassCondition"
+							value={state.exteriorGlassCondition}
+							options={COMPONENT_CONDITIONS}
+							allowBlank
+							onChange={(v) => update({ exteriorGlassCondition: v })}
+						/>
+					)}
+					{state.exteriorIncluded && state.framesIncluded && (
+						<Segmented
+							label="Frames and exterior sills"
+							name="exteriorFrameCondition"
+							value={state.exteriorFrameCondition}
+							options={COMPONENT_CONDITIONS}
+							allowBlank
+							onChange={(v) => update({ exteriorFrameCondition: v })}
+						/>
+					)}
+					{state.screensIncluded && (
+						<Segmented
+							label="Screens"
+							name="screenCondition"
+							value={state.screenCondition}
+							options={COMPONENT_CONDITIONS}
+							allowBlank
+							onChange={(v) => update({ screenCondition: v })}
+						/>
+					)}
 
 					<label>
 						Condition notes
-						<span className="field-hint">
-							Note where special work applies — e.g. "paint overspray on 4 panes", "hard water on 6 panes", "difficult
-							catwalk access on 12 units".
-						</span>
 						<textarea value={state.conditionNotes} onChange={(e) => update({ conditionNotes: e.target.value })} />
 					</label>
+
+					<AdjustmentPicker
+						title="Restoration services required"
+						hint="Specialized work beyond a standard window cleaning. Restoration labor is calculated separately and does not replace the component condition ratings above."
+						kind="Restoration"
+						options={RESTORATION_SERVICES}
+						adjustments={state.adjustments}
+						onToggle={toggleAdjustment}
+						onUpdate={updateAdjustment}
+					/>
+					<label>
+						Restoration notes
+						<textarea value={state.restorationNotes} onChange={(e) => update({ restorationNotes: e.target.value })} />
+					</label>
+
+					<AdjustmentPicker
+						title="Property-level factors"
+						hint="Whole-property labor that isn't attributable to any one window group. Don't add anything here that's already covered by ordinary setup and breakdown."
+						kind="Modifier"
+						options={PROPERTY_MODIFIERS}
+						adjustments={state.adjustments}
+						onToggle={toggleAdjustment}
+						onUpdate={updateAdjustment}
+					/>
 
 					<div className="button-row">
 						<button type="button" className="btn-secondary" onClick={() => goTo(1)}>
@@ -758,230 +964,13 @@ export default function WalkthroughWizard({
 						</button>
 						<button
 							type="button"
-							disabled={loadingPricing}
+							disabled={loadingPreview}
 							onClick={async () => {
-								await loadPricingPreview();
+								await loadPreview();
 								goTo(3);
 							}}
 						>
-							{loadingPricing ? 'Calculating…' : 'Next: Review & Price'}
-						</button>
-					</div>
-				</section>
-			)}
-
-			{state.step === 1 && (
-				<section className="card">
-					<h2>Counts</h2>
-					<p className="field-hint">
-						Window units are your own judgment of how much work an opening represents. Panes are the number of individual
-						pieces of glass. They're recorded separately and neither is calculated from the other.
-					</p>
-
-					<div className="checkbox-grid">
-						<label>
-							<input type="checkbox" checked={state.exteriorIncluded} onChange={(e) => update({ exteriorIncluded: e.target.checked })} />{' '}
-							Exterior included
-						</label>
-						<label>
-							<input type="checkbox" checked={state.interiorIncluded} onChange={(e) => update({ interiorIncluded: e.target.checked })} />{' '}
-							Interior included
-						</label>
-					</div>
-
-					{state.countMode !== 'by-area' && (
-						<div className="count-grid">
-							<label>
-								Window units
-								<input
-									type="number"
-									min="0"
-									inputMode="numeric"
-									value={state.totalWindowUnits}
-									onChange={(e) => update({ totalWindowUnits: e.target.value })}
-								/>
-							</label>
-							<label>
-								Panes of glass
-								<input
-									type="number"
-									min="0"
-									inputMode="numeric"
-									value={state.totalGlassPanes}
-									onChange={(e) => update({ totalGlassPanes: e.target.value })}
-								/>
-							</label>
-							<label>
-								Screens
-								<input type="number" min="0" inputMode="numeric" value={state.totalScreens} onChange={(e) => update({ totalScreens: e.target.value })} />
-							</label>
-							<label>
-								Tracks
-								<input type="number" min="0" inputMode="numeric" value={state.totalTracks} onChange={(e) => update({ totalTracks: e.target.value })} />
-							</label>
-							<label>
-								Sliding doors
-								<input
-									type="number"
-									min="0"
-									inputMode="numeric"
-									value={state.totalSlidingDoors}
-									onChange={(e) => update({ totalSlidingDoors: e.target.value })}
-								/>
-							</label>
-							<label>
-								Skylights
-								<input
-									type="number"
-									min="0"
-									inputMode="numeric"
-									value={state.totalSkylights}
-									onChange={(e) => update({ totalSkylights: e.target.value })}
-								/>
-							</label>
-						</div>
-					)}
-
-					{state.countMode === 'by-area' && (
-						<>
-							<p className="field-hint">Area totals add up into the property totals below. Sliding doors and skylights stay property-wide.</p>
-							{state.areas.map((a) => (
-								<div key={a.id} className="card" style={{ background: 'var(--color-cream)' }}>
-									<label>
-										Area
-										<input
-											type="text"
-											placeholder="Upstairs, Main floor, Front…"
-											value={a.area}
-											onChange={(e) => updateArea(a.id, { area: e.target.value })}
-										/>
-									</label>
-									<div className="count-grid">
-										<label>
-											Window units
-											<input type="number" min="0" inputMode="numeric" value={a.windowUnits} onChange={(e) => updateArea(a.id, { windowUnits: e.target.value })} />
-										</label>
-										<label>
-											Panes
-											<input type="number" min="0" inputMode="numeric" value={a.paneCount} onChange={(e) => updateArea(a.id, { paneCount: e.target.value })} />
-										</label>
-										<label>
-											Screens
-											<input type="number" min="0" inputMode="numeric" value={a.screens} onChange={(e) => updateArea(a.id, { screens: e.target.value })} />
-										</label>
-										<label>
-											Tracks
-											<input type="number" min="0" inputMode="numeric" value={a.tracks} onChange={(e) => updateArea(a.id, { tracks: e.target.value })} />
-										</label>
-									</div>
-									<label>
-										Notes
-										<input type="text" value={a.notes} onChange={(e) => updateArea(a.id, { notes: e.target.value })} />
-									</label>
-									<div className="button-row">
-										<button type="button" className="btn-secondary" onClick={() => duplicateArea(a)}>
-											Duplicate area
-										</button>
-										<button type="button" className="btn-secondary" onClick={() => removeArea(a.id)}>
-											Remove area
-										</button>
-									</div>
-								</div>
-							))}
-							<p>
-								<strong>
-									Total: {areaTotals.windowUnits} window units · {areaTotals.panes} panes · {areaTotals.screens} screens ·{' '}
-									{areaTotals.tracks} tracks
-								</strong>
-							</p>
-							<div className="count-grid">
-								<label>
-									Sliding doors (property-wide)
-									<input type="number" min="0" inputMode="numeric" value={state.totalSlidingDoors} onChange={(e) => update({ totalSlidingDoors: e.target.value })} />
-								</label>
-								<label>
-									Skylights (property-wide)
-									<input type="number" min="0" inputMode="numeric" value={state.totalSkylights} onChange={(e) => update({ totalSkylights: e.target.value })} />
-								</label>
-							</div>
-						</>
-					)}
-
-					<div className="button-row">
-						<button type="button" className="btn-secondary" onClick={addArea}>
-							+ Add area
-						</button>
-					</div>
-
-					<details className="card">
-						<summary>Item-level breakdown (advanced)</summary>
-						<p className="field-hint">
-							Rarely needed. Records one row per group of openings with a window type and size class. Using this replaces
-							the counts above for pricing.
-						</p>
-						<div className="checkbox-grid">
-							<label>
-								<input
-									type="checkbox"
-									checked={state.countMode === 'detailed'}
-									onChange={(e) => update({ countMode: e.target.checked ? 'detailed' : state.areas.length > 0 ? 'by-area' : 'whole-property' })}
-								/>{' '}
-								Price this walkthrough from item-level rows instead
-							</label>
-						</div>
-						{state.countMode === 'detailed' && (
-							<>
-								{ALL_AREAS.map((area) => {
-									const areaItems = currentAreaItems(area);
-									if (areaItems.length === 0) return null;
-									return (
-										<p key={area}>
-											<strong>{area}:</strong> {areaItems.map((i) => `${i.quantity}× ${i.itemType}`).join(', ')}
-										</p>
-									);
-								})}
-								{editingItem ? (
-									<ItemForm item={editingItem} area={editingItem.area} onSave={saveItem} onCancel={() => setEditingItem(null)} />
-								) : (
-									<div className="button-row">
-										<button type="button" onClick={() => setEditingItem(emptyItem('Front'))}>
-											+ Add item
-										</button>
-									</div>
-								)}
-								{state.items.length > 0 && (
-									<table>
-										<thead>
-											<tr><th>Area</th><th>Type</th><th>Qty</th><th>Ext</th><th>Int</th><th /></tr>
-										</thead>
-										<tbody>
-											{state.items.map((i) => (
-												<tr key={i.id}>
-													<td>{i.area}</td>
-													<td>{i.itemType}{i.itemType === 'Window' ? ` (${i.sizeClass})` : ''}</td>
-													<td>{i.quantity}</td>
-													<td>{i.exteriorIncluded ? 'Y' : ''}</td>
-													<td>{i.interiorIncluded ? 'Y' : ''}</td>
-													<td>
-														<button type="button" className="btn-secondary" onClick={() => setEditingItem(i)}>Edit</button>{' '}
-														<button type="button" className="btn-secondary" onClick={() => duplicateItem(i)}>Duplicate</button>{' '}
-														<button type="button" className="btn-secondary" onClick={() => deleteItem(i.id)}>Remove</button>
-													</td>
-												</tr>
-											))}
-										</tbody>
-									</table>
-								)}
-							</>
-						)}
-					</details>
-
-					<div className="button-row">
-						<button type="button" className="btn-secondary" onClick={() => goTo(0)}>
-							Back
-						</button>
-						<button type="button" onClick={() => goTo(2)}>
-							Next: Condition
+							{loadingPreview ? 'Calculating…' : 'Next: Review & Price'}
 						</button>
 					</div>
 				</section>
@@ -989,51 +978,130 @@ export default function WalkthroughWizard({
 
 			{state.step === 3 && (
 				<section className="card">
-					<h2>Review &amp; Price</h2>
+					<h2>Review, Labor &amp; Price</h2>
 
-					<ul>
-						<li>
-							{usingAreas ? areaTotals.windowUnits : Number(state.totalWindowUnits) || 0} window units ·{' '}
-							{usingAreas ? areaTotals.panes : Number(state.totalGlassPanes) || 0} panes
-						</li>
-						<li>
-							{usingAreas ? areaTotals.screens : Number(state.totalScreens) || 0} screens ·{' '}
-							{usingAreas ? areaTotals.tracks : Number(state.totalTracks) || 0} tracks
-						</li>
-						{(Number(state.totalSlidingDoors) || 0) > 0 && <li>{state.totalSlidingDoors} sliding doors</li>}
-						{(Number(state.totalSkylights) || 0) > 0 && <li>{state.totalSkylights} skylights</li>}
-						<li>
-							{state.exteriorIncluded && state.interiorIncluded
-								? 'Interior and exterior'
-								: state.interiorIncluded
-									? 'Interior only'
-									: 'Exterior only'}
-						</li>
-						<li>
-							{state.storyCountObserved} {state.storyCountObserved === '1' ? 'story' : 'stories'} · {state.accessDifficulty} access
-						</li>
-						<li>
-							Glass condition: {state.exteriorCondition} exterior, {state.interiorCondition} interior
-						</li>
-						{usingDetailed && <li>{state.items.length} item-level row(s) — pricing from those instead of the totals</li>}
-						{usingAreas && <li>{state.areas.length} area(s) recorded</li>}
-					</ul>
-
-					{pricing ? (
-						<>
-							<p>Estimated on-site labor: {pricing.estimatedLaborHours.toFixed(2)} hours</p>
-							<p>
-								Suggested low: ${pricing.suggestedLowPrice} — Suggested target: <strong>${pricing.suggestedTargetPrice}</strong> —
-								Suggested high: ${pricing.suggestedHighPrice}
-							</p>
-							<label>
-								Owner-selected price
-								<input type="text" value={ownerOverridePrice} onChange={(e) => setOwnerOverridePrice(e.target.value)} />
-							</label>
-							<p className="field-hint">Active PricingConfig: {pricing.pricingConfigId}</p>
-						</>
+					{!preview ? (
+						<p>No estimate calculated yet.</p>
 					) : (
-						<p>No pricing calculated yet.</p>
+						<>
+							<div className="stats-grid">
+								<div>
+									<strong>{hours(preview.estimate.productiveMinutes)} h</strong>
+									<span className="field-hint">estimated productive labor</span>
+								</div>
+								<div>
+									<strong>{hours(preview.schedule.scheduledMinutes)} h</strong>
+									<span className="field-hint">suggested scheduled time</span>
+								</div>
+								<div>
+									<strong>{preview.schedule.recommendation}</strong>
+									<span className="field-hint">schedule recommendation</span>
+								</div>
+							</div>
+
+							<p>{preview.estimate.explanation}</p>
+
+							<details open>
+								<summary>Labor breakdown</summary>
+								<table>
+									<tbody>
+										{BREAKDOWN_ROWS.filter((row) => preview.estimate.breakdown[row.key] > 0).map((row) => (
+											<tr key={row.key}>
+												<td>{row.label}</td>
+												<td>{hours(preview.estimate.breakdown[row.key])} h</td>
+											</tr>
+										))}
+										<tr>
+											<td>
+												<strong>Total productive labor</strong>
+											</td>
+											<td>
+												<strong>{hours(preview.estimate.productiveMinutes)} h</strong>
+											</td>
+										</tr>
+										<tr>
+											<td>Suggested scheduled time</td>
+											<td>{hours(preview.schedule.scheduledMinutes)} h</td>
+										</tr>
+									</tbody>
+								</table>
+								{preview.schedule.reasons.length > 0 && (
+									<ul>
+										{preview.schedule.reasons.map((reason) => (
+											<li key={reason} className="field-hint">
+												{reason}
+											</li>
+										))}
+									</ul>
+								)}
+							</details>
+
+							<div className="pane-grid">
+								<label>
+									Scheduled hours (override)
+									<span className="field-hint">Changes the time you block out. Never changes the estimate above.</span>
+									<input
+										type="number"
+										min="0"
+										step="0.25"
+										value={state.scheduledHoursOverride}
+										onChange={(e) => update({ scheduledHoursOverride: e.target.value })}
+									/>
+								</label>
+								<label>
+									Schedule
+									<select
+										value={state.scheduleRecommendationOverride}
+										onChange={(e) => update({ scheduleRecommendationOverride: e.target.value })}
+									>
+										<option value="">Use recommendation ({preview.schedule.recommendation})</option>
+										{SCHEDULE_RECOMMENDATIONS.map((r) => (
+											<option key={r}>{r}</option>
+										))}
+									</select>
+								</label>
+							</div>
+
+							<h3>Price</h3>
+							<div className="stats-grid">
+								<div>
+									<strong>${preview.band.low}</strong>
+									<span className="field-hint">low</span>
+								</div>
+								<div>
+									<strong>${preview.band.target}</strong>
+									<span className="field-hint">target</span>
+								</div>
+								<div>
+									<strong>${preview.band.high}</strong>
+									<span className="field-hint">high</span>
+								</div>
+							</div>
+							{preview.band.minimumApplied && <p className="field-hint">The job minimum lifted this band.</p>}
+
+							<div className="pane-grid">
+								<label>
+									Your price
+									<input
+										type="number"
+										min="0"
+										value={state.ownerSelectedPrice}
+										onChange={(e) => update({ ownerSelectedPrice: e.target.value })}
+									/>
+								</label>
+								<label>
+									Reason (optional)
+									<span className="field-hint">Worth a note when your price sits well outside the suggested band.</span>
+									<input
+										type="text"
+										value={state.ownerOverrideReason}
+										onChange={(e) => update({ ownerOverrideReason: e.target.value })}
+									/>
+								</label>
+							</div>
+
+							<p className="field-hint">Labor model: {preview.estimate.laborModelVersion}</p>
+						</>
 					)}
 
 					<label>
@@ -1043,13 +1111,13 @@ export default function WalkthroughWizard({
 
 					{saveError && <p role="alert">{saveError}</p>}
 					<div className="button-row">
-						<button type="button" className="btn-secondary" onClick={() => goTo(1)}>
-							Back to counts
+						<button type="button" className="btn-secondary" onClick={() => goTo(2)}>
+							Back
 						</button>
-						<button type="button" className="btn-secondary" disabled={loadingPricing} onClick={loadPricingPreview}>
-							{loadingPricing ? 'Calculating…' : 'Recalculate'}
+						<button type="button" className="btn-secondary" disabled={loadingPreview} onClick={loadPreview}>
+							{loadingPreview ? 'Calculating…' : 'Recalculate'}
 						</button>
-						<button type="button" disabled={saving || !pricing} onClick={save}>
+						<button type="button" disabled={saving || !preview} onClick={save}>
 							{saving ? 'Saving…' : 'Save walkthrough'}
 						</button>
 					</div>
@@ -1059,137 +1127,97 @@ export default function WalkthroughWizard({
 	);
 }
 
-function ItemForm({
-	item,
-	area,
-	onSave,
-	onCancel,
+/**
+ * A checkbox list where checking an item reveals its own scope and minutes.
+ *
+ * Restoration and property modifiers share this because they are the same
+ * shape — a named extra with its own affected counts and its own time. The
+ * minutes field stays empty until the operator fills it in: no configuration
+ * can know how bad the overspray is until someone looks at it, and a default
+ * would be a guess presented as a calculation.
+ */
+function AdjustmentPicker({
+	title,
+	hint,
+	kind,
+	options,
+	adjustments,
+	onToggle,
+	onUpdate,
 }: {
-	item: ItemState;
-	area: string;
-	onSave: (item: ItemState) => void;
-	onCancel: () => void;
+	title: string;
+	hint: string;
+	kind: 'Restoration' | 'Modifier';
+	options: readonly string[];
+	adjustments: AdjustmentState[];
+	onToggle: (kind: 'Restoration' | 'Modifier', label: string) => void;
+	onUpdate: (id: string, patch: Partial<AdjustmentState>) => void;
 }) {
-	const [draft, setDraft] = useState<ItemState>(item);
+	const selected = adjustments.filter((a) => a.kind === kind);
 
 	return (
-		<div className="card">
-			<div className="form-grid">
-				<label>
-					Area
-					<select value={draft.area} onChange={(e) => setDraft({ ...draft, area: e.target.value })}>
-						{ALL_AREAS.map((a) => (
-							<option key={a} value={a}>
-								{a}
-							</option>
-						))}
-					</select>
-				</label>
-				<label>
-					Item type
-					<select value={draft.itemType} onChange={(e) => setDraft({ ...draft, itemType: e.target.value })}>
-						{ITEM_TYPES.map((t) => (
-							<option key={t}>{t}</option>
-						))}
-					</select>
-				</label>
-				{draft.itemType === 'Window' && (
-					<label>
-						Size class
-						<select value={draft.sizeClass} onChange={(e) => setDraft({ ...draft, sizeClass: e.target.value })}>
-							{SIZE_CLASSES.map((s) => (
-								<option key={s}>{s}</option>
-							))}
-						</select>
-					</label>
-				)}
-				<label>
-					Quantity
-					<input
-						type="number"
-						className="field-numeric"
-						value={draft.quantity}
-						onChange={(e) => setDraft({ ...draft, quantity: e.target.value })}
-					/>
-				</label>
-				<label>
-					Condition
-					<select value={draft.condition} onChange={(e) => setDraft({ ...draft, condition: e.target.value })}>
-						{CONDITION_LEVELS.map((c) => (
-							<option key={c}>{c}</option>
-						))}
-					</select>
-				</label>
-				<label>
-					Access difficulty
-					<select value={draft.accessDifficulty} onChange={(e) => setDraft({ ...draft, accessDifficulty: e.target.value })}>
-						{ACCESS_LEVELS.map((a) => (
-							<option key={a}>{a}</option>
-						))}
-					</select>
-				</label>
-			</div>
-			{draft.itemType === 'Sliding Door' && (
-				<span className="field-hint">Count an oversized/XL slider as 2.</span>
-			)}
-
+		<div className="card" style={{ background: 'var(--color-cream)' }}>
+			<h3>{title}</h3>
+			<span className="field-hint">{hint}</span>
 			<div className="checkbox-grid">
-				<label>
-					<input
-						type="checkbox"
-						checked={draft.exteriorIncluded}
-						onChange={(e) => setDraft({ ...draft, exteriorIncluded: e.target.checked })}
-					/>{' '}
-					Exterior
-				</label>
-				<label>
-					<input
-						type="checkbox"
-						checked={draft.interiorIncluded}
-						onChange={(e) => setDraft({ ...draft, interiorIncluded: e.target.checked })}
-					/>{' '}
-					Interior
-				</label>
-				<label>
-					<input
-						type="checkbox"
-						checked={draft.screenIncluded}
-						onChange={(e) => setDraft({ ...draft, screenIncluded: e.target.checked })}
-					/>{' '}
-					Screens
-				</label>
-				<label>
-					<input
-						type="checkbox"
-						checked={draft.trackIncluded}
-						onChange={(e) => setDraft({ ...draft, trackIncluded: e.target.checked })}
-					/>{' '}
-					Tracks
-				</label>
-				<label>
-					<input type="checkbox" checked={draft.hardWater} onChange={(e) => setDraft({ ...draft, hardWater: e.target.checked })} />{' '}
-					Hard water
-				</label>
-				<label>
-					<input
-						type="checkbox"
-						checked={draft.constructionDebris}
-						onChange={(e) => setDraft({ ...draft, constructionDebris: e.target.checked })}
-					/>{' '}
-					Construction debris
-				</label>
+				{options.map((option) => (
+					<label key={option}>
+						<input
+							type="checkbox"
+							checked={selected.some((a) => a.label === option)}
+							onChange={() => onToggle(kind, option)}
+						/>{' '}
+						{option}
+					</label>
+				))}
 			</div>
 
-			<label>
-				Notes
-				<textarea value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
-			</label>
-			<button type="button" onClick={() => onSave(draft)}>
-				Save item
-			</button>{' '}
-			<button type="button" onClick={onCancel}>
-				Cancel
-			</button>
+			{selected.map((adjustment) => (
+				<div key={adjustment.id} className="card">
+					<p className="field-label">{adjustment.label}</p>
+					<div className="count-grid">
+						{kind === 'Restoration' && (
+							<>
+								<label>
+									Affected units
+									<input
+										type="number"
+										min="0"
+										value={adjustment.affectedUnits}
+										onChange={(e) => onUpdate(adjustment.id, { affectedUnits: e.target.value })}
+									/>
+								</label>
+								<label>
+									Affected panes
+									<input
+										type="number"
+										min="0"
+										value={adjustment.affectedPanes}
+										onChange={(e) => onUpdate(adjustment.id, { affectedPanes: e.target.value })}
+									/>
+								</label>
+							</>
+						)}
+						<label>
+							Added minutes
+							<input
+								type="number"
+								min="0"
+								value={adjustment.additionalMinutes}
+								onChange={(e) => onUpdate(adjustment.id, { additionalMinutes: e.target.value })}
+							/>
+						</label>
+					</div>
+					<label>
+						Notes
+						<input
+							type="text"
+							value={adjustment.notes}
+							onChange={(e) => onUpdate(adjustment.id, { notes: e.target.value })}
+						/>
+					</label>
+				</div>
+			))}
 		</div>
 	);
 }
