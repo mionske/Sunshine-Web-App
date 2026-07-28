@@ -1,13 +1,18 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
-import HistoricalEntryWizard, { buildEditState } from '../../components/HistoricalEntryWizard';
+import HistoricalEntryForm from '../../components/HistoricalEntryForm.astro';
 import { env } from 'cloudflare:workers';
-import { findById, listActiveRows } from '../../lib/sheets';
+import { findById } from '../../lib/sheets';
 import { clientConfig } from '../../lib/models/client';
 import { propertyConfig } from '../../lib/models/property';
-import { walkthroughConfig } from '../../lib/models/walkthrough';
-import { quoteConfig } from '../../lib/models/quote';
 import { jobConfig } from '../../lib/models/job';
+import { updateHistoricalEntry } from '../../lib/pricing/historicalEntry';
+import {
+	formValuesFromRecords,
+	formValuesFromRequest,
+	payloadForUpdate,
+	validateFormValues,
+} from '../../lib/historicalEntryForm';
 
 const { jobId } = Astro.params;
 
@@ -16,39 +21,51 @@ if (!job) {
 	return new Response('Historical record not found', { status: 404 });
 }
 
+// Both links are optional: the compact entry form lets a job be recorded
+// with no client and no property at all, and such a record still has to be
+// editable afterward.
 const property = job['Property ID'] ? await findById(env, propertyConfig, job['Property ID']) : null;
-if (!property) {
-	return new Response('This job has no linked Property — cannot be edited here.', { status: 404 });
-}
-const client = await findById(env, clientConfig, property['Client ID']);
-if (!client) {
-	return new Response('This property has no linked Client — cannot be edited here.', { status: 404 });
-}
-// A Job links to its Walkthrough only indirectly, via its Quote — if no
-// Quote was recorded for this historical entry, there's no way to reach a
-// Walkthrough from the Job alone (matches the app's real data model, not a
-// gap introduced by this route).
-const quote = job['Quote ID'] ? await findById(env, quoteConfig, job['Quote ID']) : null;
-const walkthrough = quote?.['Walkthrough ID'] ? await findById(env, walkthroughConfig, quote['Walkthrough ID']) : null;
+const client = property?.['Client ID'] ? await findById(env, clientConfig, property['Client ID']) : null;
+const records = { client, property, job };
 
-const [clients, properties] = await Promise.all([listActiveRows(env, clientConfig), listActiveRows(env, propertyConfig)]);
+let error: string | null = null;
+let values = formValuesFromRecords(records);
 
-const initialState = buildEditState({
-	client,
-	property,
-	walkthrough: walkthrough ?? undefined,
-	quote: quote ?? undefined,
-	job,
-});
+if (Astro.request.method === 'POST') {
+	values = formValuesFromRequest(await Astro.request.formData());
+	error = validateFormValues(values);
+	if (!error) {
+		try {
+			await updateHistoricalEntry(env, payloadForUpdate(values, records));
+			return Astro.redirect('/historical-records');
+		} catch (e) {
+			error = (e as Error).message;
+		}
+	}
+}
+
+const clientName = client ? `${client['First Name']} ${client['Last Name']}`.replace(/\s+/g, ' ').trim() : '';
+const linkedLabel = property
+	? [
+			`${property['Street Address']}, ${property.City}${property['Unit Identifier'] ? ` — Unit ${property['Unit Identifier']}` : ''}`,
+			clientName,
+		]
+			.filter(Boolean)
+			.join(' · ')
+	: 'No client or property is linked to this record.';
 ---
 
 <BaseLayout title="Edit historical record">
 	<main>
+		<p><a href="/historical-records">← Historical Records</a></p>
 		<h1>Edit historical record</h1>
-		<p>
-			Editing the property/job/quote/walkthrough entered for
-			{' '}{property['Street Address']}, {property.City}{property['Unit Identifier'] && <> — Unit {property['Unit Identifier']}</>}. See <a href="/historical-records">all Historical Records</a>.
-		</p>
-		<HistoricalEntryWizard client:load mode="edit" initialState={initialState} clients={clients} properties={properties} />
+
+		<HistoricalEntryForm
+			mode="edit"
+			values={values}
+			error={error}
+			linkedLabel={linkedLabel}
+			cancelHref="/historical-records"
+		/>
 	</main>
 </BaseLayout>

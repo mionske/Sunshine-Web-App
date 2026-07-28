@@ -22,8 +22,7 @@ type ScreensMode = 'Not Included' | 'Include All' | 'Custom Quantity';
 type TrackMode = 'Not Included' | 'Basic Wipe' | 'Deep Cleaning';
 type GlassConditionLevel = (typeof GLASS_CONDITION_LEVELS)[number];
 
-// Trimmed to 3 values, matching Historical Entry's own trimmed scale (see
-// HistoricalEntryWizard.tsx) rather than the field-use Walkthrough's fuller
+// Trimmed to 3 values rather than the field-use Walkthrough's fuller
 // 5-value list — this is the "how I quote a home" mental model the Quoter
 // is being redesigned to match.
 const ACCESS_LEVELS = ['Easy', 'Standard', 'Difficult'] as const;

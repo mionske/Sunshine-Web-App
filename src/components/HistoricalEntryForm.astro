@@ -1,0 +1,166 @@
+---
+// The whole Historical Job Entry UI, shared by the create page
+// (`/historical-entry`) and the edit page (`/historical-entry/[jobId]`).
+// Both post to themselves; see lib/historicalEntryForm.ts for the mapping
+// onto the Client/Property/Job records.
+import { SCOPE_OPTIONS, PRICE_DIFFERENTLY_OPTIONS, type HistoricalFormValues } from '../lib/historicalEntryForm';
+import type { Client } from '../lib/models/client';
+import type { Property } from '../lib/models/property';
+
+interface Props {
+	mode: 'create' | 'edit';
+	values: HistoricalFormValues;
+	error?: string | null;
+	// Create mode only — the pickers are hidden when editing, because
+	// re-pointing an existing record at a different client/property would
+	// overwrite that other record rather than move this one.
+	clients?: Client[];
+	properties?: Property[];
+	// Edit mode only.
+	linkedLabel?: string;
+	cancelHref: string;
+}
+
+const { mode, values, error = null, clients = [], properties = [], linkedLabel, cancelHref } = Astro.props;
+---
+
+<section class="card">
+	<form method="POST">
+		{error && <p role="alert">{error}</p>}
+
+		<fieldset>
+			<legend>The job</legend>
+			<label>
+				Service date
+				<input type="date" name="serviceDate" value={values.serviceDate} required />
+			</label>
+			<label>
+				Final price ($)
+				<input type="number" name="finalPrice" value={values.finalPrice} step="0.01" min="0" inputmode="decimal" required />
+			</label>
+			<label>
+				Actual labor hours
+				<input
+					type="number"
+					name="laborHours"
+					value={values.laborHours}
+					{/* step="any", not a 0.25 grid: existing rows carry values like
+					    3.33 hrs and the browser would reject them on submit. */}
+					step="any"
+					min="0"
+					inputmode="decimal"
+					placeholder="4.5"
+					required
+				/>
+			</label>
+			<label>
+				Scope summary
+				<input
+					type="text"
+					name="scopeSummary"
+					value={values.scopeSummary}
+					placeholder="Interior and exterior, 2 stories, screens"
+					{/* Required when adding a record, optional when editing one:
+					    every row that predates this field has it blank, and a
+					    required field would make those records uneditable until
+					    someone reconstructed a scope from memory. */}
+					required={mode === 'create'}
+				/>
+				{mode === 'edit' && !values.scopeSummary && (
+					<span class="field-hint">Not recorded on this older entry — worth filling in if you remember the job.</span>
+				)}
+			</label>
+			<label>
+				Scope
+				<select name="scope">
+					<option value=""></option>
+					{SCOPE_OPTIONS.map((opt) => <option value={opt} selected={values.scope === opt}>{opt}</option>)}
+				</select>
+			</label>
+			<label>
+				Would you price this differently today?
+				<select name="priceDifferently">
+					<option value=""></option>
+					{
+						PRICE_DIFFERENTLY_OPTIONS.map((opt) => (
+							<option value={opt} selected={values.priceDifferently === opt}>
+								{opt}
+							</option>
+						))
+					}
+				</select>
+			</label>
+		</fieldset>
+
+		<fieldset>
+			<legend>Who and where (optional)</legend>
+			{
+				mode === 'edit' ? (
+					<p>{linkedLabel}</p>
+				) : (
+					<>
+						<label>
+							Existing client
+							<select name="clientId">
+								<option value="">— none —</option>
+								{clients.map((c) => (
+									<option value={c['Client ID']} selected={values.clientId === c['Client ID']}>
+										{`${c['First Name']} ${c['Last Name']}`.trim() || c['Client ID']}
+									</option>
+								))}
+							</select>
+						</label>
+						<label>
+							…or new client name
+							<input type="text" name="newClientName" value={values.newClientName} placeholder="Stevie Damboise" />
+						</label>
+						<label>
+							Existing property
+							<select name="propertyId">
+								<option value="">— none —</option>
+								{properties.map((p) => (
+									<option value={p['Property ID']} selected={values.propertyId === p['Property ID']}>
+										{`${p['Street Address']}${p.City ? `, ${p.City}` : ''}` || p['Property ID']}
+									</option>
+								))}
+							</select>
+						</label>
+						<label>
+							…or new street address
+							<input type="text" name="newStreetAddress" value={values.newStreetAddress} placeholder="1285 Georgetown Rd" />
+						</label>
+					</>
+				)
+			}
+		</fieldset>
+
+		<fieldset>
+			<legend>Size and context (optional)</legend>
+			<label>
+				Window units
+				<input type="number" class="field-numeric" name="windowUnits" value={values.windowUnits} min="0" inputmode="numeric" />
+			</label>
+			<label>
+				Panes of glass
+				<input type="number" class="field-numeric" name="glassPanes" value={values.glassPanes} min="0" inputmode="numeric" />
+			</label>
+			<label>
+				Screens
+				<input type="number" class="field-numeric" name="screenCount" value={values.screenCount} min="0" inputmode="numeric" />
+			</label>
+			<label>
+				Stories
+				<input type="number" class="field-numeric" name="stories" value={values.stories} min="0" inputmode="numeric" />
+			</label>
+			<label>
+				Notes
+				<textarea name="notes">{values.notes}</textarea>
+			</label>
+		</fieldset>
+
+		<div class="button-row">
+			<a class="btn-secondary" href={cancelHref}>Cancel</a>
+			<button type="submit">{mode === 'edit' ? 'Save changes' : 'Save record'}</button>
+		</div>
+	</form>
+</section>

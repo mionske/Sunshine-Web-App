@@ -60,12 +60,12 @@ Invoiced Job → Paid Job
   Completed/Invoiced/Paid **and** actual labor time, final revenue, direct
   costs, and callback info are all filled in.
 - Separately, **Historical Entry** (`historical-entry.astro` +
-  `HistoricalEntryWizard.tsx`) is a *backfill* path: it creates a Client/
-  Property/Walkthrough/Quote/Job all at once for work that already
-  happened, with its own owner-entered dollar figure (it does not run the
-  pricing engine). This is a genuinely separate flow from the live
-  Quote→Job path above — worth knowing since there are effectively **two
-  ways a Job gets created**.
+  `components/HistoricalEntryForm.astro`) is a *backfill* path: one
+  compact form that records a past job (date, price, hours, scope
+  summary, optionally a Client/Property) with its own owner-entered
+  dollar figure — it does not run the pricing engine. This is a genuinely
+  separate flow from the live Quote→Job path above — worth knowing since
+  there are effectively **two ways a Job gets created**.
 
 ## Data model (high level — full column reference in `docs/data-dictionary.md`)
 
@@ -198,8 +198,10 @@ using the app, not hypotheticals:
    segmented Glass Condition/Restoration Services/Access Modifiers model,
    but Quoter was never brought along and sat stale for a while before
    anyone noticed the inconsistency. Worth an occasional pass comparing
-   the four "describe this job" surfaces (Quoter, WalkthroughWizard,
-   HistoricalEntryWizard, Job Day completion) for the same kind of drift.
+   the "describe this job" surfaces (Quoter, WalkthroughWizard, Job Day
+   completion) for the same kind of drift. Historical Entry deliberately
+   no longer participates: it was simplified down to a compact
+   calibration-only form and does not model job characteristics at all.
 10. **`tsc --noEmit` does not actually type-check `.astro` file frontmatter**
     (a real gap found this session — a stale function call with a missing
     argument sat undetected in `quoter.astro` for a while). `.astro` files

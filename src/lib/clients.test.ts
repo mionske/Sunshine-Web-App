@@ -29,6 +29,7 @@ const JOBS_HEADERS = [
 	'Standard Price Equivalent',
 	'Data Quality',
 	'Data Quality Notes',
+	'Scope Summary',
 	'Pricing Confidence',
 	'Would Price Differently Today (Y/N)',
 	'Current Retail Price Estimate ($)',

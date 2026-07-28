@@ -1,18 +1,43 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import HistoricalEntryWizard from '../components/HistoricalEntryWizard';
+import HistoricalEntryForm from '../components/HistoricalEntryForm.astro';
 import { env } from 'cloudflare:workers';
 import { listActiveRows } from '../lib/sheets';
 import { clientConfig } from '../lib/models/client';
 import { propertyConfig } from '../lib/models/property';
+import { saveHistoricalEntry } from '../lib/pricing/historicalEntry';
+import {
+	emptyFormValues,
+	formValuesFromRequest,
+	payloadForCreate,
+	validateFormValues,
+} from '../lib/historicalEntryForm';
 
-const clientId = Astro.url.searchParams.get('clientId') ?? undefined;
-const propertyId = Astro.url.searchParams.get('propertyId') ?? undefined;
+// Backfilling a job that predates the app. This is deliberately a compact
+// form and not a walkthrough: historical records exist to support pricing
+// calibration, and calibration needs the date, the money, the hours and a
+// sentence on what the job covered — not a re-created window inventory.
+let error: string | null = null;
+let values = emptyFormValues({
+	clientId: Astro.url.searchParams.get('clientId') ?? '',
+	propertyId: Astro.url.searchParams.get('propertyId') ?? '',
+});
 
-// Loaded so the wizard's Step 2 can offer "pick an existing client/
-// property" instead of only free-text entry into new records — this is a
-// small business with a small, fully-loadable client list, so no search
-// API is needed, just the full active list passed down.
+if (Astro.request.method === 'POST') {
+	values = formValuesFromRequest(await Astro.request.formData());
+	error = validateFormValues(values);
+	if (!error) {
+		try {
+			await saveHistoricalEntry(env, payloadForCreate(values));
+			return Astro.redirect('/historical-records');
+		} catch (e) {
+			error = (e as Error).message;
+		}
+	}
+}
+
+// The full active lists, not a search API: this is a solo business with a
+// client list small enough to render as two <select>s.
 const [clients, properties] = await Promise.all([
 	listActiveRows(env, clientConfig),
 	listActiveRows(env, propertyConfig),
@@ -21,11 +46,17 @@ const [clients, properties] = await Promise.all([
 
 <BaseLayout title="Add historical record">
 	<main>
+		<p><a href="/historical-records">← Historical Records</a></p>
 		<h1>Add historical record</h1>
-		<p>
-			For entering properties/jobs that already happened, before this app existed. To revisit one already entered,
-			see <a href="/historical-records">Historical Records</a>.
-		</p>
-		<HistoricalEntryWizard client:load clientId={clientId} propertyId={propertyId} clients={clients} properties={properties} />
+		<p>For a job that already happened, before this app existed.</p>
+
+		<HistoricalEntryForm
+			mode="create"
+			values={values}
+			error={error}
+			clients={clients}
+			properties={properties}
+			cancelHref="/historical-records"
+		/>
 	</main>
 </BaseLayout>

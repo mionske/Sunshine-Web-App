@@ -7,12 +7,7 @@ import { propertyConfig, propertySchema } from '../models/property';
 import { walkthroughSchema } from '../models/walkthrough';
 import { quoteSchema } from '../models/quote';
 import { jobSchema } from '../models/job';
-import {
-	previewCalibrationEligibility,
-	saveHistoricalEntry,
-	updateHistoricalEntry,
-	type HistoricalEntryPayload,
-} from './historicalEntry';
+import { saveHistoricalEntry, updateHistoricalEntry, type HistoricalEntryPayload } from './historicalEntry';
 
 const ACTIVITY_LOG_HEADERS = [
 	'Activity ID', 'Entity Type', 'Entity ID', 'Action', 'Previous Value', 'New Value', 'User', 'Timestamp', 'Request ID', 'Notes',
@@ -116,6 +111,7 @@ function basePayload(overrides: Partial<HistoricalEntryPayload> = {}): Historica
 			standardPriceEquivalent: '',
 			dataQuality: '',
 			dataQualityNotes: '',
+			scopeSummary: '',
 			pricingConfidence: '',
 			wouldPriceDifferentlyToday: false,
 			currentRetailPriceEstimate: '',
@@ -429,6 +425,26 @@ describe('saveHistoricalEntry', () => {
 		expect(row[headers.indexOf('Would Change Process (Y/N)')]).toBe('Y');
 		expect(row[headers.indexOf('Process Improvements')]).toBe('Bring the water-fed pole as a default, not an afterthought.');
 	});
+
+	// The compact entry form's headline field: a historical price only means
+	// something for calibration if you know what it bought.
+	it('round-trips the scope summary to the Job row', async () => {
+		const payload = basePayload({
+			job: {
+				...basePayload().job,
+				include: true,
+				finalRevenue: '500',
+				totalOnSiteMinutesOverride: '270',
+				scopeSummary: 'Interior & Exterior — 2 stories, screens, no hard water',
+			},
+		});
+
+		await saveHistoricalEntry(harness.env, payload);
+
+		const rows = harness.spreadsheet.getTab('Jobs');
+		const headers = rows[0];
+		expect(rows[1][headers.indexOf('Scope Summary')]).toBe('Interior & Exterior — 2 stories, screens, no hard water');
+	});
 });
 
 describe('updateHistoricalEntry', () => {
@@ -488,37 +504,5 @@ describe('updateHistoricalEntry', () => {
 		const row = rows[1];
 		expect(row[headers.indexOf('Final Price ($)')]).toBe('450');
 		expect(row[headers.indexOf('Overall Job Rating')]).toBe('5');
-	});
-});
-
-describe('previewCalibrationEligibility', () => {
-	it('reports no job for a walkthrough-only entry', () => {
-		const { eligible, reasons } = previewCalibrationEligibility(basePayload().job);
-		expect(eligible).toBe(false);
-		expect(reasons).toEqual(['No job will be created for this record']);
-	});
-
-	it('qualifies a complete job', () => {
-		const { eligible, reasons } = previewCalibrationEligibility({
-			...basePayload().job,
-			include: true,
-			status: 'Completed',
-			totalOnSiteMinutesOverride: '90',
-			finalRevenue: '300',
-			callbackOccurred: false,
-		});
-		expect(eligible).toBe(true);
-		expect(reasons).toEqual([]);
-	});
-
-	it('explains exactly what is missing for an incomplete job', () => {
-		const { eligible, reasons } = previewCalibrationEligibility({
-			...basePayload().job,
-			include: true,
-			status: 'Completed',
-			finalRevenue: '',
-		});
-		expect(eligible).toBe(false);
-		expect(reasons.length).toBeGreaterThan(0);
 	});
 });

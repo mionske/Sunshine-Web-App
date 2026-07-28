@@ -736,9 +736,8 @@ populated by the guided mobile walkthrough mode (`/walkthroughs/new`,
 `src/components/WalkthroughWizard.tsx`) — computed server-side via the
 same shared pricing engine the in-field quoter uses
 (`lib/pricing/walkthroughToQuote.ts`), never a second calculation path.
-The historical-entry wizard still leaves these blank for past
-walkthroughs rather than reconstructing a price recommendation after the
-fact.
+The historical-entry form never creates a Walkthrough at all, so it
+never reconstructs a price recommendation after the fact.
 
 Condition values (`GLASS_CONDITION_LEVELS`, `lib/models/walkthrough.ts`):
 Maintenance, Light Buildup, Moderate Buildup, Heavy Buildup — a pure
@@ -943,43 +942,58 @@ A failure here (API not yet enabled, calendar unshared, transient
 error) never breaks the Dashboard — both sections just show a quiet
 one-line "Calendar unavailable" note instead of the reminder content.
 
-## Historical-entry wizard
+## Historical-entry form
 `/historical-entry` (linked from the Dashboard and each Property detail
-page) — a guided multi-step form for entering properties/jobs that
-predate this app: Record Type → Client & Property (with duplicate
-detection by phone/email/exact address/name+ZIP before creating new
-records) → Property Characteristics → Walkthrough Details → Quote Details
-→ Job Details → Review (shows exactly what will be created/reused and the
-calibration-inclusion outcome) → Save. One `createRelatedRows()` call per
-submission, so the whole thing is a single Write-Operation-ID-tagged,
-idempotent-by-ID unit — safe to retry after a network error without
-creating duplicates. A walkthrough-only visit never creates a fake Job;
-Job Details only appears for record types where work was actually
-performed. Walkthrough Details also carries Access & Equipment Modifiers
-(below the renamed "Overall Access Difficulty" field); Job Details also
-carries an expanded Callback & Quality section (Callback Required →
-Callback Hours/Reason/Root Cause/Corrective Action/Lessons Learned when
-checked), plus new Pricing Review and Job Performance Review cards below
-Classification — see the Jobs and Walkthroughs sections above for the
-exact columns.
+page) — a single compact form for backfilling a job that predates this
+app. Historical records exist for exactly one reason, supporting pricing
+calibration, so the form asks only for what a calibration data point
+needs: **service date, final price, actual labor hours and a one-line
+scope summary** (required), plus optional client/property (pick an
+existing one or type a new name/address), window units, panes, screens,
+scope dropdown, stories, notes, and "would you price this differently
+today?". It does not ask for a window inventory, walkthrough conditions,
+QuickBooks or Pipeline records, or a callback/ratings writeup — the
+multi-step wizard that used to collect all of that is gone.
+
+Entered hours are converted to minutes at the write boundary; the
+`Setup/Cleaning/Inspection/Pack-up Time` breakdown columns are left
+blank, which is what makes the single entered total authoritative for
+`Actual Time (hrs)` (see `onSiteMinutes()` in
+`lib/pricing/historicalEntry.ts`). Jobs has no dedicated scope column
+beyond the free-text `Scope Summary`, so the scope dropdown is stored as
+a prefix on that same column (`"Interior & Exterior — 2 stories,
+screens"`) and split back out on edit — the option list is closed, so the
+round-trip is exact. "Would you price this differently today?" maps onto
+the existing Pricing Review pair: Higher/Lower both set `Would Price
+Differently Today (Y/N)` to `Y` with the direction kept as `Reason
+Pricing Changed`; Same sets `N`; blank leaves the question unanswered.
+Every save sets `Record Classification` to `Historical Import`, which is
+what makes the record findable (see below). Saving goes through one
+`createRelatedRows()` call, so the whole submission is a single
+Write-Operation-ID-tagged, idempotent-by-ID unit — safe to retry after a
+network error without creating duplicates.
 
 **Historical Records** (`/historical-records`, linked from the Dashboard
 and from `/historical-entry`) — lists every Job with a non-blank Record
-Classification (a reliable signal since only this wizard's save/update
-path ever writes that column), linking each to
-`/historical-entry/[jobId]` for **true edit mode**: the same wizard UI,
-pre-loaded from the real Client/Property/Walkthrough/Quote/Job rows via
-`buildEditState()`, posting `action: 'update'` instead of `'save'` on
-submit. `updateHistoricalEntry()` (`lib/pricing/historicalEntry.ts`)
-updates each included sub-record in place via `updateRow()` — deliberately
-not `createRelatedRows()`, whose idempotent-by-ID create semantics would
-silently skip rewriting a row whose ID already exists. Every field-mapping
-literal (Client/Property/Walkthrough/Quote/Job) is shared between the
-create and update paths via `buildClientRecord()`/`buildPropertyRecord()`/
-etc., so the two write paths can't drift apart. Walkthrough-only
-historical entries (no Job ever created) have no equivalent list/edit
-support today — they remain viewable only via their own Walkthrough
-Detail page.
+Classification (a reliable signal since only this form's save/update path
+ever writes that column), linking each to `/historical-entry/[jobId]` for
+**true edit mode**: the same form component
+(`components/HistoricalEntryForm.astro`), pre-loaded from the real
+Client/Property/Job rows. `updateHistoricalEntry()`
+(`lib/pricing/historicalEntry.ts`) updates each included sub-record in
+place via `updateRow()` — deliberately not `createRelatedRows()`, whose
+idempotent-by-ID create semantics would silently skip rewriting a row
+whose ID already exists. Because both write paths rewrite every column
+they map, the edit page reads the existing Client/Property/Job back in
+first and layers the form values on top, so saving never blanks a field
+the compact form doesn't display. Client and Property are both optional
+and skipped when absent — a price/hours/scope data point is still useful
+with no idea whose house it was. Every field-mapping literal is shared
+between the create and update paths via `buildClientRecord()`/
+`buildPropertyRecord()`/etc., so the two write paths can't drift apart.
+Walkthrough-only historical entries (no Job ever created) have no
+equivalent list/edit support today — they remain viewable only via their
+own Walkthrough Detail page.
 
 ## SystemTest
 Dedicated scratch tab for live Sheets round-trip verification. Never used

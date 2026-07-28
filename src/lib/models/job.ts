@@ -30,14 +30,16 @@ export const DATA_QUALITY_LEVELS = ['Complete', 'Mostly Complete', 'Partial', 'E
 
 export const REVIEW_LEFT_VALUES = ['Yes', 'No', 'Unknown'] as const;
 
-// Historical Entry Wizard: Callback & Quality detail (only meaningful when
-// 'Callback Required (Y/N)' is 'Y') and Pricing Review. Free strings, not
-// enums on the schema itself — same "never fabricate legacy completeness"
-// reasoning as Record Classification etc. below; these constants only
-// constrain the <select> options offered in the wizard.
-// Two-tier so the wizard only ever shows relevant specific reasons for the
-// chosen category, instead of one long flat list. 'Operator Error' lives
-// under Quality (a human-error quality issue, not its own category).
+// Callback & Quality detail (only meaningful when 'Callback Required (Y/N)'
+// is 'Y'). Free strings, not enums on the schema itself — same "never
+// fabricate legacy completeness" reasoning as Record Classification etc.
+// below; these constants only document the intended vocabulary for the
+// columns. Two-tier so a UI only ever shows relevant specific reasons for
+// the chosen category, instead of one long flat list. 'Operator Error'
+// lives under Quality (a human-error quality issue, not its own category).
+// No surface collects these today: the multi-step Historical Entry wizard
+// that did was replaced by the compact calibration-only form, which
+// preserves whatever is already on a row but never asks for more.
 export const CALLBACK_PRIMARY_CATEGORIES = ['Quality', 'Customer', 'Weather', 'Equipment', 'Scheduling', 'Other'] as const;
 
 export const CALLBACK_SPECIFIC_REASONS: Record<(typeof CALLBACK_PRIMARY_CATEGORIES)[number], readonly string[]> = {
@@ -111,13 +113,21 @@ export const jobSchema = z
 		// "Customer Job"/"Full Price"/"Complete" — exactly the fabricated-
 		// completeness the historical-entry workflow is designed to avoid.
 		// The RECORD_CLASSIFICATIONS/REVENUE_TREATMENTS/DATA_QUALITY_LEVELS
-		// constants still constrain the <select> options offered in forms.
+		// constants still document the intended vocabulary; the Historical
+		// Entry form sets Record Classification to 'Historical Import' and
+		// leaves the other two blank rather than guessing.
 		'Record Classification': blank(),
 		'Revenue Treatment': blank(),
 		'Standard Price Equivalent': blank(),
 		'Data Quality': blank(),
 		'Data Quality Notes': blank(),
-		// Pricing Review (Historical Entry Wizard) — pricing hindsight only;
+		// A sentence about what the job actually covered — "interior and
+		// exterior, 2 stories, screens" — captured when backfilling a past
+		// job. Historical records exist to support pricing calibration, and a
+		// price is meaningless without knowing what it bought; this is the
+		// cheapest way to record that without a full itemized walkthrough.
+		'Scope Summary': blank(),
+		// Pricing Review (Historical Entry form) — pricing hindsight only;
 		// never fed back into calculateQuote/walkthroughToQuote.ts
 		// automatically (see calibrationExclusionReasons in calibration.ts,
 		// which never reads these).
@@ -125,7 +135,9 @@ export const jobSchema = z
 		'Would Price Differently Today (Y/N)': blank(),
 		'Current Retail Price Estimate ($)': blank(),
 		'Reason Pricing Changed': blank(),
-		// Job Performance Review (Historical Entry Wizard). 'Customer
+		// Job Performance Review — no longer collected anywhere since the
+		// Historical Entry wizard was replaced by the compact form; existing
+		// values are preserved on edit, never re-asked. 'Customer
 		// Satisfaction Rating' is deliberately distinct from 'Customer
 		// Rating' below: 'Customer Rating' sits alongside 'Review Requested
 		// At'/'Review Left' and is reserved for an actual score from a real
@@ -151,7 +163,7 @@ export const jobSchema = z
 		// never actually declared here or added to the live sheet — this
 		// closes that gap rather than introducing a new one.
 		'Callback Cost': blank(),
-		// Callback & Quality detail (Historical Entry Wizard) — captures why
+		// Callback & Quality detail — captures why
 		// a callback happened and what was learned, distinct from the
 		// minutes/cost columns above which only capture the time/money
 		// impact. Never folded into 'Actual Time (hrs)' — see

@@ -1,4 +1,4 @@
-// The historical-entry wizard's save path: creates whatever subset of
+// The historical-entry form's save path: creates whatever subset of
 // Client/Property/Walkthrough/Quote/Job the owner actually has data for,
 // reusing existing Client/Property records instead of duplicating them
 // when the owner chose to. One createRelatedRows() call ties every new
@@ -11,9 +11,8 @@ import { clientConfig } from '../models/client';
 import { propertyConfig } from '../models/property';
 import { walkthroughConfig } from '../models/walkthrough';
 import { quoteConfig } from '../models/quote';
-import { jobConfig, type Job } from '../models/job';
+import { jobConfig } from '../models/job';
 import { formatPhoneDigits } from '../phoneFormat';
-import { calibrationExclusionReasons } from './calibration';
 
 function num(value: string | undefined): number {
 	const n = Number(value);
@@ -123,6 +122,10 @@ export interface HistoricalEntryPayload {
 		standardPriceEquivalent: string;
 		dataQuality: string;
 		dataQualityNotes: string;
+		// One sentence describing what the job actually covered. A historical
+		// price is only useful for calibration if you know what it bought, so
+		// this is the compact form's stand-in for a full itemized walkthrough.
+		scopeSummary: string;
 		pricingConfidence: string;
 		wouldPriceDifferentlyToday: boolean;
 		currentRetailPriceEstimate: string;
@@ -142,26 +145,6 @@ export interface HistoricalEntryPayload {
 function onSiteMinutes(job: HistoricalEntryPayload['job']): number {
 	const breakdown = num(job.setupMinutes) + num(job.cleaningMinutes) + num(job.inspectionMinutes) + num(job.packUpMinutes);
 	return breakdown > 0 ? breakdown : num(job.totalOnSiteMinutesOverride);
-}
-
-function buildDraftJob(job: HistoricalEntryPayload['job']): Job {
-	const minutes = onSiteMinutes(job);
-	return {
-		'Job ID': job.id || 'draft',
-		'Job Status': (job.status || 'Completed') as Job['Job Status'],
-		'Actual Time (hrs)': minutes > 0 ? String(minutes / 60) : '',
-		'Final Price ($)': job.finalRevenue,
-		'Callback Required (Y/N)': job.callbackOccurred ? 'Y' : 'N',
-	} as Job;
-}
-
-/** Lets the wizard's Review step show calibration inclusion/exclusion
- * before anything is saved, using the exact same rule the live app uses
- * afterward — never a separate, looser preview rule. */
-export function previewCalibrationEligibility(job: HistoricalEntryPayload['job']): { eligible: boolean; reasons: string[] } {
-	if (!job.include) return { eligible: false, reasons: ['No job will be created for this record'] };
-	const reasons = calibrationExclusionReasons(buildDraftJob(job));
-	return { eligible: reasons.length === 0, reasons };
 }
 
 export interface HistoricalEntryResult {
@@ -277,6 +260,10 @@ function buildJobRecord(payload: HistoricalEntryPayload) {
 		'Travel Time': payload.job.travelMinutes,
 		'Off-Site Admin Time': payload.job.offSiteAdminMinutes,
 		'Actual Time (hrs)': minutes > 0 ? (minutes / 60).toFixed(2) : '',
+		// Copied from the property section the same way jobLifecycle.ts's
+		// job creation does it, so calibration's per-window metrics work even
+		// when an existing Property row was reused and never re-written.
+		'Window Count': payload.property.totalWindowUnits,
 		'Final Price ($)': payload.job.finalRevenue,
 		'Total Job Cost': payload.job.directCosts,
 		'Callback Required (Y/N)': payload.job.callbackOccurred ? 'Y' : 'N',
@@ -295,6 +282,7 @@ function buildJobRecord(payload: HistoricalEntryPayload) {
 		'Standard Price Equivalent': payload.job.standardPriceEquivalent,
 		'Data Quality': payload.job.dataQuality,
 		'Data Quality Notes': payload.job.dataQualityNotes,
+		'Scope Summary': payload.job.scopeSummary,
 		'Pricing Confidence': payload.job.pricingConfidence,
 		'Would Price Differently Today (Y/N)': payload.job.wouldPriceDifferentlyToday ? 'Y' : 'N',
 		'Current Retail Price Estimate ($)': payload.job.currentRetailPriceEstimate,
@@ -353,16 +341,22 @@ export async function saveHistoricalEntry(
  * function's idempotent-by-ID behavior is create semantics ("ID already
  * exists → treat as already committed, never rewrite"), the opposite of
  * what an in-place edit needs. Every sub-record here is assumed to already
- * exist (the edit-mode wizard always loads real records, never runs
- * duplicate detection) — this does not support adding a walkthrough/quote/
- * job to a record that never had one; that's a new record, not an edit. */
+ * exist — this does not support adding a walkthrough/quote/job to a record
+ * that never had one; that's a new record, not an edit. Client and Property
+ * are skipped when their id is blank, because the compact entry form lets a
+ * job be recorded with neither (price + hours + scope is enough to
+ * calibrate against), and those records must still be editable afterward. */
 export async function updateHistoricalEntry(
 	env: SheetsEnv,
 	payload: HistoricalEntryPayload,
 	meta: { user?: string; requestId?: string } = {}
 ): Promise<HistoricalEntryResult> {
-	await updateRow(env, clientConfig, payload.client.id, buildClientRecord(payload) as never, meta);
-	await updateRow(env, propertyConfig, payload.property.id, buildPropertyRecord(payload) as never, meta);
+	if (payload.client.id) {
+		await updateRow(env, clientConfig, payload.client.id, buildClientRecord(payload) as never, meta);
+	}
+	if (payload.property.id) {
+		await updateRow(env, propertyConfig, payload.property.id, buildPropertyRecord(payload) as never, meta);
+	}
 
 	if (payload.walkthrough.include) {
 		await updateRow(env, walkthroughConfig, payload.walkthrough.id, buildWalkthroughRecord(payload) as never, meta);

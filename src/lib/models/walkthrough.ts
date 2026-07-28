@@ -31,8 +31,8 @@ export const ACCESS_LEVELS = ['Easy', 'Standard', 'Difficult', 'Specialty Access
 
 // A walkthrough-only visit (no quote, no job) is a real, standalone record
 // — it never gets faked into a Job just to have somewhere to live. This
-// schema is intentionally broader than what the historical-entry wizard
-// (Phase 2) populates today: Suggested Low/Target/High Price and Pricing
+// schema is intentionally broader than what any one surface populates
+// today: Suggested Low/Target/High Price and Pricing
 // Config ID are here now so the guided mobile walkthrough mode (a later
 // phase, once it computes live pricing suggestions) can start writing to
 // them without another live schema change.
