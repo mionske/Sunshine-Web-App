@@ -5,20 +5,37 @@ import { listActiveRows } from '../lib/sheets';
 import { pipelineConfig, PIPELINE_STAGES } from '../lib/models/pipeline';
 import { clientConfig } from '../lib/models/client';
 import { propertyConfig } from '../lib/models/property';
+import { quoteConfig } from '../lib/models/quote';
 import { fullAddress } from '../lib/mapsLink';
 import PipelineBoard from '../components/PipelineBoard';
 
 // Opportunity creation happens client-side now (the New Opportunity
 // drawer POSTs to /api/pipeline directly — see PipelineBoard.tsx), so this
 // page is read-only server-side: just the data the board needs to render.
-const [opportunities, clients, properties] = await Promise.all([
+const [opportunities, clients, properties, quotes] = await Promise.all([
 	listActiveRows(env, pipelineConfig),
 	listActiveRows(env, clientConfig),
 	listActiveRows(env, propertyConfig),
+	listActiveRows(env, quoteConfig),
 ]);
 
 const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
 const propertyById = Object.fromEntries(properties.map((p) => [p['Property ID'], p]));
+
+// An opportunity can accumulate more than one Quote over time (e.g. a
+// revised quote after negotiation) — only the single most recent is
+// surfaced on the Pipeline card/drawer; older ones stay reachable via
+// /quotes without cluttering this view (see pipeline-quote-any-stage spec).
+const latestCreatedAtByOpportunity: Record<string, string> = {};
+const latestQuoteByOpportunity: Record<string, { id: string; status: string; finalPrice: string }> = {};
+for (const q of quotes) {
+	const opportunityId = q['Opportunity ID'];
+	if (!opportunityId) continue;
+	if (q['Created At'] > (latestCreatedAtByOpportunity[opportunityId] ?? '')) {
+		latestCreatedAtByOpportunity[opportunityId] = q['Created At'];
+		latestQuoteByOpportunity[opportunityId] = { id: q['Quote ID'], status: q['Quote Status'], finalPrice: q['Final Quoted Price'] };
+	}
+}
 
 const cards = opportunities.map((o) => {
 	const client = clientById[o['Client ID']];
@@ -34,6 +51,7 @@ const cards = opportunities.map((o) => {
 		referralSource: o['Referral Source'],
 		nextFollowUpDate: o['Next Follow-up Date'],
 		notes: o.Notes,
+		latestQuote: latestQuoteByOpportunity[o['Opportunity ID']] ?? null,
 	};
 });
 

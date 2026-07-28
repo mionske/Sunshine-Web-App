@@ -96,6 +96,10 @@ export interface InitialQuoteData {
 	quoteId: string;
 	clientId: string;
 	propertyId: string;
+	/** The Pipeline opportunity this quote is linked to, if any — carried
+	 * through unchanged on edit/duplicate so re-saving never silently drops
+	 * an existing Opportunity ID link. */
+	opportunityId?: string;
 	pricingConfigId: string;
 	serviceScope: string;
 	inventoryCoverage: string;
@@ -146,6 +150,10 @@ interface QuoterFormProps {
 	services: Service[];
 	preselectedClientId: string;
 	preselectedPropertyId: string;
+	/** Carried through from a Pipeline card's "Create Quote" action
+	 * (?opportunityId= in quoter.astro) — never user-editable, just threaded
+	 * to a hidden field so the saved Quote's Opportunity ID gets set. */
+	preselectedOpportunityId: string;
 	/** Present when editing an existing Quote OR duplicating one as a
 	 * starting point for a new Quote (see quoter.astro) — pre-fills every
 	 * field from it either way. */
@@ -209,6 +217,7 @@ export default function QuoterForm(props: QuoterFormProps) {
 		services,
 		preselectedClientId,
 		preselectedPropertyId,
+		preselectedOpportunityId,
 		initialQuote,
 		quoterMode = 'edit',
 	} = props;
@@ -222,6 +231,9 @@ export default function QuoterForm(props: QuoterFormProps) {
 
 	const [clientId, setClientId] = useState(initialQuote?.clientId || preselectedClientId || clients[0]?.id || '');
 	const [propertyId, setPropertyId] = useState(initialQuote?.propertyId || preselectedPropertyId || '');
+	// Never user-editable (no Pipeline-opportunity picker in this form) — just
+	// carried through to a hidden field, so plain state (not a setter) is fine.
+	const opportunityId = initialQuote?.opportunityId || preselectedOpportunityId || '';
 	const [pricingConfigId, setPricingConfigId] = useState(initialQuote?.pricingConfigId ?? '');
 
 	const [serviceScope, setServiceScope] = useState<ServiceScope>((initialQuote?.serviceScope as ServiceScope) || 'Interior & Exterior');
@@ -507,6 +519,7 @@ export default function QuoterForm(props: QuoterFormProps) {
 	return (
 		<form method="POST" className="quoter-layout">
 			{isEditing && <input type="hidden" name="quoteId" value={initialQuote!.quoteId} />}
+			{opportunityId && <input type="hidden" name="opportunityId" value={opportunityId} />}
 			<div className="quoter-main">
 				<section className="card">
 					<span className="badge">

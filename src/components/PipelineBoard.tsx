@@ -1,6 +1,12 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { googleMapsUrl } from '../lib/mapsLink';
 
+export interface LatestQuote {
+	id: string;
+	status: string;
+	finalPrice: string;
+}
+
 export interface PipelineCard {
 	id: string;
 	stage: string;
@@ -12,6 +18,11 @@ export interface PipelineCard {
 	referralSource: string;
 	nextFollowUpDate: string;
 	notes: string;
+	// Most recent Quote linked via its own Opportunity ID (reverse lookup —
+	// see pipeline.astro), or null if none exists yet. A quote can be created
+	// from this card regardless of Stage; older quotes on the same
+	// opportunity stay reachable via /quotes, not duplicated here.
+	latestQuote: LatestQuote | null;
 }
 
 export interface PropertyOption {
@@ -285,6 +296,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 					referralSource: formReferral,
 					nextFollowUpDate: formDate,
 					notes: '',
+					latestQuote: null,
 				},
 			]);
 			closeDrawer();
@@ -466,6 +478,13 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 														No property yet — add one
 													</button>
 												)}
+												{c.latestQuote && (
+													<div className="field-hint">
+														<span className="badge">{c.latestQuote.status}</span>{' '}
+														{c.latestQuote.finalPrice ? formatMoney(num(c.latestQuote.finalPrice)) : '—'}{' '}
+														<a href={`/quotes/${c.latestQuote.id}`}>view</a>
+													</div>
+												)}
 												<div className="pipeline-card-footer">
 													{num(c.estimatedValue) > 0 && <span className="pipeline-card-value">{formatMoney(num(c.estimatedValue))}</span>}
 													<span className={followUpClass(fs)}>{followUpLabel(c.nextFollowUpDate, fs)}</span>
@@ -503,6 +522,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 								Follow-up
 							</th>
 							<th>Referral</th>
+							<th>Quote</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -520,12 +540,22 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 									<td>{num(c.estimatedValue) > 0 ? formatMoney(num(c.estimatedValue)) : '—'}</td>
 									<td className={followUpClass(fs)}>{followUpLabel(c.nextFollowUpDate, fs)}</td>
 									<td>{c.referralSource || '—'}</td>
+									<td>
+										{c.latestQuote ? (
+											<a href={`/quotes/${c.latestQuote.id}`}>
+												{c.latestQuote.status}
+												{c.latestQuote.finalPrice ? ` · ${formatMoney(num(c.latestQuote.finalPrice))}` : ''}
+											</a>
+										) : (
+											'—'
+										)}
+									</td>
 								</tr>
 							);
 						})}
 						{listRows.length === 0 && (
 							<tr>
-								<td colSpan={6}>No opportunities match these filters.</td>
+								<td colSpan={7}>No opportunities match these filters.</td>
 							</tr>
 						)}
 					</tbody>
@@ -651,6 +681,30 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 								</label>
 							</div>
 						)}
+
+						<div>
+							<h3 style={{ margin: '0 0 0.5rem' }}>Quote</h3>
+							{editingCard.latestQuote ? (
+								<p style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: 0 }}>
+									<span className="badge">{editingCard.latestQuote.status}</span>
+									{editingCard.latestQuote.finalPrice ? formatMoney(num(editingCard.latestQuote.finalPrice)) : '—'}
+									<a href={`/quotes/${editingCard.latestQuote.id}`}>view quote</a>
+								</p>
+							) : (
+								<p className="field-hint">No quote yet for this opportunity.</p>
+							)}
+							{editPropertyId ? (
+								<a
+									className="btn-secondary"
+									style={{ display: 'inline-block', marginTop: '0.5rem' }}
+									href={`/quoter?propertyId=${editPropertyId}&clientId=${editingCard.clientId}&opportunityId=${editingCard.id}`}
+								>
+									+ Create Quote
+								</a>
+							) : (
+								<p className="field-hint">Attach a property first to create a quote.</p>
+							)}
+						</div>
 
 						<div style={{ display: 'flex', gap: '0.75rem' }}>
 							<label style={{ flex: 1 }}>

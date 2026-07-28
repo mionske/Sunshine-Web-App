@@ -143,6 +143,7 @@ if (Astro.request.method === 'POST') {
 			clientId: String(form.get('clientId') ?? ''),
 			propertyId: String(form.get('propertyId') ?? ''),
 			walkthroughId: String(form.get('walkthroughId') ?? '') || undefined,
+			opportunityId: String(form.get('opportunityId') ?? '') || undefined,
 			...sharedParams,
 		});
 		return Astro.redirect(`/quotes/${quote['Quote ID']}`);
@@ -164,6 +165,7 @@ const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
 const activeConfigs = pricingConfigs.filter((c) => c.Status === 'Active');
 const preselectedPropertyId = Astro.url.searchParams.get('propertyId') ?? '';
 const preselectedClientId = Astro.url.searchParams.get('clientId') ?? '';
+const preselectedOpportunityId = Astro.url.searchParams.get('opportunityId') ?? '';
 
 // Shared by edit mode (?quoteId=X) and duplicate mode (?duplicateFrom=X) —
 // everything the form needs to re-populate comes straight from the source
@@ -178,6 +180,7 @@ function buildInitialQuoteData(sourceQuote: Quote): InitialQuoteData {
 		quoteId: sourceQuote['Quote ID'],
 		clientId: sourceQuote['Client ID'],
 		propertyId: sourceQuote['Property ID'],
+		opportunityId: sourceQuote['Opportunity ID'] || undefined,
 		pricingConfigId: sourceQuote['Pricing Config ID'],
 		serviceScope: sourceQuote['Service Scope'],
 		inventoryCoverage: sourceQuote['Inventory Coverage'],
@@ -349,6 +352,7 @@ const propertySummaryById = Object.fromEntries(
 				services={services}
 				preselectedClientId={preselectedClientId}
 				preselectedPropertyId={preselectedPropertyId}
+				preselectedOpportunityId={preselectedOpportunityId}
 				initialQuote={initialQuoteData ?? undefined}
 				quoterMode={quoterMode}
 			/>
