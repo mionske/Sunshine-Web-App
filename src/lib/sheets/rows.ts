@@ -1,4 +1,5 @@
-import { getValues, type CellValue } from './client';
+import { batchGetValues, getValues, type CellValue } from './client';
+import { clearRowsCache, getCachedRows, rowsCacheKey, setCachedRows } from './rowsCache';
 import { SheetsSchemaError } from './types';
 import type { SheetsEnv } from './types';
 
@@ -8,12 +9,36 @@ const DATA_END_COLUMN = 'ZZ';
 
 const headerCache = new Map<string, string[]>();
 
+
+/**
+ * Fetches several tabs' headers and data in ONE API call and primes the
+ * caches, so the individual reads that follow cost nothing. Best-effort: a
+ * failure here is swallowed, because every caller can still read normally.
+ */
+export async function primeTabs(env: SheetsEnv, tabs: string[]): Promise<void> {
+	const cold = tabs.filter((tab) => !getCachedRows(rowsCacheKey(env, tab)));
+	if (cold.length === 0) return;
+
+	const ranges = cold.flatMap((tab) => [`'${tab}'!1:1`, `'${tab}'!A2:${DATA_END_COLUMN}`]);
+	try {
+		const results = await batchGetValues(env, ranges);
+		cold.forEach((tab, index) => {
+			const headerRows = results[index * 2] ?? [];
+			const data = results[index * 2 + 1] ?? [];
+			primeHeaders(env, tab, (headerRows[0] ?? []).map((cell) => String(cell ?? '').trim()));
+			setCachedRows(rowsCacheKey(env, tab), data);
+		});
+	} catch {
+		// Priming is an optimisation, never a correctness requirement.
+	}
+}
+
 function cacheKey(env: SheetsEnv, tab: string): string {
 	return `${env.SPREADSHEET_ID}::${tab}`;
 }
 
 export async function readHeaders(env: SheetsEnv, tab: string, opts: { fresh?: boolean } = {}): Promise<string[]> {
-	const key = cacheKey(env, tab);
+	const key = rowsCacheKey(env, tab);
 	if (!opts.fresh && headerCache.has(key)) return headerCache.get(key)!;
 
 	const rows = await getValues(env, `'${tab}'!1:1`);
@@ -24,6 +49,17 @@ export async function readHeaders(env: SheetsEnv, tab: string, opts: { fresh?: b
 
 export function _clearHeaderCacheForTests(): void {
 	headerCache.clear();
+	clearRowsCache();
+}
+
+/** The cached headers for a tab, or null. Lets readRows decide between one
+ * batched request and a cheaper single data read. */
+function peekHeaders(env: SheetsEnv, tab: string): string[] | null {
+	return headerCache.get(cacheKey(env, tab)) ?? null;
+}
+
+function primeHeaders(env: SheetsEnv, tab: string, headers: string[]): void {
+	headerCache.set(cacheKey(env, tab), headers);
 }
 
 /** Throws SheetsSchemaError if any expected column is missing. Extra/unknown
@@ -52,9 +88,42 @@ function isBlankRow(values: CellValue[]): boolean {
  * have stray formula cells scattered down many rows with no real record
  * behind them at all; a row lacking its own primary ID is never a genuine
  * business record for our purposes, regardless of what else is in it. */
+/** Headers and rows from one batched read — the shape crud.ts needs, since
+ * it wants both and asking for them separately costs two requests. */
+export async function readTab(
+	env: SheetsEnv,
+	tab: string,
+	opts: { idColumn?: string } = {}
+): Promise<{ headers: string[]; rows: SheetRow[] }> {
+	const key = rowsCacheKey(env, tab);
+	const cachedHeaders = peekHeaders(env, tab);
+	const warmRows = cachedHeaders ? getCachedRows(key) : null;
+	if (cachedHeaders && warmRows) {
+		return { headers: cachedHeaders, rows: toRows(cachedHeaders, warmRows, opts) };
+	}
+	if (cachedHeaders) {
+		const raw = await getValues(env, `'${tab}'!A2:${DATA_END_COLUMN}`);
+		setCachedRows(key, raw);
+		return { headers: cachedHeaders, rows: toRows(cachedHeaders, raw, opts) };
+	}
+
+	const [headerRows, raw] = await batchGetValues(env, [`'${tab}'!1:1`, `'${tab}'!A2:${DATA_END_COLUMN}`]);
+	const headers = (headerRows[0] ?? []).map((cell) => String(cell ?? '').trim());
+	primeHeaders(env, tab, headers);
+	setCachedRows(key, raw);
+	return { headers, rows: toRows(headers, raw, opts) };
+}
+
 export async function readRows(env: SheetsEnv, tab: string, opts: { idColumn?: string } = {}): Promise<SheetRow[]> {
-	const headers = await readHeaders(env, tab);
-	const raw = await getValues(env, `'${tab}'!A2:${DATA_END_COLUMN}`);
+	// Headers and data in ONE request when the header cache is cold. That
+	// cache lives per isolate, and Cloudflare recycles isolates constantly —
+	// so in production most reads were paying for two API calls where the
+	// quota counts requests, not ranges. This is what made a nine-tab
+	// property page exhaust 60 reads a minute after seven or eight clicks.
+	return (await readTab(env, tab, opts)).rows;
+}
+
+function toRows(headers: string[], raw: CellValue[][], opts: { idColumn?: string }): SheetRow[] {
 	const idColumnIndex = opts.idColumn ? headers.indexOf(opts.idColumn) : -1;
 
 	const rows: SheetRow[] = [];

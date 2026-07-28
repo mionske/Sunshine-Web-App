@@ -109,13 +109,19 @@ export interface FakeFetchHandle {
 	spreadsheet: FakeSpreadsheet;
 	env: SheetsEnv;
 	restore: () => void;
+	/** Every Sheets API path requested, in order. The Sheets quota counts
+	 * REQUESTS, not ranges or rows, so this is what a test asserts on when
+	 * the thing being protected is read volume. */
+	sheetsRequests: string[];
 }
 
 const FAKE_ACCESS_TOKEN = 'fake-access-token';
 
 /** Installs a fetch mock covering: token exchange, values.get,
- * values.update (PUT), values.append (POST), values:batchUpdate (POST). */
+ * values.update (PUT), values.append (POST), values:batchGet (GET),
+ * values:batchUpdate (POST). */
 export function installFakeFetch(): FakeFetchHandle {
+	const sheetsRequests: string[] = [];
 	const spreadsheet = new FakeSpreadsheet();
 	// A real (test-only) RSA key so googleAuth's actual JWT-signing path runs
 	// end-to-end — only the network call to Google's token endpoint is faked
@@ -148,6 +154,8 @@ export function installFakeFetch(): FakeFetchHandle {
 		}
 		const path = url.slice(spreadsheetPrefix.length);
 
+		sheetsRequests.push(path);
+
 		if (path.startsWith('?fields=sheets.properties')) {
 			// Generous defaults so ensureGridSize never needs to actually
 			// resize anything in tests — real production grid-size quirks are
@@ -160,6 +168,13 @@ export function installFakeFetch(): FakeFetchHandle {
 				},
 			}));
 			return jsonResponse({ sheets });
+		}
+
+		// batchGet: several ranges, one request — the shape readRows uses to
+		// avoid paying two API calls for headers plus data.
+		if (path.startsWith('/values:batchGet')) {
+			const ranges = [...new URL(`https://x${path}`).searchParams.getAll('ranges')];
+			return jsonResponse({ valueRanges: ranges.map((range) => ({ range, values: spreadsheet.getValuesFor(range) })) });
 		}
 
 		if (path.startsWith('/values:batchUpdate')) {
@@ -197,6 +212,7 @@ export function installFakeFetch(): FakeFetchHandle {
 	return {
 		spreadsheet,
 		env,
+		sheetsRequests,
 		restore: () => {
 			globalThis.fetch = originalFetch;
 		},

@@ -241,13 +241,33 @@ const client = property['Client ID'] ? await findById(env, clientConfig, propert
 const { exteriorCleaningMethodValue, ladderRequirementValue, waterAccessValue, waterSupplyValue, parkingAndSetupValue, accessNotesValue } =
 	derivePropertyCompatDefaults(property);
 
+// Tab and edit-group state live in the URL so they survive a reload, a Save
+// redirect and a shared link. Resolution is in lib/propertyTabs.ts so it can
+// be tested — see propertyTabs.test.ts.
+const TABS = PROPERTY_TABS;
+type TabKey = PropertyTabKey;
+const { tab: activeTab, editingGroup } = resolvePropertyView(Astro.url.searchParams);
+
+function tabHref(tab: TabKey | typeof FALLBACK_EDIT_TAB): string {
+	return tab === 'overview' ? `/properties/${id}` : `/properties/${id}?tab=${tab}`;
+}
+function editHref(tab: TabKey, group: string): string {
+	return `/properties/${id}?tab=${tab}&edit=${group}`;
+}
+
+// ActivityLog is read ONLY for the History tab. It is the largest tab, it
+// grows forever, and reading it on all nine tabs just to put a count on one
+// rail badge is what pushed a normal click-through over the Sheets
+// 60-reads-per-minute quota.
+const needsActivityLog = activeTab === 'history';
+
 const [allQuotes, allJobs, allOpportunities, allWalkthroughs, pricingConfig, activityRows] = await Promise.all([
 	listActiveRows(env, quoteConfig),
 	listActiveRows(env, jobConfig),
 	listActiveRows(env, pipelineConfig),
 	listActiveRows(env, walkthroughConfig),
 	property['Property Type'] ? getActivePricingConfig(env, property['Property Type']) : Promise.resolve(null),
-	readRows(env, 'ActivityLog', { idColumn: 'Activity ID' }),
+	needsActivityLog ? readRows(env, 'ActivityLog', { idColumn: 'Activity ID' }) : Promise.resolve([]),
 ]);
 const propertyWalkthroughs = allWalkthroughs.filter((w) => w['Property ID'] === id);
 
@@ -277,7 +297,8 @@ const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
 const jobRows = propertyJobs.map((job) => ({ job, perf: computeJobPerformance(job, targetHourlyRate) }));
 const performance = computePropertyPerformance(propertyJobs);
 
-const propertyPhotos = await listPropertyPhotos(env, id!);
+// Same reasoning: the photo list is only rendered on its own tab.
+const propertyPhotos = activeTab === 'photos' ? await listPropertyPhotos(env, id!) : [];
 const propertyPhotoDtos = propertyPhotos.map((p) => ({
 	id: p['Photo ID'],
 	filename: p['Original Filename'],
@@ -356,19 +377,7 @@ const timeline = activityRows
 
 // --- Option 1B workspace ---------------------------------------------------
 
-// Tab and edit-group state live in the URL so they survive a reload, a Save
-// redirect and a shared link. Resolution is in lib/propertyTabs.ts so it can
-// be tested — see propertyTabs.test.ts.
-const TABS = PROPERTY_TABS;
-type TabKey = PropertyTabKey;
-const { tab: activeTab, editingGroup } = resolvePropertyView(Astro.url.searchParams);
 
-function tabHref(tab: TabKey | typeof FALLBACK_EDIT_TAB): string {
-	return tab === 'overview' ? `/properties/${id}` : `/properties/${id}?tab=${tab}`;
-}
-function editHref(tab: TabKey, group: string): string {
-	return `/properties/${id}?tab=${tab}&edit=${group}`;
-}
 
 const yes = (value: string) => value === 'Y';
 
@@ -478,12 +487,14 @@ const railBadges: Record<TabKey, { text: string; what: string; alert?: boolean }
 	overview: null,
 	access: trueFlags.length > 0 ? { text: String(trueFlags.length), what: 'flagged', alert: true } : null,
 	inventory: property['Total Window Units'] ? { text: property['Total Window Units'], what: 'window units' } : null,
-	photos: propertyPhotoDtos.length > 0 ? { text: String(propertyPhotoDtos.length), what: 'photos' } : null,
+	// No badge unless this render actually loaded the data — a "0" that only
+	// means "not loaded" is worse than no badge.
+	photos: activeTab === 'photos' && propertyPhotoDtos.length > 0 ? { text: String(propertyPhotoDtos.length), what: 'photos' } : null,
 	notes: null,
 	walkthroughs: propertyWalkthroughs.length > 0 ? { text: String(propertyWalkthroughs.length), what: 'walkthroughs' } : null,
 	quotes: propertyQuotes.length > 0 ? { text: String(propertyQuotes.length), what: 'quotes' } : null,
 	jobs: propertyJobs.length > 0 ? { text: String(propertyJobs.length), what: 'jobs' } : null,
-	history: timeline.length > 0 ? { text: String(timeline.length), what: 'entries' } : null,
+	history: needsActivityLog && timeline.length > 0 ? { text: String(timeline.length), what: 'entries' } : null,
 };
 
 // One filter, in the URL like the tab — the timeline is long enough on a

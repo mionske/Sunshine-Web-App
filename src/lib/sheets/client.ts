@@ -1,5 +1,6 @@
 import { getAccessToken } from './googleAuth';
 import type { SheetsEnv } from './types';
+import { invalidateRanges } from './rowsCache';
 
 const BASE_URL = 'https://sheets.googleapis.com/v4/spreadsheets';
 
@@ -46,10 +47,27 @@ export async function getValues(env: SheetsEnv, range: string): Promise<CellValu
 
 /** Overwrites a specific range in place (used for updating one existing row). */
 export async function updateValues(env: SheetsEnv, range: string, values: CellValue[][]): Promise<void> {
+	invalidateRanges(env, [range]);
 	await sheetsFetch(env, `/values/${encodeURIComponent(range)}?valueInputOption=RAW`, {
 		method: 'PUT',
 		body: JSON.stringify({ range, values }),
 	});
+}
+
+/**
+ * Reads several ranges in ONE API call.
+ *
+ * The Sheets API bills per request, not per range, and allows 60 reads a
+ * minute. Every `readRows` needs two ranges — the header row and the data —
+ * so fetching them separately doubles the cost of every read in the app.
+ * Returned value arrays are in the order the ranges were given.
+ */
+export async function batchGetValues(env: SheetsEnv, ranges: string[]): Promise<CellValue[][][]> {
+	if (ranges.length === 0) return [];
+	const query = ranges.map((r) => `ranges=${encodeURIComponent(r)}`).join('&');
+	const response = await sheetsFetch(env, `/values:batchGet?${query}`);
+	const data = (await response.json()) as { valueRanges?: { values?: CellValue[][] }[] };
+	return (data.valueRanges ?? []).map((v) => v.values ?? []);
 }
 
 /** Writes multiple distinct ranges in a single API call — used for multi-row
@@ -58,6 +76,7 @@ export async function batchUpdateValues(
 	env: SheetsEnv,
 	data: { range: string; values: CellValue[][] }[]
 ): Promise<void> {
+	invalidateRanges(env, data.map((d) => d.range));
 	await sheetsFetch(env, '/values:batchUpdate', {
 		method: 'POST',
 		body: JSON.stringify({ valueInputOption: 'RAW', data }),

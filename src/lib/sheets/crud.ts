@@ -4,8 +4,7 @@ import {
 	assertHeadersInclude,
 	nextEmptyRow,
 	objectToRowValues,
-	readHeaders,
-	readRows,
+	readTab,
 	rowRangeFor,
 	type SheetRow,
 } from './rows';
@@ -25,13 +24,16 @@ async function findRowById(
 	env: SheetsEnv,
 	config: TabConfig<Record<string, CellValue>>
 ): Promise<{ rows: SheetRow[]; headers: string[] }> {
-	const headers = await readHeaders(env, config.tab);
+	// One batched read for headers AND rows. Asking readHeaders separately
+	// first would warm the cache and defeat the batching, costing two API
+	// calls per tab — which is what exhausted the 60-reads-per-minute quota
+	// on a nine-tab property page.
+	const { headers, rows } = await readTab(env, config.tab, { idColumn: config.idColumn });
 	assertHeadersInclude(config.tab, headers, config.requiredColumns);
 	// idColumn-filtered: a row with no value in its own ID column is never a
 	// genuine record for us, regardless of what else is in it — legacy
 	// sheets (Jobs) can have stray formula cells scattered many rows deep
 	// with nothing behind them (see nextEmptyRow's doc comment).
-	const rows = await readRows(env, config.tab, { idColumn: config.idColumn });
 	return { rows, headers };
 }
 
