@@ -46,6 +46,86 @@ export type SizeClass = (typeof SIZE_CLASSES)[number];
 export const STORIES = ['First', 'Second', 'Third', 'Fourth+'] as const;
 export type Story = (typeof STORIES)[number];
 
+// --- Simplified inventory (v3) ----------------------------------------------
+//
+// A 15-to-20-minute walkthrough can't classify every opening. The v3 model
+// assumes a window is ordinary unless the operator says otherwise: standard
+// units are counted per floor, and only genuinely unusual windows and doors
+// are described individually.
+//
+// The cost of that speed, stated plainly because it is a real trade: access
+// is now chosen once for the property rather than per group, so a handful of
+// awkward third-floor windows no longer stand apart from the easy ones.
+
+/** The floors standard windows are counted on. */
+export const STANDARD_FLOORS = ['first', 'second', 'third', 'fourthPlus'] as const;
+export type StandardFloor = (typeof STANDARD_FLOORS)[number];
+
+export const STANDARD_FLOOR_LABELS: Record<StandardFloor, string> = {
+	first: 'First floor',
+	second: 'Second floor',
+	third: 'Third floor',
+	fourthPlus: 'Fourth floor or higher',
+};
+
+/** Only things meaningfully different from a normal window belong here —
+ * "Standard Window" is deliberately absent, since those are counted by floor. */
+export const SPECIAL_ITEM_TYPES = [
+	'large_picture',
+	'oversized_picture',
+	'sliding_glass_door',
+	'divided_light_panes',
+	'skylight',
+	'large_triangle',
+	'small_triangle',
+	'specialty_shape',
+	'bay_bow',
+	'custom',
+] as const;
+export type SpecialItemType = (typeof SPECIAL_ITEM_TYPES)[number];
+
+export const SPECIAL_ITEM_LABELS: Record<SpecialItemType, string> = {
+	large_picture: 'Large picture window',
+	oversized_picture: 'Oversized picture window',
+	sliding_glass_door: 'Sliding glass door',
+	divided_light_panes: 'French or divided-light panes',
+	skylight: 'Skylight',
+	large_triangle: 'Large triangular window',
+	small_triangle: 'Small triangular window',
+	specialty_shape: 'Specialty shape',
+	bay_bow: 'Bay or bow window',
+	custom: 'Custom',
+};
+
+/**
+ * The one type whose quantity means panes rather than units.
+ *
+ * It is counted separately everywhere: divided-light quantities feed the pane
+ * picture, never the window-unit total, because eighteen small panes in one
+ * french door is one opening to set up at and eighteen pieces of glass to
+ * clean.
+ */
+export const PANE_COUNTED_TYPE: SpecialItemType = 'divided_light_panes';
+
+export function specialItemUnitLabel(type: SpecialItemType): string {
+	return type === PANE_COUNTED_TYPE ? 'panes' : 'units';
+}
+
+/** Where a special item sits. Wider than STANDARD_FLOORS because a skylight
+ * is on the roof and a bay window can span floors. */
+export const SPECIAL_ITEM_STORIES = ['first', 'second', 'third', 'fourth_plus', 'roof', 'multiple', 'not_applicable'] as const;
+export type SpecialItemStory = (typeof SPECIAL_ITEM_STORIES)[number];
+
+export const SPECIAL_ITEM_STORY_LABELS: Record<SpecialItemStory, string> = {
+	first: 'First floor',
+	second: 'Second floor',
+	third: 'Third floor',
+	fourth_plus: 'Fourth floor or higher',
+	roof: 'Roof',
+	multiple: 'Multiple floors',
+	not_applicable: 'Not applicable',
+};
+
 export const INTERIOR_ACCESS_LEVELS = [
 	'Floor Level',
 	'Step Ladder',
