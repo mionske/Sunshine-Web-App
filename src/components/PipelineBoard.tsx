@@ -181,6 +181,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 	const [editNotes, setEditNotes] = useState('');
 	const [editLostReason, setEditLostReason] = useState('');
 	const [savingEdit, setSavingEdit] = useState(false);
+	const [deletingEdit, setDeletingEdit] = useState(false);
 
 	function openEditor(c: PipelineCard) {
 		setEditingCard(c);
@@ -196,6 +197,37 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 
 	function closeEditor() {
 		setEditingCard(null);
+	}
+
+	/**
+	 * Archives the opportunity — the API soft-deletes (Archived At), never
+	 * destroys, matching every other delete in this app.
+	 *
+	 * Distinct from moving to Lost, which is a real business outcome worth
+	 * reporting on and requires a reason. This is for the duplicate, the
+	 * mistake, and the test row: things that should never have existed, and
+	 * would otherwise skew win/loss numbers forever.
+	 */
+	async function deleteOpportunity() {
+		if (!editingCard || deletingEdit) return;
+		if (!window.confirm('Delete this opportunity? It is archived rather than destroyed, and it will disappear from the board.')) return;
+
+		setDeletingEdit(true);
+		setError(null);
+		try {
+			const res = await fetch(`/api/pipeline/${editingCard.id}`, { method: 'DELETE' });
+			if (!res.ok) {
+				const body = (await res.json().catch(() => ({}))) as { error?: string };
+				throw new Error(body.error ?? 'Failed to delete opportunity');
+			}
+			const id = editingCard.id;
+			setCards((current) => current.filter((c) => c.id !== id));
+			setEditingCard(null);
+		} catch (err) {
+			setError((err as Error).message);
+		} finally {
+			setDeletingEdit(false);
+		}
 	}
 
 	async function saveEdit(e: FormEvent) {
@@ -733,10 +765,21 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 						</label>
 
 						<div className="drawer-footer">
+							{/* Pushed to the far left, away from Save, so it can't be
+							    caught on the way to the button next to it. */}
+							<button
+								type="button"
+								className="btn-danger"
+								style={{ marginRight: 'auto' }}
+								disabled={deletingEdit || savingEdit}
+								onClick={deleteOpportunity}
+							>
+								{deletingEdit ? 'Deleting…' : 'Delete'}
+							</button>
 							<button type="button" className="btn-secondary" onClick={closeEditor}>
 								Cancel
 							</button>
-							<button type="submit" disabled={savingEdit}>
+							<button type="submit" disabled={savingEdit || deletingEdit}>
 								{savingEdit ? 'Saving…' : 'Save Changes'}
 							</button>
 						</div>

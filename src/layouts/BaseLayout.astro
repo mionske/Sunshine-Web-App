@@ -19,15 +19,18 @@ const { title, nav = true } = Astro.props;
 // Six places you look things up, in lifecycle order. Everything that
 // *creates* a record moved into the Create menu, and every configuration or
 // reporting tool into Admin — nav is for navigating, not for doing.
+// Two directories — who and where — then the work in the order it actually
+// happens: an opportunity becomes a walkthrough, becomes a quote, becomes a
+// job. Walkthroughs used to sit before Pipeline, which read backwards.
 const NAV_LINKS = [
 	{ href: '/', label: 'Dashboard' },
 	{ href: '/clients', label: 'Clients' },
 	{ href: '/properties', label: 'Properties' },
-	// The field's front door. Starting a walkthrough used to mean finding the
-	// right Property first, which is the wrong order when you're standing at
-	// the house.
-	{ href: '/walkthroughs', label: 'Walkthroughs' },
 	{ href: '/pipeline', label: 'Pipeline' },
+	// Also the field's front door: starting a walkthrough used to mean finding
+	// the right Property first, which is the wrong order when you're standing
+	// at the house.
+	{ href: '/walkthroughs', label: 'Walkthroughs' },
 	{ href: '/quotes', label: 'Quotes' },
 	{ href: '/jobs', label: 'Jobs' },
 ];
@@ -81,7 +84,10 @@ const inAdmin = ADMIN_LINKS.some((l) => currentPath === l.href);
 						{/* Native disclosure, no JS — the same <details> pattern used
 						    for collapsible sections elsewhere in the app, positioned
 						    as a dropdown by .nav-menu in global.css. */}
-						<li>
+						{/* Everything from here on is an action or a setting, not a
+						    place — pushed to the right so the bar reads as
+						    "7 destinations + 3 controls" rather than 10 equal items. */}
+						<li class="nav-actions-start">
 							<details class="nav-menu">
 								<summary>Create</summary>
 								<ul>

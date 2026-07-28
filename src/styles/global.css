@@ -2214,3 +2214,38 @@ details.card[open] > summary {
 .event-past a:hover {
 	color: var(--color-link);
 }
+
+/* The nav list has to span the remaining bar width, or margin-left:auto
+ * below has no free space to push into — the ul otherwise shrinks to fit its
+ * own content and the "gap" is just the normal one. */
+.app-nav nav {
+	flex: 1;
+}
+
+/* Splits the nav into destinations and controls. Create / Admin / Log out are
+ * a different kind of thing from Dashboard / Clients / Properties, and
+ * rendering all ten identically is what made the bar feel long. */
+.app-nav nav ul .nav-actions-start {
+	margin-left: auto;
+}
+
+@media (max-width: 640px) {
+	/* In the horizontally scrolling mobile bar there is no right edge to push
+	 * against, so the controls just follow the destinations. */
+	.app-nav nav ul .nav-actions-start {
+		margin-left: 0;
+	}
+}
+
+/* A destructive action. Outlined rather than filled — it should be findable
+ * without competing with the primary button beside it. */
+.btn-danger {
+	background: transparent;
+	color: var(--color-link);
+	border: 2px solid var(--color-link);
+}
+
+.btn-danger:hover:not(:disabled) {
+	background: var(--color-link);
+	color: var(--color-cream-text);
+}
