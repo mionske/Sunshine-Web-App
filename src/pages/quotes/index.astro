@@ -5,12 +5,13 @@ import { listActiveRows, listArchivedRows, updateRow } from '../../lib/sheets';
 import { quoteConfig, QUOTE_STATUSES } from '../../lib/models/quote';
 import { clientConfig } from '../../lib/models/client';
 import { propertyConfig } from '../../lib/models/property';
-import { deleteQuote, restoreQuote, bulkUpdateQuoteStatus, bulkDeleteQuotes, bulkRestoreQuotes } from '../../lib/pricing/quotes';
+import { deleteQuote, restoreQuote } from '../../lib/pricing/quotes';
 import { formatTimestamp } from '../../lib/format';
 
 let error: string | null = null;
-let message: string | null = null;
 
+// Still used by the single-row status dropdown below — Sent/Declined/Expired
+// each stamp their own timestamp column when picked.
 const TIMESTAMP_FIELD_BY_STATUS: Partial<Record<(typeof QUOTE_STATUSES)[number], string>> = {
 	Sent: 'Sent At',
 	Declined: 'Declined At',
@@ -38,23 +39,6 @@ if (Astro.request.method === 'POST') {
 			await deleteQuote(env, String(form.get('quoteId') ?? ''));
 		} else if (action === 'restore-quote') {
 			await restoreQuote(env, String(form.get('quoteId') ?? ''));
-		} else if (action === 'bulk-update-status') {
-			const quoteIds = form.getAll('quoteIds').map(String);
-			const status = String(form.get('bulkStatus') ?? '') as (typeof QUOTE_STATUSES)[number];
-			if (!status) throw new Error('Choose a status to apply.');
-			if (quoteIds.length === 0) throw new Error('Select at least one quote first.');
-			const updated = await bulkUpdateQuoteStatus(env, quoteIds, status, TIMESTAMP_FIELD_BY_STATUS[status]);
-			message = `Updated ${updated} quote${updated === 1 ? '' : 's'} to ${status}.`;
-		} else if (action === 'bulk-delete') {
-			const quoteIds = form.getAll('quoteIds').map(String);
-			if (quoteIds.length === 0) throw new Error('Select at least one quote first.');
-			const { deleted, skippedAccepted } = await bulkDeleteQuotes(env, quoteIds);
-			message = `Deleted ${deleted} quote${deleted === 1 ? '' : 's'}.${skippedAccepted > 0 ? ` Skipped ${skippedAccepted} Accepted quote${skippedAccepted === 1 ? '' : 's'} — change status away from Accepted first.` : ''}`;
-		} else if (action === 'bulk-restore') {
-			const quoteIds = form.getAll('quoteIds').map(String);
-			if (quoteIds.length === 0) throw new Error('Select at least one quote first.');
-			const restored = await bulkRestoreQuotes(env, quoteIds);
-			message = `Restored ${restored} quote${restored === 1 ? '' : 's'}.`;
 		}
 	} catch (e) {
 		error = (e as Error).message;
@@ -96,20 +80,10 @@ const STATUS_COLORS: Record<(typeof QUOTE_STATUSES)[number], { bg: string; color
 			{showArchived ? <a href="/quotes">← Back to active quotes</a> : <a href="/quotes?archived=1">View deleted/archived quotes →</a>}
 		</p>
 		{error && <p role="alert">{error}</p>}
-		{message && <p class="field-status-ok">{message}</p>}
-
-		<form id="quotes-bulk-form" method="POST"></form>
 
 		<table>
 			<thead>
 				<tr>
-					<th>
-						<input
-							type="checkbox"
-							aria-label="Select all"
-							onclick="document.querySelectorAll('input[name=quoteIds]').forEach((cb) => { cb.checked = this.checked; })"
-						/>
-					</th>
 					<th>Property</th>
 					<th>Client</th>
 					<th>{showArchived ? 'Status (when deleted)' : 'Status'}</th>
@@ -125,13 +99,10 @@ const STATUS_COLORS: Record<(typeof QUOTE_STATUSES)[number], { bg: string; color
 					return (
 						<tr>
 							<td>
-								<input type="checkbox" name="quoteIds" value={q['Quote ID']} form="quotes-bulk-form" />
+								{property
+									? `${property['Street Address']}, ${property.City}${property['Unit Identifier'] ? ` — Unit ${property['Unit Identifier']}` : ''}`
+									: q['Property ID']}
 							</td>
-							<td>
-							{property
-								? `${property['Street Address']}, ${property.City}${property['Unit Identifier'] ? ` — Unit ${property['Unit Identifier']}` : ''}`
-								: q['Property ID']}
-						</td>
 							<td>{client ? `${client['First Name']} ${client['Last Name']}` : q['Client ID']}</td>
 							<td>
 								{showArchived ? (
@@ -200,44 +171,8 @@ const STATUS_COLORS: Record<(typeof QUOTE_STATUSES)[number], { bg: string; color
 						</tr>
 					);
 				})}
-				{quotes.length === 0 && <tr><td colspan={showArchived ? 7 : 6}>{showArchived ? 'No deleted quotes.' : 'No quotes yet.'}</td></tr>}
+				{quotes.length === 0 && <tr><td colspan={showArchived ? 6 : 5}>{showArchived ? 'No deleted quotes.' : 'No quotes yet.'}</td></tr>}
 			</tbody>
 		</table>
-
-		{quotes.length > 0 && (
-			<div class="card inline-field-form">
-				{!showArchived && (
-					<>
-						<label>
-							Bulk change status to
-							<select name="bulkStatus" form="quotes-bulk-form">
-								<option value="" disabled selected>— choose —</option>
-								{QUOTE_STATUSES.filter((s) => s !== 'Accepted').map((s) => (
-									<option value={s}>{s}</option>
-								))}
-							</select>
-						</label>
-						<button type="submit" form="quotes-bulk-form" name="_action" value="bulk-update-status" class="btn-secondary">
-							Apply to selected
-						</button>
-						<button
-							type="submit"
-							form="quotes-bulk-form"
-							name="_action"
-							value="bulk-delete"
-							class="link-button"
-							onclick="return confirm('Delete all selected quotes? Accepted quotes in the selection will be skipped. This archives them and removes them from view everywhere in the app.')"
-						>
-							Delete selected
-						</button>
-					</>
-				)}
-				{showArchived && (
-					<button type="submit" form="quotes-bulk-form" name="_action" value="bulk-restore" class="btn-secondary">
-						Restore selected
-					</button>
-				)}
-			</div>
-		)}
 	</main>
 </BaseLayout>

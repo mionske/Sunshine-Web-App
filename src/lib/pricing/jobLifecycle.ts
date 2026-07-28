@@ -12,7 +12,7 @@ import { jobConfig, JOB_STATUSES, MAINTENANCE_FREQUENCY_INTERVAL_MONTHS, type Jo
 import { quoteConfig, type Quote } from '../models/quote';
 import { propertyConfig } from '../models/property';
 import { clientConfig } from '../models/client';
-import { pipelineConfig } from '../models/pipeline';
+import { pipelineConfig, STAGE_ON_QUOTE_ACCEPTED } from '../models/pipeline';
 import { recalculateCalibration } from './calibration';
 
 const CALIBRATION_TRIGGER_STATUSES = new Set(['Completed', 'Invoiced', 'Paid']);
@@ -99,7 +99,7 @@ export async function acceptQuote(
 			env,
 			pipelineConfig,
 			quote['Opportunity ID'],
-			{ Stage: 'Accepted', 'Closed At': now },
+			{ Stage: STAGE_ON_QUOTE_ACCEPTED, 'Closed At': now },
 			{ user: opts.user, requestId: opts.requestId, action: 'Opportunity accepted' }
 		);
 	}

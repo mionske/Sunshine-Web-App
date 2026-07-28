@@ -11,25 +11,38 @@ interface Props {
 }
 const { title, nav = true } = Astro.props;
 
-// Ordered to match the real lifecycle a record moves through: overview,
-// then who/where (Clients/Properties), then the sales funnel (Pipeline),
-// then quoting (create via Quoter, review via Quotes), then execution
-// (Jobs), then reporting/admin (Calibration, Pricing Config, QuickBooks).
+// Six places you look things up, in lifecycle order. Everything that
+// *creates* a record moved into the Create menu, and every configuration or
+// reporting tool into Admin — nav is for navigating, not for doing.
 const NAV_LINKS = [
 	{ href: '/', label: 'Dashboard' },
-	{ href: '/leads', label: 'Leads' },
 	{ href: '/clients', label: 'Clients' },
 	{ href: '/properties', label: 'Properties' },
 	{ href: '/pipeline', label: 'Pipeline' },
-	{ href: '/quoter', label: 'Quoter' },
 	{ href: '/quotes', label: 'Quotes' },
 	{ href: '/jobs', label: 'Jobs' },
+];
+
+const CREATE_LINKS = [
+	{ href: '/leads/new', label: 'New Lead' },
+	{ href: '/clients/new', label: 'New Client' },
+	{ href: '/quoter', label: 'New Quote' },
+	{ href: '/historical-entry', label: 'Historical Job' },
+];
+
+// Configuration, reporting and maintenance. Leads lives here as a list
+// surface — day-to-day lead capture happens through Create and the Pipeline.
+const ADMIN_LINKS = [
+	{ href: '/leads', label: 'Leads' },
 	{ href: '/calibration', label: 'Calibration' },
 	{ href: '/pricing-config', label: 'Pricing Config' },
 	{ href: '/qb-settings', label: 'QuickBooks' },
+	{ href: '/qb-match-review', label: 'QuickBooks Match Review' },
+	{ href: '/historical-records', label: 'Historical Records' },
 ];
 
 const currentPath = Astro.url.pathname;
+const inAdmin = ADMIN_LINKS.some((l) => currentPath === l.href);
 ---
 
 <!doctype html>
@@ -52,6 +65,33 @@ const currentPath = Astro.url.pathname;
 								</a>
 							</li>
 						))}
+						{/* Native disclosure, no JS — the same <details> pattern used
+						    for collapsible sections elsewhere in the app, positioned
+						    as a dropdown by .nav-menu in global.css. */}
+						<li>
+							<details class="nav-menu">
+								<summary>Create</summary>
+								<ul>
+									{CREATE_LINKS.map((link) => (
+										<li><a href={link.href}>{link.label}</a></li>
+									))}
+								</ul>
+							</details>
+						</li>
+						<li>
+							<details class="nav-menu">
+								<summary aria-current={inAdmin ? 'page' : undefined}>Admin</summary>
+								<ul>
+									{ADMIN_LINKS.map((link) => (
+										<li>
+											<a href={link.href} aria-current={currentPath === link.href ? 'page' : undefined}>
+												{link.label}
+											</a>
+										</li>
+									))}
+								</ul>
+							</details>
+						</li>
 						<li><a href="/logout">Log out</a></li>
 					</ul>
 				</nav>

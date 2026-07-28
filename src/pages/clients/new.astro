@@ -1,0 +1,94 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { createRow } from '../../lib/sheets';
+import { clientConfig, PREFERRED_CONTACT_METHOD_OPTIONS } from '../../lib/models/client';
+import { formatPhoneDigits } from '../../lib/phoneFormat';
+
+// Creating a client used to be a form stapled under the Clients table. It's
+// its own page now so the list page can stay a list — see the Create menu.
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	try {
+		const client = await createRow(env, clientConfig, {
+			id: String(form.get('id') ?? ''),
+			'First Name': String(form.get('firstName') ?? ''),
+			'Last Name': String(form.get('lastName') ?? ''),
+			Phone: formatPhoneDigits(String(form.get('phone') ?? '')),
+			Email: String(form.get('email') ?? ''),
+			'Referral Source': String(form.get('referralSource') ?? ''),
+			'First Contact Date': String(form.get('firstContactDate') ?? ''),
+			'Customer Since': '',
+			'Preferred Contact Method': String(form.get('preferredContactMethod') ?? ''),
+			Notes: String(form.get('notes') ?? ''),
+		});
+		// Straight to the new client, where the next step (adding a property)
+		// already lives.
+		return Astro.redirect(`/clients/${client['Client ID']}`);
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+---
+
+<BaseLayout title="New client">
+	<main>
+		<p><a href="/clients">← Clients</a></p>
+		<h1>New client</h1>
+		{error && <p role="alert">{error}</p>}
+
+		<section class="card">
+			<form method="POST">
+				<label>
+					First name
+					<input type="text" name="firstName" required />
+				</label>
+				<label>
+					Last name
+					<input type="text" name="lastName" />
+				</label>
+				<label>
+					Phone
+					<input type="tel" id="phone" name="phone" inputmode="tel" />
+				</label>
+				<label>
+					Email
+					<input type="email" name="email" />
+				</label>
+				<label>
+					Preferred contact method
+					<select name="preferredContactMethod">
+						<option value=""></option>
+						{PREFERRED_CONTACT_METHOD_OPTIONS.map((opt) => <option value={opt}>{opt}</option>)}
+					</select>
+				</label>
+				<label>
+					Referral source
+					<input type="text" name="referralSource" />
+				</label>
+				<label>
+					First contact date
+					<input type="date" name="firstContactDate" />
+				</label>
+				<label>
+					Notes
+					<textarea name="notes"></textarea>
+				</label>
+				<div class="button-row">
+					<a class="btn-secondary" href="/clients">Cancel</a>
+					<button type="submit">Create client</button>
+				</div>
+			</form>
+		</section>
+	</main>
+
+	<script>
+		import { formatPhoneDigits } from '../../lib/phoneFormat';
+		const phone = document.getElementById('phone') as HTMLInputElement | null;
+		phone?.addEventListener('input', () => {
+			phone.value = formatPhoneDigits(phone.value);
+		});
+	</script>
+</BaseLayout>

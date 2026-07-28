@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent } from 'react';
 import { googleMapsUrl } from '../lib/mapsLink';
+import { WON_PIPELINE_STAGES } from '../lib/models/pipeline';
 
 export interface LatestQuote {
 	id: string;
@@ -43,7 +44,11 @@ interface Props {
 	clients: ClientOption[];
 }
 
-const CLOSED_STAGES = new Set(['Accepted', 'Lost']);
+// Board columns. Lost is deliberately not one by default — it stays a real
+// stage with its own reporting, reachable through the outcome filter, rather
+// than becoming a badge or a silent archive.
+const HIDDEN_BY_DEFAULT = new Set(['Lost']);
+const WON_STAGES = new Set<string>(WON_PIPELINE_STAGES);
 
 type OutcomeFilter = 'active' | 'won' | 'lost' | 'all';
 type FollowUpFilter = 'all' | 'overdue' | 'today' | 'week' | 'none';
@@ -114,7 +119,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 	const [creating, setCreating] = useState(false);
 	const newButtonRef = useRef<HTMLButtonElement>(null);
 
-	const activeStages = stages.filter((s) => !CLOSED_STAGES.has(s));
+	const activeStages = stages.filter((s) => !HIDDEN_BY_DEFAULT.has(s));
 
 	async function moveCard(id: string, stage: string) {
 		let lostReason: string | null = null;
@@ -318,7 +323,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 	const activeCards = cards.filter((c) => activeStages.includes(c.stage));
 	const activeValue = activeCards.reduce((sum, c) => sum + num(c.estimatedValue), 0);
 	const followUpsDue = activeCards.filter((c) => ['overdue', 'today'].includes(followUpState(c.nextFollowUpDate))).length;
-	const wonCount = cards.filter((c) => c.stage === 'Accepted').length;
+	const wonCount = cards.filter((c) => WON_STAGES.has(c.stage)).length;
 
 	// Search + follow-up filter apply to both views; outcome filter decides
 	// which stage columns/rows are visible without altering any stored data.
@@ -330,11 +335,11 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 	});
 
 	const visibleStages =
-		outcomeFilter === 'active' ? activeStages : outcomeFilter === 'won' ? ['Accepted'] : outcomeFilter === 'lost' ? ['Lost'] : stages;
+		outcomeFilter === 'active' ? activeStages : outcomeFilter === 'won' ? [...WON_PIPELINE_STAGES] : outcomeFilter === 'lost' ? ['Lost'] : stages;
 
 	const outcomeMatched = filtered.filter((c) => {
 		if (outcomeFilter === 'active') return activeStages.includes(c.stage);
-		if (outcomeFilter === 'won') return c.stage === 'Accepted';
+		if (outcomeFilter === 'won') return WON_STAGES.has(c.stage);
 		if (outcomeFilter === 'lost') return c.stage === 'Lost';
 		return true;
 	});
@@ -432,7 +437,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 								>
 									<div className="pipeline-column-header">
 										<h3>
-											<span className={`badge${stage === 'Accepted' ? ' badge-accent' : ''}${stage === 'Lost' ? ' badge-lost' : ''}`}>
+											<span className={`badge${WON_STAGES.has(stage) ? ' badge-accent' : ''}${stage === 'Lost' ? ' badge-lost' : ''}`}>
 												{stage}
 											</span>
 										</h3>
@@ -533,7 +538,7 @@ export default function PipelineBoard({ stages, cards: initialCards, properties,
 									<td>{c.clientName}</td>
 									<td>{c.propertyAddress || '—'}</td>
 									<td>
-										<span className={`badge${c.stage === 'Accepted' ? ' badge-accent' : ''}${c.stage === 'Lost' ? ' badge-lost' : ''}`}>
+										<span className={`badge${WON_STAGES.has(c.stage) ? ' badge-accent' : ''}${c.stage === 'Lost' ? ' badge-lost' : ''}`}>
 											{c.stage}
 										</span>
 									</td>

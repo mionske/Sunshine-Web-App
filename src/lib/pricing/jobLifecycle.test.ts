@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { installFakeFetch, type FakeFetchHandle } from '../sheets/testHarness';
 import { _clearHeaderCacheForTests } from '../sheets/rows';
 import { quoteSchema } from '../models/quote';
-import { pipelineSchema } from '../models/pipeline';
+import { pipelineSchema, STAGE_ON_QUOTE_ACCEPTED } from '../models/pipeline';
 import { propertySchema } from '../models/property';
 import { clientSchema } from '../models/client';
 import { calibrationSnapshotSchema } from '../models/calibrationSnapshot';
@@ -150,7 +150,9 @@ describe('quote acceptance and job lifecycle', () => {
 		const stageCol = headers.indexOf('Stage');
 		const closedAtCol = headers.indexOf('Closed At');
 		const opportunityRow = rows.find((r) => r[headers.indexOf('Opportunity ID')] === opportunity['Opportunity ID']);
-		expect(opportunityRow?.[stageCol]).toBe('Accepted');
+		// Approval is the hand-off point to the job workflow, so the
+		// opportunity closes here even though the work is still ahead.
+		expect(opportunityRow?.[stageCol]).toBe(STAGE_ON_QUOTE_ACCEPTED);
 		expect(opportunityRow?.[closedAtCol]).toBeTruthy();
 	});
 

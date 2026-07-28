@@ -6,7 +6,6 @@ import {
 	batchUpdateValues,
 	columnLetterAt,
 	updateRow,
-	logActivity,
 	type SheetsEnv,
 } from '../sheets';
 import { quoteConfig, type Quote } from '../models/quote';
@@ -244,151 +243,11 @@ export async function restoreQuote(env: SheetsEnv, quoteId: string): Promise<voi
 	await updateRow(env, quoteConfig, quoteId, { 'Archived At': '' }, { action: 'restored' });
 }
 
-/** Bulk version of restoreQuote() for the archived-quotes list's multi-select
- * toolbar — same batched-write shape as the other bulk helpers above. Each
- * restored quote's QuoteItems are matched against that SAME quote's own
- * Archived At value (captured before clearing it), not one shared timestamp
- * — quotes deleted individually or in different bulk batches can carry
- * different Archived At values from each other. */
-export async function bulkRestoreQuotes(env: SheetsEnv, quoteIds: string[]): Promise<number> {
-	if (quoteIds.length === 0) return 0;
-
-	const quoteHeaders = await readHeaders(env, quoteConfig.tab);
-	const quoteArchivedAtColumn = columnLetterAt(quoteHeaders.indexOf('Archived At') + 1);
-	const allQuoteRows = await readRows(env, quoteConfig.tab, { idColumn: quoteConfig.idColumn });
-	const idSet = new Set(quoteIds);
-	const toRestore = allQuoteRows.filter((r) => idSet.has(String(r.data['Quote ID'])) && r.data['Archived At']);
-	if (toRestore.length === 0) return 0;
-
-	await batchUpdateValues(
-		env,
-		toRestore.map((r) => ({
-			range: `'${quoteConfig.tab}'!${quoteArchivedAtColumn}${r.rowNumber}:${quoteArchivedAtColumn}${r.rowNumber}`,
-			values: [['']],
-		}))
-	);
-
-	const archivedAtByQuoteId = new Map(toRestore.map((r) => [String(r.data['Quote ID']), r.data['Archived At']]));
-	const itemHeaders = await readHeaders(env, quoteItemConfig.tab);
-	const itemArchivedAtColumn = columnLetterAt(itemHeaders.indexOf('Archived At') + 1);
-	const allItemRows = await readRows(env, quoteItemConfig.tab, { idColumn: quoteItemConfig.idColumn });
-	const itemsToRestore = allItemRows.filter((r) => {
-		const owningQuoteArchivedAt = archivedAtByQuoteId.get(String(r.data['Quote ID']));
-		return owningQuoteArchivedAt !== undefined && r.data['Archived At'] === owningQuoteArchivedAt;
-	});
-	if (itemsToRestore.length > 0) {
-		await batchUpdateValues(
-			env,
-			itemsToRestore.map((r) => ({
-				range: `'${quoteItemConfig.tab}'!${itemArchivedAtColumn}${r.rowNumber}:${itemArchivedAtColumn}${r.rowNumber}`,
-				values: [['']],
-			}))
-		);
-	}
-
-	await logActivity(env, {
-		entityType: quoteConfig.entityType,
-		entityId: [...archivedAtByQuoteId.keys()].join(', '),
-		action: 'bulk restored',
-	});
-	return toRestore.length;
-}
-
-/** Bulk status change for the Quotes list's multi-select toolbar — a single
- * header read + full-tab read + one batched write regardless of how many
- * quotes are selected, for the same subrequest-limit reason as
- * archiveQuoteItems() above. Never sets 'Accepted' (same restriction as the
- * per-row status dropdown — that path has its own dedicated Accept-quote
- * action with a Job-creation side effect). Returns the count actually
- * updated (quoteIds that don't exist are silently skipped, matching the
- * "ignore stale selections" behavior of a checkbox list rendered from a
- * page that may be slightly out of date). */
-export async function bulkUpdateQuoteStatus(
-	env: SheetsEnv,
-	quoteIds: string[],
-	status: string,
-	timestampField?: string
-): Promise<number> {
-	if (status === 'Accepted') {
-		throw new Error('Use each quote\'s own "Accept quote" action to mark it Accepted — it also creates the linked Job.');
-	}
-	if (quoteIds.length === 0) return 0;
-
-	const headers = await readHeaders(env, quoteConfig.tab);
-	const statusColumn = columnLetterAt(headers.indexOf('Quote Status') + 1);
-	const timestampColumn = timestampField ? columnLetterAt(headers.indexOf(timestampField) + 1) : null;
-	const allRows = await readRows(env, quoteConfig.tab, { idColumn: quoteConfig.idColumn });
-	const idSet = new Set(quoteIds);
-	const rowsToUpdate = allRows.filter((r) => idSet.has(String(r.data['Quote ID'])) && r.data['Quote Status'] !== 'Accepted');
-	if (rowsToUpdate.length === 0) return 0;
-
-	const now = new Date().toISOString();
-	const data = rowsToUpdate.flatMap((r) => {
-		const entries = [{ range: `'${quoteConfig.tab}'!${statusColumn}${r.rowNumber}:${statusColumn}${r.rowNumber}`, values: [[status]] }];
-		if (timestampColumn) {
-			entries.push({ range: `'${quoteConfig.tab}'!${timestampColumn}${r.rowNumber}:${timestampColumn}${r.rowNumber}`, values: [[now]] });
-		}
-		return entries;
-	});
-	await batchUpdateValues(env, data);
-	await logActivity(env, {
-		entityType: quoteConfig.entityType,
-		entityId: rowsToUpdate.map((r) => r.data['Quote ID']).join(', '),
-		action: 'bulk status change',
-		newValue: status,
-	});
-	return rowsToUpdate.length;
-}
-
-/** Bulk delete for the Quotes list's multi-select toolbar — same batched-
- * write shape as deleteQuote(), scaled to any selection size at roughly
- * constant request cost. Accepted quotes in the selection are skipped (never
- * force-deleted), matching deleteQuote()'s own single-quote guard; the
- * caller can compare the returned count against quoteIds.length to know if
- * anything was skipped. */
-export async function bulkDeleteQuotes(env: SheetsEnv, quoteIds: string[]): Promise<{ deleted: number; skippedAccepted: number }> {
-	if (quoteIds.length === 0) return { deleted: 0, skippedAccepted: 0 };
-
-	const quoteHeaders = await readHeaders(env, quoteConfig.tab);
-	const quoteArchivedAtColumn = columnLetterAt(quoteHeaders.indexOf('Archived At') + 1);
-	const allQuoteRows = await readRows(env, quoteConfig.tab, { idColumn: quoteConfig.idColumn });
-	const idSet = new Set(quoteIds);
-	const selected = allQuoteRows.filter((r) => idSet.has(String(r.data['Quote ID'])) && !r.data['Archived At']);
-	const toDelete = selected.filter((r) => r.data['Quote Status'] !== 'Accepted');
-	const skippedAccepted = selected.length - toDelete.length;
-	if (toDelete.length === 0) return { deleted: 0, skippedAccepted };
-
-	const now = new Date().toISOString();
-	await batchUpdateValues(
-		env,
-		toDelete.map((r) => ({
-			range: `'${quoteConfig.tab}'!${quoteArchivedAtColumn}${r.rowNumber}:${quoteArchivedAtColumn}${r.rowNumber}`,
-			values: [[now]],
-		}))
-	);
-
-	const deletedIds = new Set(toDelete.map((r) => String(r.data['Quote ID'])));
-	const itemHeaders = await readHeaders(env, quoteItemConfig.tab);
-	const itemArchivedAtColumn = columnLetterAt(itemHeaders.indexOf('Archived At') + 1);
-	const allItemRows = await readRows(env, quoteItemConfig.tab, { idColumn: quoteItemConfig.idColumn });
-	const itemsToArchive = allItemRows.filter((r) => deletedIds.has(String(r.data['Quote ID'])) && !r.data['Archived At']);
-	if (itemsToArchive.length > 0) {
-		await batchUpdateValues(
-			env,
-			itemsToArchive.map((r) => ({
-				range: `'${quoteItemConfig.tab}'!${itemArchivedAtColumn}${r.rowNumber}:${itemArchivedAtColumn}${r.rowNumber}`,
-				values: [[now]],
-			}))
-		);
-	}
-
-	await logActivity(env, {
-		entityType: quoteConfig.entityType,
-		entityId: [...deletedIds].join(', '),
-		action: 'bulk deleted',
-	});
-	return { deleted: toDelete.length, skippedAccepted };
-}
+// bulkUpdateQuoteStatus / bulkDeleteQuotes / bulkRestoreQuotes were removed
+// along with the Quotes list's bulk multi-select toolbar in the
+// simplification pass — a solo operator works one row at a time, and the
+// single-row deleteQuote()/restoreQuote()/status actions cover the real
+// workflow.
 
 /**
  * Recalculates an existing Quote in place — same engine call as

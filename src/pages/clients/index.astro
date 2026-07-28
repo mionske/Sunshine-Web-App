@@ -1,9 +1,8 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
-import { createRow, listActiveRows, listArchivedRows } from '../../lib/sheets';
-import { clientConfig, PREFERRED_CONTACT_METHOD_OPTIONS } from '../../lib/models/client';
-import { formatPhoneDigits } from '../../lib/phoneFormat';
+import { listActiveRows, listArchivedRows } from '../../lib/sheets';
+import { clientConfig } from '../../lib/models/client';
 import { deleteClient, restoreClient, duplicateClient } from '../../lib/clients';
 import { formatTimestamp } from '../../lib/format';
 
@@ -21,20 +20,6 @@ if (Astro.request.method === 'POST') {
 		} else if (action === 'duplicate-client') {
 			const duplicate = await duplicateClient(env, clientId);
 			return Astro.redirect(`/clients/${duplicate['Client ID']}`);
-		} else {
-			await createRow(env, clientConfig, {
-				id: String(form.get('id') ?? ''),
-				'First Name': String(form.get('firstName') ?? ''),
-				'Last Name': String(form.get('lastName') ?? ''),
-				Phone: formatPhoneDigits(String(form.get('phone') ?? '')),
-				Email: String(form.get('email') ?? ''),
-				'Referral Source': String(form.get('referralSource') ?? ''),
-				'First Contact Date': String(form.get('firstContactDate') ?? ''),
-				'Customer Since': '',
-				'Preferred Contact Method': String(form.get('preferredContactMethod') ?? ''),
-				Notes: String(form.get('notes') ?? ''),
-			});
-			return Astro.redirect('/clients');
 		}
 	} catch (e) {
 		error = (e as Error).message;
@@ -46,12 +31,14 @@ const clients = showArchived ? await listArchivedRows(env, clientConfig) : await
 clients.sort((a, b) =>
 	showArchived ? (b['Archived At'] || '').localeCompare(a['Archived At'] || '') : a['Last Name'].localeCompare(b['Last Name'])
 );
-const newId = crypto.randomUUID();
 ---
 
 <BaseLayout title="Clients">
 	<main>
-		<h1>Clients</h1>
+		<div class="card-header-row">
+			<h1>Clients</h1>
+			<a class="btn" href="/clients/new">+ New client</a>
+		</div>
 		<p>
 			{showArchived ? <a href="/clients">← Back to active clients</a> : <a href="/clients?archived=1">View deleted/archived clients →</a>}
 		</p>
@@ -115,38 +102,6 @@ const newId = crypto.randomUUID();
 			</tbody>
 		</table>
 
-		{!showArchived && (
-		<section class="card card-narrow">
-			<h2>Add client</h2>
-			<p class="field-hint">Add the property address after creating the client — no need to enter it twice.</p>
-			<form method="POST" id="add-client-form">
-				<input type="hidden" name="id" value={newId} />
-				<label>First name <input type="text" name="firstName" required /></label>
-				<label>Last name <input type="text" name="lastName" required /></label>
-				<label>Phone <input type="tel" name="phone" inputmode="numeric" placeholder="303-931-3903" /></label>
-				<label>Email <input type="email" name="email" /></label>
-				<label>Referral source <input type="text" name="referralSource" /></label>
-				<label>First contact date <input type="date" name="firstContactDate" /></label>
-				<label>
-				Preferred contact method
-				<select name="preferredContactMethod">
-					<option value="" />
-					{PREFERRED_CONTACT_METHOD_OPTIONS.map((m) => <option value={m}>{m}</option>)}
-				</select>
-			</label>
-				<label>Notes <textarea name="notes"></textarea></label>
-				<button type="submit">Add client</button>
-			</form>
-		</section>
-		)}
 	</main>
 
-	<script>
-		import { formatPhoneDigits } from '../../lib/phoneFormat';
-		const form = document.getElementById('add-client-form') as HTMLFormElement | null;
-		const phone = form?.querySelector('input[name="phone"]') as HTMLInputElement | null;
-		phone?.addEventListener('input', () => {
-			phone.value = formatPhoneDigits(phone.value);
-		});
-	</script>
 </BaseLayout>

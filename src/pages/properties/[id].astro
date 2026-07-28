@@ -20,7 +20,7 @@ import { clientConfig, type Client } from '../../lib/models/client';
 import { walkthroughConfig } from '../../lib/models/walkthrough';
 import { quoteConfig } from '../../lib/models/quote';
 import { jobConfig, type Job } from '../../lib/models/job';
-import { pipelineConfig, type Opportunity } from '../../lib/models/pipeline';
+import { pipelineConfig, OPEN_PIPELINE_STAGES, type Opportunity } from '../../lib/models/pipeline';
 import { getActivePricingConfig } from '../../lib/pricing/config';
 import { computeJobPerformance, computePropertyPerformance } from '../../lib/pricing/calibration';
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
@@ -188,7 +188,7 @@ const propertyJobs: Job[] = allJobs.filter((j) =>
 	j['Property ID'] ? j['Property ID'] === id : j['Property Address'].toLowerCase().includes(streetAddress)
 );
 
-const OPEN_OPPORTUNITY_STAGES = new Set(['New Lead', 'Contacted', 'Walkthrough Scheduled', 'Quote Draft', 'Quote Sent', 'Follow-up']);
+const OPEN_OPPORTUNITY_STAGES = new Set<string>(OPEN_PIPELINE_STAGES);
 const ACTIVE_JOB_STATUSES = new Set(['Scheduled', 'In Progress']);
 const COMPLETED_JOB_STATUSES = new Set(['Completed', 'Invoiced', 'Paid']);
 

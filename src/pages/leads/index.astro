@@ -1,7 +1,7 @@
 ---
 import BaseLayout from '../../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
-import { createRow, listActiveRows, listArchivedRows } from '../../lib/sheets';
+import { listActiveRows, listArchivedRows } from '../../lib/sheets';
 import { leadConfig, LEAD_STAGES } from '../../lib/models/lead';
 import { deleteLead, restoreLead, duplicateLead } from '../../lib/leads';
 import { formatTimestamp } from '../../lib/format';
@@ -13,22 +13,7 @@ if (Astro.request.method === 'POST') {
 	const action = String(form.get('_action') ?? '');
 	const leadId = String(form.get('leadId') ?? '');
 	try {
-		if (action === 'create-lead') {
-			await createRow(env, leadConfig, {
-				id: String(form.get('id') ?? ''),
-				'First Name': String(form.get('firstName') ?? ''),
-				'Last Name': String(form.get('lastName') ?? ''),
-				Phone: String(form.get('phone') ?? ''),
-				Email: String(form.get('email') ?? ''),
-				'Street Address': String(form.get('streetAddress') ?? ''),
-				City: String(form.get('city') ?? ''),
-				State: String(form.get('state') ?? ''),
-				Zip: String(form.get('zip') ?? ''),
-				Source: String(form.get('source') ?? ''),
-				Notes: String(form.get('notes') ?? ''),
-			});
-			return Astro.redirect('/leads');
-		} else if (action === 'delete-lead') {
+		if (action === 'delete-lead') {
 			await deleteLead(env, leadId);
 		} else if (action === 'restore-lead') {
 			await restoreLead(env, leadId);
@@ -54,12 +39,14 @@ leads.sort((a, b) =>
 		: (a['Next Follow-up Date'] || '9999-99-99').localeCompare(b['Next Follow-up Date'] || '9999-99-99')
 );
 
-const newId = crypto.randomUUID();
 ---
 
 <BaseLayout title="Leads">
 	<main>
-		<h1>Leads</h1>
+		<div class="card-header-row">
+			<h1>Leads</h1>
+			<a class="btn" href="/leads/new">+ New lead</a>
+		</div>
 		<p>
 			Cold opportunities that haven't been walked yet — no Client or Property required. Once a lead's quote is accepted, convert it to a Client from its detail page.
 			{' · '}
@@ -124,25 +111,5 @@ const newId = crypto.randomUUID();
 			</tbody>
 		</table>
 
-		{!showArchived && (
-			<section class="card card-narrow">
-				<h2>Add lead</h2>
-				<form method="POST">
-					<input type="hidden" name="_action" value="create-lead" />
-					<input type="hidden" name="id" value={newId} />
-					<label>First name <input type="text" name="firstName" required /></label>
-					<label>Last name <input type="text" name="lastName" required /></label>
-					<label>Phone <input type="tel" name="phone" inputmode="numeric" placeholder="303-931-3903" /></label>
-					<label>Email <input type="email" name="email" /></label>
-					<label>Street address <input type="text" name="streetAddress" /></label>
-					<label>City <input type="text" name="city" /></label>
-					<label>State <input type="text" name="state" maxlength="2" placeholder="CO" /></label>
-					<label>Zip <input type="text" name="zip" /></label>
-					<label>Source <input type="text" name="source" placeholder="Referral, Google, Nextdoor, ..." /></label>
-					<label>Notes <textarea name="notes"></textarea></label>
-					<button type="submit">Add lead</button>
-				</form>
-			</section>
-		)}
 	</main>
 </BaseLayout>

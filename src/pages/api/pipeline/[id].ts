@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro';
 import { env } from 'cloudflare:workers';
 import { findById, softDeleteRow, updateRow } from '../../../lib/sheets';
 import { guarded, json } from '../../../lib/apiCrud';
-import { pipelineConfig, type Opportunity } from '../../../lib/models/pipeline';
+import { pipelineConfig, CLOSED_PIPELINE_STAGES, type Opportunity } from '../../../lib/models/pipeline';
 
 export const GET: APIRoute = ({ params }) =>
 	guarded(async () => {
@@ -25,7 +25,10 @@ export const PATCH: APIRoute = ({ params, request }) =>
 				return json({ ok: false, error: 'Lost Reason is required when marking an opportunity Lost' }, 400);
 			}
 		}
-		if (patch.Stage === 'Accepted' || patch.Stage === 'Lost') {
+		// Closed = no longer an open sales opportunity. Approval is the
+		// hand-off point to the job workflow, so it closes the opportunity
+		// even though the work itself is still ahead.
+		if (patch.Stage && CLOSED_PIPELINE_STAGES.includes(patch.Stage)) {
 			patch['Closed At'] = new Date().toISOString();
 		}
 

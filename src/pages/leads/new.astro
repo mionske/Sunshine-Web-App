@@ -1,0 +1,63 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { createRow } from '../../lib/sheets';
+import { leadConfig } from '../../lib/models/lead';
+
+// Its own page rather than a form under the Leads table — see the Create
+// menu. A lead is deliberately light: a name and a way to reach them is
+// enough to start, everything else can follow.
+let error: string | null = null;
+
+if (Astro.request.method === 'POST') {
+	const form = await Astro.request.formData();
+	try {
+		const lead = await createRow(env, leadConfig, {
+			id: String(form.get('id') ?? ''),
+			'First Name': String(form.get('firstName') ?? ''),
+			'Last Name': String(form.get('lastName') ?? ''),
+			Phone: String(form.get('phone') ?? ''),
+			Email: String(form.get('email') ?? ''),
+			'Street Address': String(form.get('streetAddress') ?? ''),
+			City: String(form.get('city') ?? ''),
+			State: String(form.get('state') ?? ''),
+			Zip: String(form.get('zip') ?? ''),
+			Source: String(form.get('source') ?? ''),
+			Notes: String(form.get('notes') ?? ''),
+		});
+		return Astro.redirect(`/leads/${lead['Lead ID']}`);
+	} catch (e) {
+		error = (e as Error).message;
+	}
+}
+
+const newId = crypto.randomUUID();
+---
+
+<BaseLayout title="New lead">
+	<main>
+		<p><a href="/leads">← Leads</a></p>
+		<h1>New lead</h1>
+		{error && <p role="alert">{error}</p>}
+
+		<section class="card">
+			<form method="POST">
+				<input type="hidden" name="id" value={newId} />
+				<label>First name <input type="text" name="firstName" required /></label>
+				<label>Last name <input type="text" name="lastName" /></label>
+				<label>Phone <input type="tel" name="phone" inputmode="tel" placeholder="303-931-3903" /></label>
+				<label>Email <input type="email" name="email" /></label>
+				<label>Street address <input type="text" name="streetAddress" /></label>
+				<label>City <input type="text" name="city" /></label>
+				<label>State <input type="text" name="state" maxlength="2" placeholder="CO" /></label>
+				<label>Zip <input type="text" name="zip" /></label>
+				<label>Source <input type="text" name="source" placeholder="Referral, Google, Nextdoor, ..." /></label>
+				<label>Notes <textarea name="notes"></textarea></label>
+				<div class="button-row">
+					<a class="btn-secondary" href="/leads">Cancel</a>
+					<button type="submit">Create lead</button>
+				</div>
+			</form>
+		</section>
+	</main>
+</BaseLayout>

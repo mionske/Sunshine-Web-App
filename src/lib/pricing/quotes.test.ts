@@ -9,7 +9,7 @@ import { propertyConfig, propertySchema } from '../models/property';
 import { createRow } from '../sheets';
 import { seedInitialPricingConfig } from './config';
 import { seedInitialServices } from './services';
-import { createQuote, updateQuote, deleteQuote, restoreQuote, bulkUpdateQuoteStatus, bulkDeleteQuotes, bulkRestoreQuotes } from './quotes';
+import { createQuote, updateQuote, deleteQuote, restoreQuote } from './quotes';
 import type { QuoteCounts } from './types';
 
 const ZERO_COUNTS: QuoteCounts = {
@@ -547,7 +547,7 @@ describe('deleteQuote', () => {
 	});
 });
 
-describe('restoreQuote / bulk quote operations', () => {
+describe('restoreQuote', () => {
 	let harness: FakeFetchHandle;
 
 	beforeEach(async () => {
@@ -604,14 +604,6 @@ describe('restoreQuote / bulk quote operations', () => {
 		return row?.[archivedAtIdx] ?? null;
 	}
 
-	function quoteStatus(quoteId: string): string | number | boolean | null {
-		const quoteHeaders = harness.spreadsheet.getTab('Quotes')[0];
-		const quoteIdIdx = quoteHeaders.indexOf('Quote ID');
-		const statusIdx = quoteHeaders.indexOf('Quote Status');
-		const row = harness.spreadsheet.getTab('Quotes').slice(1).find((r) => r[quoteIdIdx] === quoteId);
-		return row?.[statusIdx] ?? null;
-	}
-
 	it('restoreQuote undoes deleteQuote — quote and its items un-archived', async () => {
 		const quote = await makeQuote(5);
 		await deleteQuote(harness.env, quote['Quote ID']);
@@ -628,56 +620,5 @@ describe('restoreQuote / bulk quote operations', () => {
 	it('restoreQuote throws for a quote that is not deleted', async () => {
 		const quote = await makeQuote(5);
 		await expect(restoreQuote(harness.env, quote['Quote ID'])).rejects.toThrow(/not deleted/);
-	});
-
-	it('bulkUpdateQuoteStatus updates only the selected quotes and never sets Accepted', async () => {
-		const quoteA = await makeQuote(3);
-		const quoteB = await makeQuote(4);
-		const quoteC = await makeQuote(6);
-
-		const updated = await bulkUpdateQuoteStatus(harness.env, [quoteA['Quote ID'], quoteB['Quote ID']], 'Sent', 'Sent At');
-
-		expect(updated).toBe(2);
-		expect(quoteStatus(quoteA['Quote ID'])).toBe('Sent');
-		expect(quoteStatus(quoteB['Quote ID'])).toBe('Sent');
-		expect(quoteStatus(quoteC['Quote ID'])).toBe('Draft');
-
-		await expect(bulkUpdateQuoteStatus(harness.env, [quoteA['Quote ID']], 'Accepted')).rejects.toThrow(/Accept quote/);
-	});
-
-	it('bulkDeleteQuotes archives selected quotes and their items, skipping any Accepted ones', async () => {
-		const quoteA = await makeQuote(3);
-		const quoteB = await makeQuote(4);
-
-		const quoteHeaders = harness.spreadsheet.getTab('Quotes')[0];
-		const quoteIdIdx = quoteHeaders.indexOf('Quote ID');
-		const statusIdx = quoteHeaders.indexOf('Quote Status');
-		const rows = harness.spreadsheet.getTab('Quotes');
-		const rowIndex = rows.findIndex((r, i) => i > 0 && r[quoteIdIdx] === quoteB['Quote ID']);
-		rows[rowIndex][statusIdx] = 'Accepted';
-		harness.spreadsheet.setTab('Quotes', rows);
-
-		const result = await bulkDeleteQuotes(harness.env, [quoteA['Quote ID'], quoteB['Quote ID']]);
-
-		expect(result).toEqual({ deleted: 1, skippedAccepted: 1 });
-		expect(quoteArchivedAt(quoteA['Quote ID'])).toBeTruthy();
-		expect(quoteArchivedAt(quoteB['Quote ID'])).toBeFalsy();
-		expect(itemArchivedAtValues(quoteA['Quote ID']).every((v) => v)).toBe(true);
-		expect(itemArchivedAtValues(quoteB['Quote ID']).every((v) => !v)).toBe(true);
-	});
-
-	it('bulkRestoreQuotes restores multiple independently-deleted quotes, matching items per-quote', async () => {
-		const quoteA = await makeQuote(3);
-		const quoteB = await makeQuote(4);
-		await deleteQuote(harness.env, quoteA['Quote ID']);
-		await deleteQuote(harness.env, quoteB['Quote ID']);
-
-		const restored = await bulkRestoreQuotes(harness.env, [quoteA['Quote ID'], quoteB['Quote ID']]);
-
-		expect(restored).toBe(2);
-		expect(quoteArchivedAt(quoteA['Quote ID'])).toBeFalsy();
-		expect(quoteArchivedAt(quoteB['Quote ID'])).toBeFalsy();
-		expect(itemArchivedAtValues(quoteA['Quote ID']).every((v) => !v)).toBe(true);
-		expect(itemArchivedAtValues(quoteB['Quote ID']).every((v) => !v)).toBe(true);
 	});
 });
