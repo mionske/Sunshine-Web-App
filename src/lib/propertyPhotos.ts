@@ -1,4 +1,4 @@
-import { createRow, findById, listActiveRows, softDeleteRow } from './sheets';
+import { createRow, findById, listActiveRows, softDeleteRow, updateRow } from './sheets';
 import type { SheetsEnv } from './sheets/types';
 import { propertyPhotoConfig, type PropertyPhoto } from './models/propertyPhoto';
 
@@ -60,6 +60,15 @@ export async function uploadPropertyPhoto(env: PropertyPhotoEnv, input: UploadPr
 export async function listPropertyPhotos(env: SheetsEnv, propertyId: string): Promise<PropertyPhoto[]> {
 	const rows = await listActiveRows(env, propertyPhotoConfig);
 	return rows.filter((r) => r['Property ID'] === propertyId);
+}
+
+/** Tags a photo after upload. Category is deliberately not asked for at
+ * upload time — the moment the phone is out and the truck is still there is
+ * the wrong moment to make someone answer a dropdown. */
+export async function setPropertyPhotoCategory(env: SheetsEnv, photoId: string, category: string): Promise<void> {
+	const photo = await findById(env, propertyPhotoConfig, photoId);
+	if (!photo) throw new Error(`Photo "${photoId}" not found`);
+	await updateRow(env, propertyPhotoConfig, photoId, { Category: category }, { action: 'categorised' });
 }
 
 /** Soft-deletes the metadata row only — never calls R2 delete. Matches this

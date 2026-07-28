@@ -26,6 +26,7 @@ import { computeJobPerformance, computePropertyPerformance } from '../../lib/pri
 import { googleMapsUrl, fullAddress } from '../../lib/mapsLink';
 import { formatTimestamp } from '../../lib/format';
 import { listPropertyPhotos } from '../../lib/propertyPhotos';
+import { PHOTO_CATEGORIES } from '../../lib/models/propertyPhoto';
 import PropertyPhotos from '../../components/PropertyPhotos';
 
 const { id } = Astro.params;
@@ -46,7 +47,72 @@ if (Astro.request.method === 'POST') {
 		// `_action=update-property` input — this field's presence, not
 		// `_action`, decides which branch runs.
 		if (form.get('markInventoryVerified')) {
-			await updateRow(env, propertyConfig, id!, { 'Inventory Verified At': new Date().toISOString() });
+			await updateRow(env, propertyConfig, id!, {
+				'Inventory Verified At': new Date().toISOString(),
+				'Inventory Verified By': String(form.get('verifiedBy') ?? '').trim(),
+			});
+		} else if (action.startsWith('save-')) {
+			// Per-group save. updateRow merges the patch over the stored row, so
+			// a group only ever writes its own fields — the rest of the property
+			// is untouched, which is the whole point of editing one card at a
+			// time rather than submitting the entire record.
+			const y = (name: string) => (form.get(name) === 'on' ? 'Y' : 'N');
+			const s = (name: string) => String(form.get(name) ?? '');
+
+			const GROUP_PATCHES: Record<string, () => Record<string, string>> = {
+				'save-record': () => ({
+					'Property Type': s('propertyType'),
+					'Street Address': s('streetAddress'),
+					City: s('city'),
+					State: s('state'),
+					Zip: s('zip'),
+					'Square Footage': s('squareFootage'),
+					Stories: s('stories'),
+					'Year Built': s('yearBuilt'),
+					'Building/Complex Name': s('buildingComplexName'),
+					'Unit Identifier': s('unitIdentifier'),
+				}),
+				'save-access': () => ({
+					'Interior Access Difficulty': s('interiorAccessDifficulty'),
+					'Exterior Access Difficulty': s('exteriorAccessDifficulty'),
+					'Exterior Cleaning Method': s('exteriorCleaningMethod'),
+					'Ladder Requirement': s('highestLadderRequired'),
+				}),
+				'save-considerations': () => ({
+					'Roof Access Required (Y/N)': y('roofAccessRequired'),
+					'High Interior Glass (Y/N)': y('highInteriorGlass'),
+					'Steep Or Uneven Terrain (Y/N)': y('steepOrUnevenTerrain'),
+					'Restricted Work Or Setup Area (Y/N)': y('restrictedWorkOrSetupArea'),
+					'Long Hose Run (Y/N)': y('longHoseRun'),
+					'Gate Or Entry Restriction (Y/N)': y('gateOrEntryRestriction'),
+					'Water Source Far From Work Area (Y/N)': y('waterSourceFarFromWorkArea'),
+				}),
+				'save-water': () => ({
+					'Water Access Method': s('waterAccessMethod'),
+					'Water Supply': s('waterSupply'),
+				}),
+				'save-parking': () => ({ 'Parking And Setup Difficulty': s('parkingAndSetupDifficulty') }),
+				// Writes the merged value, which is what has been displayed since
+				// 'Site Access Notes' was deprecated — saving here is what finally
+				// commits that merge to the surviving column.
+				'save-access-notes': () => ({ 'Access Notes': s('accessNotes') }),
+				'save-inventory': () => ({
+					'Total Window Units': s('totalWindowUnits'),
+					'Total Glass Panes': s('totalGlassPanes'),
+					'Screen Count': s('screenCount'),
+					'Track Count': s('trackCount'),
+				}),
+				'save-notes': () => ({
+					'Repeat Business Status': s('repeatBusinessStatus'),
+					'Pet Notes': s('petNotes'),
+					'General Notes': s('generalNotes'),
+				}),
+			};
+
+			const patch = GROUP_PATCHES[action];
+			if (!patch) throw new Error(`Unknown save action "${action}".`);
+			await updateRow(env, propertyConfig, id!, patch() as never, { action });
+			return Astro.redirect(`/properties/${id}${form.get('returnTab') ? `?tab=${form.get('returnTab')}` : ''}`);
 		} else if (action === 'update-property') {
 			await updateRow(env, propertyConfig, id!, {
 				'Property Type': String(form.get('propertyType') ?? '') as (typeof PROPERTY_TYPES)[number],
@@ -212,6 +278,7 @@ const propertyPhotoDtos = propertyPhotos.map((p) => ({
 	contentType: p['Content Type'],
 	sizeBytes: p['Size Bytes'],
 	caption: p.Caption,
+	category: p.Category,
 	createdAt: p['Created At'],
 }));
 
@@ -303,6 +370,13 @@ const requestedTab = Astro.url.searchParams.get('tab') ?? '';
 const activeTab: TabKey = (TABS.find((t) => t.key === requestedTab)?.key ?? 'overview') as TabKey;
 function tabHref(tab: TabKey): string {
 	return tab === 'overview' ? `/properties/${id}` : `/properties/${id}?tab=${tab}`;
+}
+
+// Which card is in edit mode. One param, so one group at a time by
+// construction — there is no state in which two cards are both live forms.
+const editingGroup = Astro.url.searchParams.get('edit') ?? '';
+function editHref(tab: TabKey, group: string): string {
+	return `/properties/${id}?tab=${tab}&edit=${group}`;
 }
 
 const yes = (value: string) => value === 'Y';
@@ -418,6 +492,12 @@ const railBadges: Record<TabKey, { text: string; alert?: boolean } | null> = {
 	jobs: propertyJobs.length > 0 ? { text: String(propertyJobs.length) } : null,
 	history: timeline.length > 0 ? { text: String(timeline.length) } : null,
 };
+
+// One filter, in the URL like the tab — the timeline is long enough on a
+// real property that "show me just the quotes" is a normal thing to want.
+const TIMELINE_TYPES = ['', ...Array.from(new Set(timeline.map((e) => String(e['Entity Type'] ?? '')).filter(Boolean))).sort()];
+const timelineType = Astro.url.searchParams.get('type') ?? '';
+const visibleTimeline = timelineType ? timeline.filter((e) => String(e['Entity Type'] ?? '') === timelineType) : timeline;
 
 const identityMeta = [property['Property Type'], property.Stories ? `${property.Stories} ${property.Stories === '1' ? 'story' : 'stories'}` : '']
 	.filter(Boolean)
@@ -560,9 +640,9 @@ const identityMeta = [property['Property Type'], property.Stories ? `${property.
 								)}
 								<p class="pcallout">
 									{accessNotesValue || (
-										<>Access &amp; setup notes empty — <a class="plink" href={tabHref('edit')}>add gate code, parking, spigot location, roof route</a></>
+										<>Access &amp; setup notes empty — <a class="plink" href={editHref('access', 'access-notes')}>add gate code, parking, spigot location, roof route</a></>
 									)}
-									{accessNotesValue && <> <a class="plink" href={tabHref('edit')}>Edit</a></>}
+									{accessNotesValue && <> <a class="plink" href={editHref('access', 'access-notes')}>Edit</a></>}
 								</p>
 							</section>
 
@@ -589,8 +669,34 @@ const identityMeta = [property['Property Type'], property.Stories ? `${property.
 								<section class="pcard">
 									<div class="pcard-header">
 										<h2>Record</h2>
-										<a class="plink" href={tabHref('edit')}>Edit</a>
+										{editingGroup !== 'record' && <a class="plink" href={editHref('overview', 'record')}>Edit</a>}
 									</div>
+									{editingGroup === 'record' ? (
+										<form method="POST">
+											<input type="hidden" name="_action" value="save-record" />
+											<div class="form-grid">
+												<label>
+													Property type
+													<select name="propertyType" required>
+														{PROPERTY_TYPES.map((t) => <option value={t} selected={t === property['Property Type']}>{t}</option>)}
+													</select>
+												</label>
+												<label>Street address<input type="text" name="streetAddress" value={property['Street Address']} /></label>
+												<label>City<input type="text" name="city" value={property.City} /></label>
+												<label>State<input type="text" name="state" value={property.State} /></label>
+												<label>Zip<input type="text" name="zip" value={property.Zip} /></label>
+												<label>Square footage<input type="number" min="0" name="squareFootage" value={property['Square Footage']} /></label>
+												<label>Stories<input type="number" min="1" name="stories" value={property.Stories} /></label>
+												<label>Year built<input type="number" name="yearBuilt" value={property['Year Built']} /></label>
+												<label>Building / complex<input type="text" name="buildingComplexName" value={property['Building/Complex Name']} /></label>
+												<label>Unit identifier<input type="text" name="unitIdentifier" value={property['Unit Identifier']} /></label>
+											</div>
+											<div class="button-row">
+												<button type="submit">Save</button>
+												<a class="plink" href={tabHref('overview')}>Cancel</a>
+											</div>
+										</form>
+									) : (
 									<div class="prows">
 										{RECORD_ROWS.map((row) => (
 											<div class="prow">
@@ -599,6 +705,7 @@ const identityMeta = [property['Property Type'], property.Stories ? `${property.
 											</div>
 										))}
 									</div>
+									)}
 									<div class="pcard-footer">
 										<span>Last updated {property['Updated At'] ? formatTimestamp(property['Updated At']) : 'never'} ·</span>
 										<a class="plink" href={tabHref('history')}>history</a>
@@ -611,46 +718,181 @@ const identityMeta = [property['Property Type'], property.Stories ? `${property.
 					{activeTab === 'access' && (
 						<>
 							<section class="pcard">
-								<div class="pcard-header"><h2>Access</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
-								<div class="prows">
-									<div class="prow"><span>Typical interior access</span><span class={interiorAccess ? '' : 'pmissing'}>{interiorAccess || 'Missing'}</span></div>
-									<div class="prow"><span>Typical exterior access</span><span class={exteriorAccess ? '' : 'pmissing'}>{exteriorAccess || 'Missing'}</span></div>
-									<div class="prow"><span>Typical exterior method</span><span class={exteriorCleaningMethodValue ? '' : 'pmissing'}>{exteriorCleaningMethodValue || 'Missing'}</span></div>
-									<div class="prow"><span>Ladder requirement</span><span class={ladderRequirementValue ? '' : 'pmissing'}>{ladderRequirementValue || 'Missing'}</span></div>
+								<div class="pcard-header">
+									<h2>Access</h2>
+									{editingGroup !== 'access' && <a class="plink" href={editHref('access', 'access')}>Edit</a>}
 								</div>
-							</section>
-
-							<section class="pcard">
-								<div class="pcard-header"><h2>Considerations</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
-								{trueFlags.length > 0 ? (
-									<div class="pflags">{trueFlags.map((f) => <span class="pflag">{f.label}</span>)}</div>
+								{editingGroup === 'access' ? (
+									<form method="POST">
+										<input type="hidden" name="_action" value="save-access" />
+										<input type="hidden" name="returnTab" value="access" />
+										<p class="field-label">Typical interior access</p>
+										<div class="segmented">
+											{ACCESS_LEVEL_OPTIONS.map((o) => (
+												<label><input type="radio" name="interiorAccessDifficulty" value={o} checked={o === interiorAccess} />{o}</label>
+											))}
+										</div>
+										<p class="field-label">Typical exterior access</p>
+										<div class="segmented">
+											{ACCESS_LEVEL_OPTIONS.map((o) => (
+												<label><input type="radio" name="exteriorAccessDifficulty" value={o} checked={o === exteriorAccess} />{o}</label>
+											))}
+										</div>
+										<p class="field-label">Typical exterior method</p>
+										<div class="segmented">
+											{EXTERIOR_CLEANING_METHOD_OPTIONS.map((o) => (
+												<label><input type="radio" name="exteriorCleaningMethod" value={o} checked={o === exteriorCleaningMethodValue} />{o}</label>
+											))}
+										</div>
+										<p class="field-label">Ladder requirement</p>
+										<div class="segmented">
+											{LADDER_REQUIREMENT_OPTIONS.map((o) => (
+												<label><input type="radio" name="highestLadderRequired" value={o} checked={o === ladderRequirementValue} />{o}</label>
+											))}
+										</div>
+										<div class="button-row">
+											<button type="submit">Save</button>
+											<a class="plink" href={tabHref('access')}>Cancel</a>
+										</div>
+									</form>
 								) : (
-									<p class="pflags-none">Nothing flagged.</p>
+									<div class="prows">
+										<div class="prow"><span>Typical interior access</span><span class={interiorAccess ? '' : 'pmissing'}>{interiorAccess || 'Missing'}</span></div>
+										<div class="prow"><span>Typical exterior access</span><span class={exteriorAccess ? '' : 'pmissing'}>{exteriorAccess || 'Missing'}</span></div>
+										<div class="prow"><span>Typical exterior method</span><span class={exteriorCleaningMethodValue ? '' : 'pmissing'}>{exteriorCleaningMethodValue || 'Missing'}</span></div>
+										<div class="prow"><span>Ladder requirement</span><span class={ladderRequirementValue ? '' : 'pmissing'}>{ladderRequirementValue || 'Missing'}</span></div>
+									</div>
 								)}
-								<p class="pflags-none">{trueFlags.length} of {CONSIDERATION_FLAGS.length} flagged{falseFlagLabels.length > 0 ? ` — ${falseFlagLabels.join(', ')}: not flagged` : ''}</p>
 							</section>
 
 							<section class="pcard">
-								<div class="pcard-header"><h2>Water</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
-								<div class="prows">
-									<div class="prow"><span>Water access</span><span class={waterAccessValue ? '' : 'pmissing'}>{waterAccessValue || 'Missing'}</span></div>
-									<div class="prow"><span>Water supply</span><span class={waterSupplyValue ? '' : 'pmissing'}>{waterSupplyValue || 'Missing'}</span></div>
+								<div class="pcard-header">
+									<h2>Considerations</h2>
+									{editingGroup !== 'considerations' && <a class="plink" href={editHref('access', 'considerations')}>Edit</a>}
 								</div>
+								{editingGroup === 'considerations' ? (
+									<form method="POST">
+										<input type="hidden" name="_action" value="save-considerations" />
+										<input type="hidden" name="returnTab" value="access" />
+										<div class="checkbox-grid">
+											<label><input type="checkbox" name="roofAccessRequired" checked={yes(property['Roof Access Required (Y/N)'])} /> Roof access required</label>
+											<label><input type="checkbox" name="highInteriorGlass" checked={yes(property['High Interior Glass (Y/N)'])} /> High interior glass</label>
+											<label><input type="checkbox" name="steepOrUnevenTerrain" checked={yes(property['Steep Or Uneven Terrain (Y/N)'])} /> Steep terrain</label>
+											<label><input type="checkbox" name="restrictedWorkOrSetupArea" checked={yes(property['Restricted Work Or Setup Area (Y/N)'])} /> Restricted setup</label>
+											<label><input type="checkbox" name="longHoseRun" checked={yes(property['Long Hose Run (Y/N)'])} /> Long hose run</label>
+											<label><input type="checkbox" name="gateOrEntryRestriction" checked={yes(property['Gate Or Entry Restriction (Y/N)'])} /> Gate restriction</label>
+											<label><input type="checkbox" name="waterSourceFarFromWorkArea" checked={yes(property['Water Source Far From Work Area (Y/N)'])} /> Limited water access</label>
+										</div>
+										<div class="button-row">
+											<button type="submit">Save</button>
+											<a class="plink" href={tabHref('access')}>Cancel</a>
+										</div>
+									</form>
+								) : (
+									<>
+										{trueFlags.length > 0 ? (
+											<div class="pflags">{trueFlags.map((f) => <span class="pflag">{f.label}</span>)}</div>
+										) : (
+											<p class="pflags-none">Nothing flagged.</p>
+										)}
+										<p class="pflags-none">
+											{trueFlags.length} of {CONSIDERATION_FLAGS.length} flagged
+											{falseFlagLabels.length > 0 ? ` — ${falseFlagLabels.join(', ')}: not flagged` : ''}
+										</p>
+									</>
+								)}
 							</section>
 
 							<section class="pcard">
-								<div class="pcard-header"><h2>Parking &amp; setup</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
-								<div class="prows">
-									<div class="prow"><span>Parking difficulty</span><span class={parkingAndSetupValue ? '' : 'pmissing'}>{parkingAndSetupValue || 'Missing'}</span></div>
-									<div class="prow"><span>Gate or entry restriction</span><span>{yes(property['Gate Or Entry Restriction (Y/N)']) ? 'Yes' : 'No'}</span></div>
-									<div class="prow"><span>Long hose run</span><span>{yes(property['Long Hose Run (Y/N)']) ? 'Yes' : 'No'}</span></div>
-									<div class="prow"><span>Water far from work area</span><span>{yes(property['Water Source Far From Work Area (Y/N)']) ? 'Yes' : 'No'}</span></div>
+								<div class="pcard-header">
+									<h2>Water</h2>
+									{editingGroup !== 'water' && <a class="plink" href={editHref('access', 'water')}>Edit</a>}
 								</div>
+								{editingGroup === 'water' ? (
+									<form method="POST">
+										<input type="hidden" name="_action" value="save-water" />
+										<input type="hidden" name="returnTab" value="access" />
+										<p class="field-label">Water access</p>
+										<div class="segmented">
+											{WATER_ACCESS_OPTIONS.map((o) => (
+												<label><input type="radio" name="waterAccessMethod" value={o} checked={o === waterAccessValue} />{o}</label>
+											))}
+										</div>
+										<p class="field-label">Water supply</p>
+										<div class="segmented">
+											{WATER_SUPPLY_OPTIONS.map((o) => (
+												<label><input type="radio" name="waterSupply" value={o} checked={o === waterSupplyValue} />{o}</label>
+											))}
+										</div>
+										<div class="button-row">
+											<button type="submit">Save</button>
+											<a class="plink" href={tabHref('access')}>Cancel</a>
+										</div>
+									</form>
+								) : (
+									<div class="prows">
+										<div class="prow"><span>Water access</span><span class={waterAccessValue ? '' : 'pmissing'}>{waterAccessValue || 'Missing'}</span></div>
+										<div class="prow"><span>Water supply</span><span class={waterSupplyValue ? '' : 'pmissing'}>{waterSupplyValue || 'Missing'}</span></div>
+									</div>
+								)}
 							</section>
 
 							<section class="pcard">
-								<div class="pcard-header"><h2>Notes</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
-								<p class="pcallout">{accessNotesValue || 'No access & setup notes yet.'}</p>
+								<div class="pcard-header">
+									<h2>Parking &amp; setup</h2>
+									{editingGroup !== 'parking' && <a class="plink" href={editHref('access', 'parking')}>Edit</a>}
+								</div>
+								{editingGroup === 'parking' ? (
+									<form method="POST">
+										<input type="hidden" name="_action" value="save-parking" />
+										<input type="hidden" name="returnTab" value="access" />
+										<p class="field-label">Parking difficulty</p>
+										<div class="segmented">
+											{PARKING_AND_SETUP_OPTIONS.map((o) => (
+												<label><input type="radio" name="parkingAndSetupDifficulty" value={o} checked={o === parkingAndSetupValue} />{o}</label>
+											))}
+										</div>
+										<p class="field-hint">
+											Gate, hose and water-distance flags live in Considerations above — they are the same seven flags the
+											rail counts, so they are edited in one place rather than two.
+										</p>
+										<div class="button-row">
+											<button type="submit">Save</button>
+											<a class="plink" href={tabHref('access')}>Cancel</a>
+										</div>
+									</form>
+								) : (
+									<div class="prows">
+										<div class="prow"><span>Parking difficulty</span><span class={parkingAndSetupValue ? '' : 'pmissing'}>{parkingAndSetupValue || 'Missing'}</span></div>
+										<div class="prow"><span>Gate or entry restriction</span><span>{yes(property['Gate Or Entry Restriction (Y/N)']) ? 'Yes' : 'No'}</span></div>
+										<div class="prow"><span>Long hose run</span><span>{yes(property['Long Hose Run (Y/N)']) ? 'Yes' : 'No'}</span></div>
+										<div class="prow"><span>Water far from work area</span><span>{yes(property['Water Source Far From Work Area (Y/N)']) ? 'Yes' : 'No'}</span></div>
+									</div>
+								)}
+							</section>
+
+							<section class="pcard">
+								<div class="pcard-header">
+									<h2>Notes</h2>
+									{editingGroup !== 'access-notes' && <a class="plink" href={editHref('access', 'access-notes')}>{accessNotesValue ? 'Edit' : 'Add'}</a>}
+								</div>
+								{editingGroup === 'access-notes' ? (
+									<form method="POST">
+										<input type="hidden" name="_action" value="save-access-notes" />
+										<input type="hidden" name="returnTab" value="access" />
+										<label>
+											Access &amp; setup notes
+											<span class="field-hint">Gate code, parking, spigot location, roof route — whatever you'd want to know before the truck leaves.</span>
+											<textarea name="accessNotes">{accessNotesValue}</textarea>
+										</label>
+										<div class="button-row">
+											<button type="submit">Save</button>
+											<a class="plink" href={tabHref('access')}>Cancel</a>
+										</div>
+									</form>
+								) : (
+									<p class="pcallout">{accessNotesValue || 'No access & setup notes yet.'}</p>
+								)}
 							</section>
 						</>
 					)}
@@ -658,13 +900,33 @@ const identityMeta = [property['Property Type'], property.Stories ? `${property.
 					{activeTab === 'inventory' && (
 						<>
 							<section class="pcard">
-								<div class="pcard-header"><h2>Standing reference counts</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
-								<div class="pmetrics">
-									<div class="pmetric"><strong>{grouped(property['Total Window Units']) || '—'}</strong><span>Window units</span></div>
-									<div class="pmetric"><strong>{grouped(property['Total Glass Panes']) || '—'}</strong><span>Glass panes</span></div>
-									<div class="pmetric"><strong>{grouped(property['Screen Count']) || '—'}</strong><span>Screens</span></div>
-									<div class="pmetric"><strong>{grouped(property['Track Count']) || '—'}</strong><span>Tracks</span></div>
+								<div class="pcard-header">
+									<h2>Standing reference counts</h2>
+									{editingGroup !== 'inventory' && <a class="plink" href={editHref('inventory', 'inventory')}>Edit</a>}
 								</div>
+								{editingGroup === 'inventory' ? (
+									<form method="POST">
+										<input type="hidden" name="_action" value="save-inventory" />
+										<input type="hidden" name="returnTab" value="inventory" />
+										<div class="count-grid">
+											<label>Window units<input type="number" min="0" name="totalWindowUnits" value={property['Total Window Units']} /></label>
+											<label>Glass panes<input type="number" min="0" name="totalGlassPanes" value={property['Total Glass Panes']} /></label>
+											<label>Screens<input type="number" min="0" name="screenCount" value={property['Screen Count']} /></label>
+											<label>Tracks<input type="number" min="0" name="trackCount" value={property['Track Count']} /></label>
+										</div>
+										<div class="button-row">
+											<button type="submit">Save</button>
+											<a class="plink" href={tabHref('inventory')}>Cancel</a>
+										</div>
+									</form>
+								) : (
+									<div class="pmetrics">
+										<div class="pmetric"><strong>{grouped(property['Total Window Units']) || '—'}</strong><span>Window units</span></div>
+										<div class="pmetric"><strong>{grouped(property['Total Glass Panes']) || '—'}</strong><span>Glass panes</span></div>
+										<div class="pmetric"><strong>{grouped(property['Screen Count']) || '—'}</strong><span>Screens</span></div>
+										<div class="pmetric"><strong>{grouped(property['Track Count']) || '—'}</strong><span>Tracks</span></div>
+									</div>
+								)}
 								<p class="pcallout" style="margin-top:12px">
 									Window units and panes measure different things and are kept separate. Neither is calculated from the
 									other. A specific visit records its own counts on the walkthrough; these are the property&apos;s standing
@@ -672,8 +934,10 @@ const identityMeta = [property['Property Type'], property.Stories ? `${property.
 								</p>
 								<form method="POST" class="pcard-footer">
 									<input type="hidden" name="_action" value="update-property" />
+									<input type="hidden" name="returnTab" value="inventory" />
 									<span class={inventoryVerifiedAt ? 'pdot pdot-ok' : 'pdot'}></span>
 									<span>{scaleFooter}</span>
+									<input type="text" name="verifiedBy" placeholder="Verified by" value={inventoryVerifiedBy} style="width:11rem;margin:0" />
 									<button type="submit" name="markInventoryVerified" value="1" class="plink" style="background:none;border:none;padding:0;width:auto;cursor:pointer">
 										Mark inventory verified
 									</button>
@@ -701,25 +965,44 @@ const identityMeta = [property['Property Type'], property.Stories ? `${property.
 					{activeTab === 'photos' && (
 						<section class="pcard">
 							<div class="pcard-header"><h2>Photos</h2></div>
-							<PropertyPhotos client:load propertyId={id} photos={propertyPhotoDtos} />
+							<PropertyPhotos client:load propertyId={id} photos={propertyPhotoDtos} categories={PHOTO_CATEGORIES} />
 						</section>
 					)}
 
 					{activeTab === 'notes' && (
-						<>
-							<section class="pcard">
-								<div class="pcard-header"><h2>Repeat business</h2><a class="plink" href={tabHref('edit')}>Edit</a></div>
-								<p class="pcallout">{property['Repeat Business Status'] || 'Not set.'}</p>
-							</section>
-							<section class="pcard">
-								<div class="pcard-header"><h2>Pet notes</h2><a class="plink" href={tabHref('edit')}>{property['Pet Notes'] ? 'Edit' : 'Add'}</a></div>
-								<p class="pcallout">{property['Pet Notes'] || 'No pet notes.'}</p>
-							</section>
-							<section class="pcard">
-								<div class="pcard-header"><h2>Property notes</h2><a class="plink" href={tabHref('edit')}>{property['General Notes'] ? 'Edit' : 'Add'}</a></div>
-								<p class="pcallout">{property['General Notes'] || 'No property notes.'}</p>
-							</section>
-						</>
+						<section class="pcard">
+							<div class="pcard-header">
+								<h2>Notes</h2>
+								{editingGroup !== 'notes' && <a class="plink" href={editHref('notes', 'notes')}>Edit</a>}
+							</div>
+							{editingGroup === 'notes' ? (
+								<form method="POST">
+									<input type="hidden" name="_action" value="save-notes" />
+									<input type="hidden" name="returnTab" value="notes" />
+									<label>
+										Repeat business status
+										<select name="repeatBusinessStatus">
+											<option value="">Not set</option>
+											{REPEAT_BUSINESS_STATUS_OPTIONS.map((v) => (
+												<option value={v} selected={v === property['Repeat Business Status']}>{v}</option>
+											))}
+										</select>
+									</label>
+									<label>Pet notes<textarea name="petNotes">{property['Pet Notes']}</textarea></label>
+									<label>Property notes<textarea name="generalNotes">{property['General Notes']}</textarea></label>
+									<div class="button-row">
+										<button type="submit">Save</button>
+										<a class="plink" href={tabHref('notes')}>Cancel</a>
+									</div>
+								</form>
+							) : (
+								<div class="prows">
+									<div class="prow"><span>Repeat business</span><span class={property['Repeat Business Status'] ? '' : 'pmissing'}>{property['Repeat Business Status'] || 'Not set'}</span></div>
+									<div class="prow"><span>Pet notes</span><span class={property['Pet Notes'] ? '' : 'pmissing'}>{property['Pet Notes'] || 'No pet notes'}</span></div>
+									<div class="prow"><span>Property notes</span><span class={property['General Notes'] ? '' : 'pmissing'}>{property['General Notes'] || 'No property notes'}</span></div>
+								</div>
+							)}
+						</section>
 					)}
 
 					{activeTab === 'walkthroughs' && (
@@ -812,17 +1095,28 @@ const identityMeta = [property['Property Type'], property.Stories ? `${property.
 
 					{activeTab === 'history' && (
 						<section class="pcard">
-							<div class="pcard-header"><h2>History</h2></div>
+							<div class="pcard-header">
+								<h2>History</h2>
+								<span>
+									{TIMELINE_TYPES.map((t) => (
+										<>
+											<a class="plink" href={`/properties/${id}?tab=history${t ? `&type=${t}` : ''}`} style={t === timelineType ? 'text-decoration:underline' : ''}>
+												{t || 'All'}
+											</a>{' '}
+										</>
+									))}
+								</span>
+							</div>
 							<form method="POST">
 								<input type="hidden" name="_action" value="add-note" />
 								<label>Add a note<input type="text" name="note" placeholder="What happened?" /></label>
 								<button type="submit">Add note</button>
 							</form>
-							{timeline.length === 0 ? (
+							{visibleTimeline.length === 0 ? (
 								<p class="pflags-none">Nothing recorded yet.</p>
 							) : (
 								<div class="prows">
-									{timeline.map((entry) => {
+									{visibleTimeline.map((entry) => {
 										const href = timelineLink(String(entry['Entity Type'] ?? ''), String(entry['Entity ID'] ?? ''));
 										return (
 											<div class="prow">

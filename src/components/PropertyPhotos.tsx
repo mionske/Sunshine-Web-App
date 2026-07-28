@@ -6,12 +6,14 @@ export interface PropertyPhotoDTO {
 	contentType: string;
 	sizeBytes: string;
 	caption: string;
+	category: string;
 	createdAt: string;
 }
 
 interface Props {
 	propertyId: string;
 	photos: PropertyPhotoDTO[];
+	categories: readonly string[];
 }
 
 interface InFlightUpload {
@@ -22,7 +24,7 @@ interface InFlightUpload {
 	file?: File;
 }
 
-export default function PropertyPhotos({ propertyId, photos: initialPhotos }: Props) {
+export default function PropertyPhotos({ propertyId, photos: initialPhotos, categories }: Props) {
 	const [photos, setPhotos] = useState(initialPhotos);
 	const [uploading, setUploading] = useState<InFlightUpload[]>([]);
 	const [dragActive, setDragActive] = useState(false);
@@ -48,6 +50,7 @@ export default function PropertyPhotos({ propertyId, photos: initialPhotos }: Pr
 					contentType: row['Content Type'],
 					sizeBytes: row['Size Bytes'],
 					caption: row.Caption,
+					category: row.Category ?? '',
 					createdAt: row['Created At'],
 				},
 			]);
@@ -87,6 +90,20 @@ export default function PropertyPhotos({ propertyId, photos: initialPhotos }: Pr
 
 	async function retryUpload(tempId: string, file: File) {
 		await sendOne(tempId, file);
+	}
+
+	/** Category is set after the fact rather than before upload. The moment
+	 * the phone is out and the truck is still there is the wrong time to make
+	 * someone answer a dropdown; tagging is a thirty-second job later. */
+	async function setCategory(id: string, category: string) {
+		const previous = photos;
+		setPhotos((prev) => prev.map((p) => (p.id === id ? { ...p, category } : p)));
+		const res = await fetch(`/api/property-photos/${id}`, {
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ category }),
+		});
+		if (!res.ok) setPhotos(previous);
 	}
 
 	async function deletePhoto(id: string) {

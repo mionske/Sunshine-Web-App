@@ -804,6 +804,14 @@ React island (drag-and-drop zone + a plain `accept="image/*"` file input
 as the actually-load-bearing path for the app's real mobile-first usage,
 since iOS Safari has no true OS drag-and-drop).
 
+**Category** (PHOTO_CATEGORIES in `lib/models/propertyPhoto.ts`): Front /
+Rear / Left / Right Elevation, Roof Access, Water Access, Difficult
+Windows, Interior Access, Other. Optional, and set *after* upload via
+`PATCH /api/property-photos/[id]` rather than as an upload field — the
+moment the phone is out and the truck is still there is the wrong moment
+to make someone answer a dropdown, and an uncategorised photo is still a
+useful photo.
+
 ## Walkthroughs
 Walkthrough ID, Client ID, Property ID, Opportunity ID, Quote ID
 (link — set once the walkthrough produces a quote), Walkthrough Date,
@@ -1007,6 +1015,29 @@ and the PricingConfig actually active at walkthrough time — never
 re-resolved live, even if a newer config has since been activated, so
 the quote stays reproducible. Idempotent: converting the same walkthrough
 twice returns the existing Quote instead of creating a duplicate.
+
+## Property detail page (`/properties/[id]`) — tabbed workspace
+
+Nine tabs — Overview, Access & Setup, Inventory, Photos, Notes,
+Walkthroughs, Quotes, Jobs, History — driven by `?tab=`. An unrecognised
+value falls back to Overview. The activity timeline lives only under
+History; it is no longer a right-hand column.
+
+**Read-first.** Nothing is a live form input at rest. Each card carries
+its own Edit link, which sets `?edit=<group>` — one parameter, so exactly
+one group can be editing at a time by construction. Save posts only that
+group's fields under its own `save-*` action, and `updateRow` merges the
+patch over the stored row, so a group never writes a field it didn't
+show. Cancel is a plain link back to the tab.
+
+Groups: `record`, `access`, `considerations`, `water`, `parking`,
+`access-notes`, `inventory`, `notes`. The whole-record form survives at
+`?tab=edit` as a fallback.
+
+**Derived, never stored**: difficulty summary and its three bars,
+true/false consideration flags, the four-stage pipeline stepper (computed
+from whether walkthroughs/quotes/jobs exist), rail badge counts, and the
+"Missing" vs em-dash treatment for empty fields.
 
 ## Labor model — LaborConfig, WindowProductionProfiles, WalkthroughLaborAdjustments
 
