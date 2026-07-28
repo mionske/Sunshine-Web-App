@@ -472,16 +472,18 @@ const RECORD_ROWS = [
 	{ label: 'Unit / building', value: [property['Building/Complex Name'], property['Unit Identifier']].filter(Boolean).join(' — '), important: false },
 ];
 
-const railBadges: Record<TabKey, { text: string; alert?: boolean } | null> = {
+// `what` is what the number MEANS, so a screen reader says "Access & Setup,
+// 2 flagged" rather than running the label into the digit — "Access & Setup2".
+const railBadges: Record<TabKey, { text: string; what: string; alert?: boolean } | null> = {
 	overview: null,
-	access: trueFlags.length > 0 ? { text: String(trueFlags.length), alert: true } : null,
-	inventory: property['Total Window Units'] ? { text: property['Total Window Units'] } : null,
-	photos: propertyPhotoDtos.length > 0 ? { text: String(propertyPhotoDtos.length) } : null,
+	access: trueFlags.length > 0 ? { text: String(trueFlags.length), what: 'flagged', alert: true } : null,
+	inventory: property['Total Window Units'] ? { text: property['Total Window Units'], what: 'window units' } : null,
+	photos: propertyPhotoDtos.length > 0 ? { text: String(propertyPhotoDtos.length), what: 'photos' } : null,
 	notes: null,
-	walkthroughs: propertyWalkthroughs.length > 0 ? { text: String(propertyWalkthroughs.length) } : null,
-	quotes: propertyQuotes.length > 0 ? { text: String(propertyQuotes.length) } : null,
-	jobs: propertyJobs.length > 0 ? { text: String(propertyJobs.length) } : null,
-	history: timeline.length > 0 ? { text: String(timeline.length) } : null,
+	walkthroughs: propertyWalkthroughs.length > 0 ? { text: String(propertyWalkthroughs.length), what: 'walkthroughs' } : null,
+	quotes: propertyQuotes.length > 0 ? { text: String(propertyQuotes.length), what: 'quotes' } : null,
+	jobs: propertyJobs.length > 0 ? { text: String(propertyJobs.length), what: 'jobs' } : null,
+	history: timeline.length > 0 ? { text: String(timeline.length), what: 'entries' } : null,
 };
 
 // One filter, in the URL like the tab — the timeline is long enough on a
@@ -525,6 +527,10 @@ const identityMeta = [property['Property Type'], property.Stories ? `${property.
 					<details class="property-overflow">
 						<summary>⋯</summary>
 						<div>
+							{/* Shown only below 900px, where the identity bar drops
+							    these two to keep itself on one row. */}
+							<a class="overflow-only" href={`/quoter?propertyId=${id}`}>Create quote</a>
+							<a class="overflow-only" href={tabHref('edit')}>Edit property</a>
 							<a href={googleMapsUrl(fullAddress(property))} target="_blank" rel="noopener noreferrer">Open in Maps</a>
 							<a href={`/historical-entry?propertyId=${id}`}>Add historical record</a>
 							{client && <a href={`/clients/${client['Client ID']}?edit=1`}>Edit client</a>}
@@ -553,7 +559,11 @@ const identityMeta = [property['Property Type'], property.Stories ? `${property.
 					{TABS.map((tab, index) => (
 						<>
 							{index === 5 && <div class="property-rail-divider"></div>}
-							<a href={tabHref(tab.key)} aria-current={activeTab === tab.key ? 'page' : undefined}>
+							<a
+								href={tabHref(tab.key)}
+								aria-current={activeTab === tab.key ? 'page' : undefined}
+								aria-label={railBadges[tab.key] ? `${tab.label}, ${railBadges[tab.key]!.text} ${railBadges[tab.key]!.what}` : undefined}
+							>
 								<span>{tab.label}</span>
 								{railBadges[tab.key] && (
 									<span class={railBadges[tab.key]!.alert ? 'property-rail-badge-alert' : 'property-rail-badge'}>

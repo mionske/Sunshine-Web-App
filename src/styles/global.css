@@ -352,6 +352,18 @@ input.field-numeric {
 	margin: -0.5rem 0 0.75rem;
 }
 
+/* The negative top margin above exists to tuck a hint under its own input.
+ * After a list or a table it instead drags the hint up over the last row —
+ * those need the normal gap back. */
+ul + .field-hint,
+ol + .field-hint,
+table + .field-hint,
+input + .field-hint,
+select + .field-hint,
+textarea + .field-hint {
+	margin-top: 0.5rem;
+}
+
 /* Informative but subtle — a small inline line under the field it
  * validates, not a large boxed banner. */
 .field-status {
@@ -996,7 +1008,10 @@ tr:last-child td {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
-	gap: 1rem;
+	gap: 0.5rem 1rem;
+	/* Wraps rather than letting a long heading and a trailing badge or
+	 * button row overlap each other on a narrow screen. */
+	flex-wrap: wrap;
 }
 
 .card-header-row h2 {
@@ -1768,7 +1783,10 @@ details.card[open] > summary {
 
 .pmetrics {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+	/* Always exactly four cells, so the column count is fixed rather than
+	 * auto-fit — auto-fit wraps to 3+1 at intermediate widths and leaves a
+	 * visible empty block where the fourth cell's neighbour should be. */
+	grid-template-columns: repeat(4, 1fr);
 	gap: 1px;
 	background: var(--color-border-soft);
 	border: 1px solid var(--color-border-soft);
@@ -1868,7 +1886,7 @@ details.card[open] > summary {
 
 .pinset-grid {
 	display: grid;
-	grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+	grid-template-columns: repeat(4, 1fr);
 	gap: 1px;
 	background: var(--color-border-soft);
 	border: 1px solid var(--color-border-soft);
@@ -2096,6 +2114,69 @@ details.card[open] > summary {
 	.porder-first {
 		order: -1;
 	}
+
+	.pmetrics,
+	.pinset-grid {
+		grid-template-columns: repeat(2, 1fr);
+	}
+
+	/* Below 900px the identity bar collapses to the one action you actually
+	 * take standing at a property, plus the overflow. Everything else moves
+	 * into that menu rather than wrapping the bar onto a second row and
+	 * pushing the content further down a screen that has none to spare. */
+	.property-identity-actions .btn:not(.btn-primary) {
+		display: none;
+	}
+
+	.property-overflow > summary {
+		display: block;
+	}
+
+	.overflow-only {
+		display: block;
+	}
+}
+
+/* Overflow entries that exist only to hold what the identity bar drops on
+ * a narrow screen — duplicating them at desktop width would be clutter. */
+.overflow-only {
+	display: none;
+}
+
+/* The main nav scrolls sideways on a phone instead of wrapping. Wrapped, it
+ * took three rows and most of the first screen before any content appeared —
+ * on the surface most likely to be used one-handed at a property. */
+@media (max-width: 640px) {
+	.app-nav {
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		gap: 16px;
+		padding: 0 14px;
+	}
+
+	.app-nav strong {
+		font-size: 15px;
+		white-space: nowrap;
+	}
+
+	.app-nav nav ul {
+		flex-wrap: nowrap;
+		gap: 14px;
+	}
+
+	.app-nav nav a,
+	.nav-menu > summary {
+		white-space: nowrap;
+	}
+
+	/* The dropdown panels have to stay positioned here — in-flow inside a
+	 * horizontally scrolling bar would push the whole strip sideways. */
+	.app-nav nav .nav-menu > ul {
+		position: absolute;
+		min-width: 12rem;
+		border: 2px solid var(--color-tan);
+		padding: 0.5rem 0;
+	}
 }
 
 /* Category picker on a photo tile. Sits over the bottom of the image so it
@@ -2113,4 +2194,14 @@ details.card[open] > summary {
 	border-radius: 4px;
 	background-color: rgba(255, 253, 248, 0.92);
 	color: var(--color-navy);
+}
+
+/* Secondary actions attached to a repeated row (a window group's Duplicate /
+ * Remove). The default 8rem min-width is sized for a form's primary action
+ * and turns these into oversized pills on a phone. */
+.button-row-compact button {
+	min-width: 0;
+	min-height: 2.25rem;
+	padding: 0.35rem 0.9rem;
+	font-size: 0.85rem;
 }

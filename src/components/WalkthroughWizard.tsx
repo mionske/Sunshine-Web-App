@@ -654,7 +654,7 @@ export default function WalkthroughWizard({
 						<div key={group.id} className="card">
 							<div className="card-header-row">
 								<h3>Group {index + 1}</h3>
-								<div className="button-row">
+								<div className="button-row button-row-compact">
 									<button type="button" className="btn-secondary" onClick={() => duplicateGroup(group)}>
 										Duplicate
 									</button>
