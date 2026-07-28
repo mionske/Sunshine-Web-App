@@ -423,6 +423,19 @@ Inventory Coverage to "Selected Windows Only" (or Service Scope to
 "Custom Selection") makes the counts directly editable for that one
 quote only — never rewrites the walkthrough or property record.
 
+**Labor-model price band** (added with the labor model): Suggested Low
+Price, Suggested Target Price, Suggested High Price, Owner Selected
+Price, Labor Model Version, Pricing Model Version, Owner Override
+Reason. Written only for quotes built from a grouped-inventory
+walkthrough. The three suggestions are productive hours times the
+low/target/high hourly production targets in PricingConfig.
+
+`Owner Selected Price` is whatever the owner actually decided and is
+never clamped toward the suggestion — a ten-hour job priced at $1,700 is
+a legitimate answer, and the app's job is to record it, not argue with
+it. Both model versions are stored so a past quote stays explainable
+after either model changes.
+
 ## Services (catalog)
 Service Code, Service Name, Service Category, Default Unit,
 Default Labor Minutes, Pricing Method, Publicly Available,
@@ -452,8 +465,25 @@ Sliding Door Unit Price, French Pane Unit Price, Oversized Glass Unit Price,
 Second Story Factor, Third Story Factor, Moderate Condition Factor,
 Heavy Condition Factor, First-Time Cleaning Factor, Hard Water Minimum,
 Construction Debris Minimum, Access Surcharge Minimum,
-Estimate Low Variance, Estimate High Variance, Created At, Updated At,
+Estimate Low Variance, Estimate High Variance,
+Low Hourly Production Target, Target Hourly Production Target,
+High Hourly Production Target, Created At, Updated At,
 Archived At, Notes.
+
+**Hourly production targets** (150 / 175 / 200, seeded 2026-07-28) are
+revenue per *productive* labor hour and belong to the labor model — the
+walkthrough's estimated productive hours times these three produce the
+suggested low/target/high band (see the Labor model section). Target is
+the default recommendation; low and high are guidance either side of it.
+Distinct from `Target Hourly Rate` above, which the older per-service
+engine still uses to price standard-window line items.
+
+Standing instruction from the owner: these three are a stable reference
+point, not a tuning knob. When an estimate comes out wrong the fix
+belongs in the production model — classes, access, condition, screens,
+tracks — never in moving the rate. `Minimum Job Price` was set to 250 at
+the same time; it had been blank, so no job minimum was being enforced
+at all before that.
 
 **Changed rule**: "exactly one Active row" is now scoped per Property
 Type, not global — Residential/Commercial/New Build-Construction are
@@ -785,6 +815,44 @@ Roof Access Required, Estimated On-Site Labor Hours, Suggested Low
 Price, Suggested Target Price, Suggested High Price, Owner Override
 Price, Pricing Config ID, Notes, Created At, Updated At, Archived At.
 
+**Component conditions** (added with the labor model): Interior Glass
+Condition, Track Condition, Exterior Glass Condition, Exterior Frame
+Condition, Screen Condition. One rating per component on the same
+four-level scale, replacing the two broad `Exterior Condition` /
+`Interior Condition` fields — those stay declared and are still read as
+the fallback for walkthroughs recorded before the split.
+
+Each condition only ever inflates its own labor: moderate frames slow
+down frame work, not glass work, and nothing interior ever makes the
+exterior cost more. Blank is meaningful and left blank on purpose —
+track condition isn't asked when tracks are excluded, screen condition
+isn't asked when screens aren't included, and an exterior-only visit
+never rates the interior.
+
+**Scope and overrides**: Screens Included (Y/N), Tracks Included (Y/N),
+Frames Included (Y/N) say which components this visit covers (the
+interior/exterior sides are the existing `Interior Included (Y/N)` /
+`Exterior Included (Y/N)`). Manual Screen Total and Manual Track Total
+override the totals summed from the window groups — blank means use the
+calculated total, and a value here always wins and is labeled as manual
+rather than silently merged.
+
+**Labor results**: Productive Labor Minutes, Scheduled Minutes,
+Scheduled Minutes Override, Schedule Recommendation, Labor Breakdown
+(JSON), Labor Model Version, Labor Config ID, Inventory Model.
+Productive labor is the work; scheduled time is the day it occupies —
+floor changes, hose repositioning, breaks, drying, contingency — and the
+owner can move scheduled time without touching the estimate underneath.
+The breakdown is stored as JSON so the review page can still explain a
+past estimate after the labor configuration moves on.
+
+`Inventory Model` is `legacy-aggregate` or `grouped-v2`; blank reads as
+legacy. A walkthrough recorded before window groups existed keeps its
+stored numbers and its original pricing path, and is labeled **"Legacy
+aggregate estimate"** rather than back-filled with invented classes,
+sizes or component conditions. It can be manually upgraded; nothing
+upgrades automatically.
+
 A walkthrough-only visit is a standalone record — it never creates a Job
 just to have somewhere to live. The Suggested Low/Target/High Price,
 Estimated On-Site Labor Hours, and Pricing Config ID columns are now
@@ -881,13 +949,49 @@ one-time notice knows not to show again for that property.
 
 ## WalkthroughItems
 Walkthrough Item ID, Walkthrough ID, Area (Front/Left/Rear/Right/
-Interior/Garage/Basement/Other), Item Type (Window/Sliding Door/
-Skylight), Quantity, Size Class (Standard/Oversized/French/Divided-Light
-— only meaningful for Window), Interior Included (Y/N), Exterior
-Included (Y/N), Screen Included (Y/N), Track Included (Y/N), Condition,
-Access Difficulty, Hard Water (Y/N), Construction Debris (Y/N),
-Estimated Labor Minutes, Notes, Sort Order, Created At, Updated At,
-Archived At.
+Interior/Garage/Basement/Other), Window Units, Pane Count, Item Type
+(Window/Sliding Door/Skylight), Quantity, Size Class, Production Class,
+Story, Interior Access, Exterior Access, Panes Per Unit, Screens Per
+Unit, Tracks Per Unit, Specialty Description, Interior Included (Y/N),
+Exterior Included (Y/N), Screen Included (Y/N), Track Included (Y/N),
+Condition, Access Difficulty, Hard Water (Y/N), Construction Debris
+(Y/N), Estimated Labor Minutes, Notes, Sort Order, Created At, Updated
+At, Archived At.
+
+**A row here is one of three shapes**, told apart by which columns are
+filled — there is no discriminator column, so rows written before each
+successive change keep working unchanged:
+
+1. **Area row** — `Window Units`/`Pane Count` set, `Item Type` and
+   `Production Class` both blank. The optional per-area breakdown.
+2. **Detailed item row** — `Item Type` set. The legacy item-level path.
+3. **Window group row** — `Production Class` set. The current model: a
+   group of similar windows with a quantity, never one row per physical
+   window.
+
+Shapes 1 and 2 are read-only history. Nothing writes them any more, and
+a walkthrough built from them stays on its original pricing path.
+
+**Window group rows** carry `Production Class` (Standard Window / Large
+Picture Window / Specialty Shape / Sliding Door / French Panes /
+Skylight), an optional `Size Class` (Small/Standard/Large/Oversized —
+set only when a group is meaningfully off-typical), `Story`, and
+independently selected `Interior Access` and `Exterior Access`. Panes,
+screens and tracks per unit are optional; blank means "the typical
+amount for this class", which the production profile supplies rather
+than a fabricated zero. `Specialty Description` is required when the
+class is Specialty Shape.
+
+Production class deliberately is **not** architectural window type. A
+standard casement and a standard double-hung take about the same time,
+so asking which is which would be field busywork that changes no number;
+a large picture window, a sliding door and a wall of french panes
+genuinely differ, so those get their own classes.
+
+`Size Class` is shared between shapes 2 and 3 with different option sets
+(legacy Standard/Oversized/French-Divided-Light vs. the four new sizes).
+Unambiguous in practice because `Production Class` already tells the
+shapes apart.
 
 Item Type + Size Class + Interior/Exterior Included together select a
 Services Service Code exactly the way the in-field quoter's window/door
@@ -903,6 +1007,70 @@ and the PricingConfig actually active at walkthrough time — never
 re-resolved live, even if a newer config has since been activated, so
 the quote stays reproducible. Idempotent: converting the same walkthrough
 twice returns the existing Quote instead of creating a duplicate.
+
+## Labor model — LaborConfig, WindowProductionProfiles, WalkthroughLaborAdjustments
+
+The labor model answers "how many productive hours is this job?" from
+the work actually involved, rather than from a count times a flat
+minutes-per-window. Before it existed, every window contributed the same
+minutes regardless of class, size, story, access or condition, which is
+why detailed properties compressed toward an unrealistically low
+estimate.
+
+### LaborConfig
+Labor Config ID, Config Name, Version Label, Property Type, Status
+(Draft/Active/Superseded/Archived), Effective Date, End Date, six
+`Overhead ... Minutes` columns, four `Size Factor ...` columns, six
+`Interior Access ... Minutes` columns, seven `Exterior Access ...
+Minutes` columns, four `Story Logistics ... Minutes` columns, four
+`Condition Factor ...` columns, Scheduled Time Contingency Percent,
+Two-Day Threshold Hours, Crew Recommendation Threshold Hours, Notes,
+Created At, Updated At, Archived At.
+
+Every labor assumption in the app lives in one versioned row. No
+production constant belongs in a component, a controller, or the engine.
+Minute columns are per window unit unless the name says otherwise;
+factor columns are multipliers where 1 means no change. Rows are
+superseded, never edited in place — a walkthrough stores the
+`Version Label` it was estimated under, so an old estimate stays
+explainable after the numbers move. Seeded row: `Residential v2`.
+
+Access minutes are the mechanism that makes dangerous access cost real
+time. The gap between Extended WFP and Difficult Ladder Positioning is
+deliberately wide, and story logistics are per *group* and small, since
+height is already paid for through access — charging both per unit would
+double-count.
+
+### WindowProductionProfiles
+Profile ID, Labor Config ID, Production Class, Interior Glass Base
+Minutes, Exterior Glass Base Minutes, Screen Handling Base Minutes,
+Screen Cleaning Base Minutes, Track Base Minutes, Frame Base Minutes,
+Default Pane Factor, Sort Order, Notes, Created At, Updated At,
+Archived At.
+
+One row per production class per config version. Base minutes are for a
+single unit at standard size, standard access, Maintenance condition;
+everything else scales them. `Default Pane Factor` is the typical pane
+count for the class — a group that records its own panes-per-unit scales
+its glass minutes by the ratio, so a 12-pane french unit costs twice a
+6-pane one.
+
+### WalkthroughLaborAdjustments
+Adjustment ID, Walkthrough ID, Kind (Restoration/Modifier), Label,
+Affected Units, Affected Panes, Additional Minutes, Notes, Sort Order,
+Created At, Updated At, Archived At.
+
+One row per selected restoration service or property-level labor
+modifier. Rows rather than columns on Walkthrough because restoration
+almost never applies to every window: "razor scraping" as a boolean
+can't say whether it's four panes on the sunroom or the whole south
+elevation, and pricing a checkbox is how a restoration job gets
+underquoted. `Additional Minutes` is always the owner's own estimate —
+no configuration can know how bad the overspray is until someone looks.
+
+Restoration supplements the component condition ratings rather than
+replacing them: a two-year-old house with construction residue is not
+Heavy Buildup, it is a light-dirt job that also needs a razor.
 
 ## ActivityLog
 Activity ID, Entity Type, Entity ID, Action, Previous Value, New Value,

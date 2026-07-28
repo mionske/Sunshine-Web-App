@@ -150,11 +150,73 @@ export const walkthroughSchema = z.object({
 	'Suggested High Price': blank(),
 	'Owner Override Price': blank(),
 	'Pricing Config ID': blank(),
+
+	// --- Component condition model ---
+	// Replaces the two broad 'Exterior Condition'/'Interior Condition' fields
+	// above (kept declared, still read as the fallback for walkthroughs
+	// recorded before this split). One rating per component, because they
+	// move independently and each one should only ever inflate its own labor:
+	// moderate frames slow down frame work, not glass work, and nothing
+	// interior should ever make the exterior cost more.
+	//
+	// Blank is meaningful and left blank on purpose — track condition isn't
+	// asked when tracks are excluded, screen condition isn't asked when
+	// screens aren't included, and an exterior-only visit never rates the
+	// interior. See COMPONENT_CONDITIONS in lib/labor/types.ts.
+	'Interior Glass Condition': blank(),
+	'Track Condition': blank(),
+	'Exterior Glass Condition': blank(),
+	'Exterior Frame Condition': blank(),
+	'Screen Condition': blank(),
+
+	// Which components this visit actually covers. Gates both the questions
+	// asked and the labor charged — the interior/exterior sides are the
+	// existing 'Interior Included (Y/N)'/'Exterior Included (Y/N)' above.
+	'Screens Included (Y/N)': blank(),
+	'Tracks Included (Y/N)': blank(),
+	'Frames Included (Y/N)': blank(),
+
+	// Owner overrides for the totals summed from the window groups. Blank
+	// means "use the calculated total"; a value here always wins and is
+	// labeled as manual in the UI, never silently merged with the
+	// calculation.
+	'Manual Screen Total': blank(),
+	'Manual Track Total': blank(),
+
+	// --- Labor model results ---
+	// Productive labor is the work itself. Scheduled time is the day it
+	// occupies — floor changes, hose repositioning, breaks, drying,
+	// contingency — and the owner can move it without touching the estimate
+	// underneath.
+	'Productive Labor Minutes': blank(),
+	'Scheduled Minutes': blank(),
+	'Scheduled Minutes Override': blank(),
+	'Schedule Recommendation': blank(),
+	// The per-component breakdown as JSON, stored so the review page can
+	// still explain a past estimate after the labor configuration moves on.
+	'Labor Breakdown (JSON)': blank(),
+	// The 'Version Label' of the LaborConfig this was estimated under, e.g.
+	// "Residential v2" — shown to the owner instead of a UUID.
+	'Labor Model Version': blank(),
+	'Labor Config ID': blank(),
+	// 'legacy-aggregate' | 'grouped-v2' (INVENTORY_MODELS in
+	// lib/labor/types.ts). Blank reads as legacy: a walkthrough recorded
+	// before window groups existed keeps its stored numbers and its original
+	// pricing path, and is labeled "Legacy aggregate estimate" rather than
+	// back-filled with invented classes, sizes, or component conditions.
+	'Inventory Model': blank(),
+
 	Notes: blank(),
 	'Created At': blank(),
 	'Updated At': blank(),
 	'Archived At': blank(),
-});
+})
+	// Insurance, not decoration — see the same note on models/property.ts.
+	// updateRow rewrites the entire row and a strict zod object strips keys it
+	// doesn't declare, so the day any column here stops being declared it
+	// would be blanked on the next save of that walkthrough. Added while this
+	// tab is still fully declared, so it's already in place if that day comes.
+	.catchall(z.union([z.string(), z.number(), z.boolean(), z.null()]));
 
 export type Walkthrough = z.infer<typeof walkthroughSchema>;
 

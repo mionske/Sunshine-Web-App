@@ -27,6 +27,18 @@ function toWalkthroughItem(raw: Record<string, unknown>): WalkthroughItem {
 		'Item Type': String(raw.itemType ?? ''),
 		Quantity: String(raw.quantity ?? ''),
 		'Size Class': String(raw.sizeClass ?? ''),
+		// Window group fields (see the row-shape note in
+		// models/walkthroughItem.ts). Blank here, because this function only
+		// ever builds the legacy area-row and detailed-item shapes — grouped
+		// rows have their own path.
+		'Production Class': '',
+		Story: '',
+		'Interior Access': '',
+		'Exterior Access': '',
+		'Panes Per Unit': '',
+		'Screens Per Unit': '',
+		'Tracks Per Unit': '',
+		'Specialty Description': '',
 		'Interior Included': raw.interiorIncluded ? 'Y' : 'N',
 		'Exterior Included': raw.exteriorIncluded ? 'Y' : 'N',
 		// Same dual meaning as the save path: a count on an area row, a Y/N
