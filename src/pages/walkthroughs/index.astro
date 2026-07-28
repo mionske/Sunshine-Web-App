@@ -1,0 +1,141 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import { env } from 'cloudflare:workers';
+import { listActiveRows } from '../../lib/sheets';
+import { walkthroughConfig } from '../../lib/models/walkthrough';
+import { propertyConfig } from '../../lib/models/property';
+import { clientConfig } from '../../lib/models/client';
+import { fullAddress } from '../../lib/mapsLink';
+
+// The field's front door for walkthroughs. Starting one used to require
+// finding the right Property first — the wrong order when you're already
+// standing at the house. That route still works and isn't going anywhere;
+// this is an additional way in, plus a way to resume one you left open.
+const showAll = Astro.url.searchParams.get('all') === '1';
+
+const [walkthroughs, properties, clients] = await Promise.all([
+	listActiveRows(env, walkthroughConfig),
+	listActiveRows(env, propertyConfig),
+	listActiveRows(env, clientConfig),
+]);
+
+const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
+const propertyById = Object.fromEntries(properties.map((p) => [p['Property ID'], p]));
+
+/** Sort key: the visit date when it has one, otherwise when the row was
+ * created — a Draft saved before its date was filled in should still sort
+ * with its peers rather than falling to the bottom. */
+function sortKey(w: (typeof walkthroughs)[number]): string {
+	return w['Walkthrough Date'] || (w['Created At'] ?? '').slice(0, 10);
+}
+
+const sorted = [...walkthroughs].sort((a, b) => sortKey(b).localeCompare(sortKey(a)));
+
+// The default view answers "what still needs me?" — anything unfinished,
+// plus recently finished work for context. Cancelled and older Completed
+// walkthroughs are still real records, just not what you came here for.
+const RECENT_DAYS = 30;
+const recentCutoff = new Date(Date.now() - RECENT_DAYS * 86_400_000).toISOString().slice(0, 10);
+const UNFINISHED = new Set(['Draft', 'In Progress']);
+
+function inDefaultView(w: (typeof walkthroughs)[number]): boolean {
+	if (UNFINISHED.has(w.Status)) return true;
+	if (w.Status === 'Cancelled') return false;
+	return sortKey(w) >= recentCutoff;
+}
+
+const visible = showAll ? sorted : sorted.filter(inDefaultView);
+const hiddenCount = sorted.length - visible.length;
+
+function clientNameFor(w: (typeof walkthroughs)[number]): string {
+	const property = propertyById[w['Property ID']];
+	const clientId = w['Client ID'] || property?.['Client ID'] || '';
+	const client = clientById[clientId];
+	return client ? `${client['First Name']} ${client['Last Name']}`.trim() : '—';
+}
+
+function addressFor(w: (typeof walkthroughs)[number]): string {
+	const property = propertyById[w['Property ID']];
+	return property ? fullAddress(property) : '—';
+}
+
+// Sorted the way you'd scan for one: by address, with the client in
+// parentheses to disambiguate a multi-unit building.
+const propertyOptions = properties
+	.map((p) => ({
+		id: p['Property ID'],
+		label: `${fullAddress(p)}${clientById[p['Client ID']] ? ` — ${clientById[p['Client ID']]['First Name']} ${clientById[p['Client ID']]['Last Name']}`.trimEnd() : ''}`,
+	}))
+	.sort((a, b) => a.label.localeCompare(b.label));
+---
+
+<BaseLayout title="Walkthroughs">
+	<main>
+		<div class="card-header-row">
+			<h1>Walkthroughs</h1>
+		</div>
+
+		<section class="card">
+			<h2>Start a walkthrough</h2>
+			<p class="field-hint">Pick the property you're at. Its permanent details load in as read-only reference so you don't re-enter them.</p>
+			<form method="GET" action="/walkthroughs/new" class="inline-field-form">
+				<label>
+					Property
+					<select name="propertyId" required>
+						<option value="">— select a property —</option>
+						{propertyOptions.map((p) => <option value={p.id}>{p.label}</option>)}
+					</select>
+				</label>
+				<button type="submit">New walkthrough</button>
+			</form>
+			{propertyOptions.length === 0 && (
+				<p class="field-hint">No properties yet — add one from a client's page first.</p>
+			)}
+		</section>
+
+		<section class="card">
+			<div class="card-header-row">
+				<h2>{showAll ? 'All walkthroughs' : 'Open and recent'}</h2>
+				{showAll ? (
+					<a href="/walkthroughs">← Open and recent only</a>
+				) : (
+					hiddenCount > 0 && <a href="/walkthroughs?all=1">Show all ({hiddenCount} more) →</a>
+				)}
+			</div>
+			{!showAll && (
+				<p class="field-hint">
+					Unfinished walkthroughs, plus anything completed in the last {RECENT_DAYS} days.
+				</p>
+			)}
+
+			{visible.length === 0 ? (
+				<p>{showAll ? 'No walkthroughs recorded yet.' : 'Nothing open, and nothing completed recently.'}</p>
+			) : (
+				<table>
+					<thead>
+						<tr>
+							<th>Client</th>
+							<th>Property</th>
+							<th>Date</th>
+							<th>Status</th>
+						</tr>
+					</thead>
+					<tbody>
+						{visible.map((w) => (
+							<tr>
+								<td><a href={`/walkthroughs/${w['Walkthrough ID']}`}>{clientNameFor(w)}</a></td>
+								<td>{addressFor(w)}</td>
+								<td>{w['Walkthrough Date'] || '—'}</td>
+								<td>
+									<span class={`badge${UNFINISHED.has(w.Status) ? '' : ' badge-accent'}${w.Status === 'Cancelled' ? ' badge-lost' : ''}`}>
+										{w.Status}
+									</span>
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
+			)}
+		</section>
+	</main>
+</BaseLayout>

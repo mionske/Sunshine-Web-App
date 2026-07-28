@@ -18,14 +18,22 @@ const NAV_LINKS = [
 	{ href: '/', label: 'Dashboard' },
 	{ href: '/clients', label: 'Clients' },
 	{ href: '/properties', label: 'Properties' },
+	// The field's front door. Starting a walkthrough used to mean finding the
+	// right Property first, which is the wrong order when you're standing at
+	// the house.
+	{ href: '/walkthroughs', label: 'Walkthroughs' },
 	{ href: '/pipeline', label: 'Pipeline' },
 	{ href: '/quotes', label: 'Quotes' },
 	{ href: '/jobs', label: 'Jobs' },
 ];
 
+// Points at the Walkthroughs list rather than /walkthroughs/new, which
+// requires a ?propertyId= and 404s without one — the list page is where the
+// property gets picked.
 const CREATE_LINKS = [
 	{ href: '/leads/new', label: 'New Lead' },
 	{ href: '/clients/new', label: 'New Client' },
+	{ href: '/walkthroughs', label: 'Start Walkthrough' },
 	{ href: '/quoter', label: 'New Quote' },
 	{ href: '/historical-entry', label: 'Historical Job' },
 ];
