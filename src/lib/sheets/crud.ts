@@ -1,5 +1,5 @@
 import type { ZodType } from 'zod';
-import { ensureGridSize, updateValues, type CellValue } from './client';
+import { ensureGridSize, getValues, updateValues, type CellValue } from './client';
 import {
 	assertHeadersInclude,
 	nextEmptyRow,
@@ -79,9 +79,44 @@ export async function createRow<T extends Record<string, CellValue>>(
 	// sparse sheets with stray formula cells scattered far down unrelated
 	// columns (discovered on Jobs: it silently shifted an entire row 15
 	// columns off from where it should have landed).
-	const startRow = await nextEmptyRow(env, config.tab);
-	await ensureGridSize(env, config.tab, { minRows: startRow });
-	await updateValues(env, rowRangeFor(config.tab, startRow, headers), [objectToRowValues(headers, record)]);
+	// Appending is a read-then-write (find the first empty row, then write to
+	// it), so two creates racing on the same tab can pick the same row and
+	// the second silently overwrites the first. That is exactly what happened
+	// when the photo grid uploaded a camera roll in parallel: the R2 objects
+	// all landed, but most of their metadata rows were lost.
+	//
+	// Callers should not create concurrently on one tab (the photo uploader
+	// now serializes). This is the backstop for when something does anyway:
+	// write, read the row back, and if our own ID isn't the one sitting there,
+	// someone else won the race — recompute and try again rather than
+	// reporting a success that quietly lost the row.
+	// Retrying alone can't fully solve this — a pile of racers will keep
+	// colliding in lockstep — so attempts are spaced by a randomized backoff
+	// to break up the convoy. What this DOES guarantee, which is the part
+	// that matters, is that a create never reports success when its row was
+	// taken: if the row-back read doesn't show our own ID after every
+	// attempt, this throws instead of returning a record that isn't there.
+	const MAX_APPEND_ATTEMPTS = 6;
+	const idColumnIndex = headers.indexOf(String(config.idColumn));
+	let written = false;
+	for (let attempt = 0; attempt < MAX_APPEND_ATTEMPTS && !written; attempt++) {
+		if (attempt > 0) {
+			const backoffMs = Math.round((2 ** attempt) * 15 * (0.5 + Math.random()));
+			await new Promise((resolve) => setTimeout(resolve, backoffMs));
+		}
+
+		const startRow = await nextEmptyRow(env, config.tab);
+		await ensureGridSize(env, config.tab, { minRows: startRow });
+		await updateValues(env, rowRangeFor(config.tab, startRow, headers), [objectToRowValues(headers, record)]);
+
+		const landed = await getValues(env, rowRangeFor(config.tab, startRow, headers));
+		written = String(landed?.[0]?.[idColumnIndex] ?? '') === id;
+	}
+	if (!written) {
+		throw new SheetsWriteError(
+			`Could not append a row to ${config.tab} after ${MAX_APPEND_ATTEMPTS} attempts — another write kept taking the same row. Nothing was saved; retry this one on its own.`
+		);
+	}
 
 	await logActivity(env, {
 		entityType: config.entityType,

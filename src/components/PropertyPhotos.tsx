@@ -17,7 +17,9 @@ interface Props {
 interface InFlightUpload {
 	tempId: string;
 	filename: string;
-	status: 'uploading' | 'error';
+	status: 'uploading' | 'queued' | 'error';
+	error?: string;
+	file?: File;
 }
 
 export default function PropertyPhotos({ propertyId, photos: initialPhotos }: Props) {
@@ -25,10 +27,8 @@ export default function PropertyPhotos({ propertyId, photos: initialPhotos }: Pr
 	const [uploading, setUploading] = useState<InFlightUpload[]>([]);
 	const [dragActive, setDragActive] = useState(false);
 
-	async function uploadOne(file: File) {
-		const tempId = crypto.randomUUID();
-		setUploading((prev) => [...prev, { tempId, filename: file.name, status: 'uploading' }]);
-
+	async function sendOne(tempId: string, file: File): Promise<boolean> {
+		setUploading((prev) => prev.map((u) => (u.tempId === tempId ? { ...u, status: 'uploading', error: undefined } : u)));
 		try {
 			const formData = new FormData();
 			formData.append('propertyId', propertyId);
@@ -36,7 +36,7 @@ export default function PropertyPhotos({ propertyId, photos: initialPhotos }: Pr
 			const res = await fetch('/api/property-photos', { method: 'POST', body: formData });
 			if (!res.ok) {
 				const errorBody = (await res.json().catch(() => ({}))) as { error?: string };
-				throw new Error(errorBody.error ?? 'Upload failed');
+				throw new Error(errorBody.error ?? `Upload failed (${res.status})`);
 			}
 			const body = (await res.json()) as { row: Record<string, string> };
 			const row = body.row;
@@ -52,16 +52,41 @@ export default function PropertyPhotos({ propertyId, photos: initialPhotos }: Pr
 				},
 			]);
 			setUploading((prev) => prev.filter((u) => u.tempId !== tempId));
-		} catch {
-			setUploading((prev) => prev.map((u) => (u.tempId === tempId ? { ...u, status: 'error' } : u)));
+			return true;
+		} catch (e) {
+			const message = (e as Error).message || 'Upload failed';
+			setUploading((prev) => prev.map((u) => (u.tempId === tempId ? { ...u, status: 'error', error: message, file } : u)));
+			return false;
 		}
 	}
 
-	function uploadFiles(fileList: FileList | File[]) {
-		for (const file of Array.from(fileList)) {
-			if (!file.type.startsWith('image/')) continue;
-			uploadOne(file);
+	/** Uploads run ONE AT A TIME, deliberately.
+	 *
+	 * Each upload appends a row to a Google Sheet, and appending is a
+	 * read-then-write: the server reads the sheet to find the first empty
+	 * row, then writes there. Firing a whole camera roll off in parallel
+	 * meant every request read the same sheet state, picked the same row,
+	 * and overwrote the one before it — the image bytes all landed in R2 but
+	 * most of their metadata rows were lost, so the photos came back as
+	 * broken thumbnails. Sequential uploads also keep a big batch from
+	 * tripping the Sheets per-minute read quota.
+	 *
+	 * A phone batch is a handful of files, so the wall-clock cost is small
+	 * next to silently losing photos. */
+	async function uploadFiles(fileList: FileList | File[]) {
+		const images = Array.from(fileList).filter((f) => f.type.startsWith('image/'));
+		if (images.length === 0) return;
+
+		const queued = images.map((file) => ({ tempId: crypto.randomUUID(), file }));
+		setUploading((prev) => [...prev, ...queued.map((q) => ({ tempId: q.tempId, filename: q.file.name, status: 'queued' as const }))]);
+
+		for (const { tempId, file } of queued) {
+			await sendOne(tempId, file);
 		}
+	}
+
+	async function retryUpload(tempId: string, file: File) {
+		await sendOne(tempId, file);
 	}
 
 	async function deletePhoto(id: string) {
@@ -113,10 +138,19 @@ export default function PropertyPhotos({ propertyId, photos: initialPhotos }: Pr
 					))}
 					{uploading.map((u) => (
 						<div key={u.tempId} className="photo-tile photo-tile-pending">
-							{u.status === 'uploading' ? (
-								<span className="field-hint">Uploading…</span>
-							) : (
-								<span className="field-hint">{u.filename} — upload failed</span>
+							{u.status === 'uploading' && <span className="field-hint">Uploading {u.filename}…</span>}
+							{u.status === 'queued' && <span className="field-hint">{u.filename} — waiting</span>}
+							{u.status === 'error' && (
+								<>
+									<span className="field-hint">
+										{u.filename} — {u.error ?? 'upload failed'}
+									</span>
+									{u.file && (
+										<button type="button" className="btn-secondary" onClick={() => retryUpload(u.tempId, u.file!)}>
+											Retry
+										</button>
+									)}
+								</>
 							)}
 						</div>
 					))}

@@ -123,3 +123,57 @@ describe('crud', () => {
 		expect(stillThere?.['Archived At']).toBeTruthy();
 	});
 });
+
+// Appending is a read-then-write: find the first empty row, then write to
+// it. Concurrent creates on one tab used to read the same state, choose the
+// same row, and silently overwrite each other — a whole camera roll of photo
+// uploads collapsed into one or two surviving rows, and the rest came back
+// as broken thumbnails. createRow now reads the row back and retries when
+// someone else took it.
+describe('createRow under concurrency', () => {
+	let harness: FakeFetchHandle;
+
+	beforeEach(() => {
+		harness = installFakeFetch();
+		_clearHeaderCacheForTests();
+		harness.spreadsheet.setTab('Clients', [CLIENT_HEADERS]);
+		harness.spreadsheet.setTab('ActivityLog', [
+			['Activity ID', 'Entity Type', 'Entity ID', 'Action', 'Previous Value', 'New Value', 'User', 'Timestamp', 'Request ID', 'Notes'],
+		]);
+	});
+
+	afterEach(() => harness.restore());
+
+	it('never reports success for a row that was overwritten', async () => {
+		const ids = Array.from({ length: 12 }, (_, i) => `concurrent-${i}`);
+
+		const results = await Promise.allSettled(
+			ids.map((id) => createRow(harness.env, clientConfig, { id, 'First Name': id, 'Last Name': 'Race' }))
+		);
+
+		const succeeded = results
+			.map((r, i) => (r.status === 'fulfilled' ? ids[i] : null))
+			.filter((v): v is string => v !== null);
+
+		const storedIds = (await listActiveRows(harness.env, clientConfig)).map((r) => r['Client ID']);
+
+		// The invariant: every create that claimed success actually has a row.
+		// A create may legitimately fail under contention — what it must never
+		// do is return a record that isn't in the sheet.
+		for (const id of succeeded) {
+			expect(storedIds).toContain(id);
+		}
+		// And no row was clobbered by a later writer.
+		expect(new Set(storedIds).size).toBe(storedIds.length);
+		expect(storedIds).toHaveLength(succeeded.length);
+	});
+
+	it('serialized creates — the path the photo uploader now uses — all land', async () => {
+		const ids = Array.from({ length: 12 }, (_, i) => `sequential-${i}`);
+		for (const id of ids) {
+			await createRow(harness.env, clientConfig, { id, 'First Name': id, 'Last Name': 'Ordered' });
+		}
+		const storedIds = (await listActiveRows(harness.env, clientConfig)).map((r) => r['Client ID']).sort();
+		expect(storedIds).toEqual([...ids].sort());
+	});
+});
