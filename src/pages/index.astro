@@ -2,6 +2,7 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import { env } from 'cloudflare:workers';
 import { listActiveRows, updateRow } from '../lib/sheets';
+import { readRows } from '../lib/sheets/rows';
 import { pipelineConfig, OPEN_PIPELINE_STAGES, WON_PIPELINE_STAGES } from '../lib/models/pipeline';
 import { leadConfig } from '../lib/models/lead';
 import { clientConfig } from '../lib/models/client';
@@ -10,18 +11,23 @@ import { jobConfig } from '../lib/models/job';
 import { walkthroughConfig } from '../lib/models/walkthrough';
 import { quoteConfig } from '../lib/models/quote';
 import { qbInvoiceConfig } from '../lib/models/qbInvoice';
-import { calibrationExclusionReasons, getLatestCalibrationSnapshot, isCalibrationEligible, mean, median } from '../lib/pricing/calibration';
-import { getActivePricingConfig } from '../lib/pricing/config';
+import { qbPaymentConfig } from '../lib/models/qbPayment';
+import { getLastSyncAt } from '../lib/qb/sync';
+import { formatTimestamp } from '../lib/format';
 import { googleMapsUrl, fullAddress } from '../lib/mapsLink';
 import { listEventsInRange, type CalendarEvent } from '../lib/calendar/client';
 
-// Phase 8 (follow-up reminders) and the dashboard redesign are the same
-// page: every reminder type the spec asks for (Quote follow-up,
-// Walkthrough follow-up, Schedule accepted job, Collect payment, Request
-// review, Seasonal service reminder) is fully derivable from fields
-// that already exist on Pipeline/Walkthroughs/Jobs/Properties, so no
-// separate Tasks tab was needed — this only ever surfaces reminders in
-// the app, never sends anything automatically.
+// Four sections, in the order the day actually runs: what's happening
+// today, what's stuck, where the sales work stands, and how the month is
+// going. Anything that isn't one of those four is gone from here:
+// Calibration is its own Admin page (/calibration, already in the Admin
+// nav menu, so this page doesn't repeat the link), and the Data Quality
+// checklist was dropped outright rather than kept as a sixth thing to
+// scroll past every morning.
+//
+// Empty means absent: every block below is rendered only when it has rows.
+// There are no "Nothing due." placeholders — a quiet day should look
+// quiet, not like a wall of negations.
 
 if (Astro.request.method === 'POST') {
 	const form = await Astro.request.formData();
@@ -35,7 +41,7 @@ if (Astro.request.method === 'POST') {
 
 const today = new Date().toISOString().slice(0, 10);
 
-const [opportunities, leads, clients, properties, jobs, walkthroughs, quotes, qbInvoices, snapshot, pricingConfig] = await Promise.all([
+const [opportunities, leads, clients, properties, jobs, walkthroughs, quotes, qbInvoices, qbPayments] = await Promise.all([
 	listActiveRows(env, pipelineConfig),
 	listActiveRows(env, leadConfig),
 	listActiveRows(env, clientConfig),
@@ -44,22 +50,31 @@ const [opportunities, leads, clients, properties, jobs, walkthroughs, quotes, qb
 	listActiveRows(env, walkthroughConfig),
 	listActiveRows(env, quoteConfig),
 	listActiveRows(env, qbInvoiceConfig),
-	getLatestCalibrationSnapshot(env),
-	// Residential explicitly, as the primary segment — a single dashboard
-	// stat can't represent every Property Type's target rate at once; full
-	// per-segment reporting is later phase scope.
-	getActivePricingConfig(env, 'Residential'),
+	listActiveRows(env, qbPaymentConfig),
 ]);
 
-// --- Calendar (Today / This Week) -------------------------------------------
+// --- QuickBooks freshness ----------------------------------------------------
+// Every QuickBooks-derived figure on this page comes from the local mirror
+// tabs, which only change when the owner presses "Sync now" on QB Settings.
+// This reads the KV value that sync writes — never QuickBooks itself; no
+// page render in this app is allowed to produce API traffic.
+let lastSyncAt: string | null = null;
+try {
+	lastSyncAt = await getLastSyncAt(env.QB_TOKENS);
+} catch {
+	lastSyncAt = null;
+}
+const qbAsOf = lastSyncAt ? `last manual sync (${formatTimestamp(lastSyncAt)})` : 'no manual sync yet';
+
+// --- Calendar ----------------------------------------------------------------
 // Google Calendar is the actual source of truth for scheduled walkthroughs/
-// appointments today — this app has no in-app walkthrough-scheduling concept
-// of its own (Walkthroughs only ever get created the moment the field visit
-// starts). Reads via the same service account already used for Sheets (see
-// lib/calendar/client.ts) — the business shares its calendar with that
-// account, view-only, no separate OAuth login. A failure here (API not
-// enabled, calendar unshared, transient error) never breaks the Dashboard —
-// it just quietly omits the calendar sections with a one-line note.
+// appointments — this app has no in-app appointment-time concept of its own
+// (Jobs carry a Scheduled Date but no time or arrival window, and
+// Walkthroughs only ever get created the moment the field visit starts), so
+// the event times below are the only "arrival window" that exists. Reads via
+// the same service account already used for Sheets (see
+// lib/calendar/client.ts). A failure here never breaks the Dashboard — it
+// just leaves a one-line note in place of the calendar rows.
 const CALENDAR_TZ = 'America/Denver';
 function denverDateStr(date: Date): string {
 	return new Intl.DateTimeFormat('en-CA', { timeZone: CALENDAR_TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
@@ -94,557 +109,492 @@ try {
 	calendarError = (error as Error).message;
 }
 const todayCalendarEvents = calendarEventsByDate.get(todayInCalendarTz) ?? [];
+const weekEventCount = weekDates.reduce((n, d) => n + (calendarEventsByDate.get(d)?.length ?? 0), 0);
 function eventTimeLabel(e: CalendarEvent): string {
 	if (e.allDay) return 'All day';
 	return new Date(e.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: CALENDAR_TZ });
 }
 
-// Once a Job is linked to a real synced QBInvoice, QuickBooks' own Balance
-// is authoritative for "is this actually paid" — the app's own manually-set
-// 'Payment Status' (Job Day mode's own field, set at completion time,
-// often before any invoice exists yet) is only a fallback for jobs that
-// have no QuickBooks link at all.
-const qbInvoiceById = new Map(qbInvoices.map((i) => [i['QB Invoice ID'], i]));
-function isJobPaid(j: (typeof jobs)[number]): boolean {
-	const linkedInvoice = j['QB Invoice ID'] ? qbInvoiceById.get(j['QB Invoice ID']) : undefined;
-	if (linkedInvoice) return Number(linkedInvoice.Balance) <= 0;
-	return j['Payment Status'] === 'Paid in Full';
-}
+// --- Lookups -----------------------------------------------------------------
 
 const clientById = Object.fromEntries(clients.map((c) => [c['Client ID'], c]));
 const propertyById = Object.fromEntries(properties.map((p) => [p['Property ID'], p]));
+const jobByQBInvoiceId = new Map(jobs.filter((j) => j['QB Invoice ID']).map((j) => [j['QB Invoice ID'], j]));
 
 function clientNameFor(clientId: string): string {
 	const c = clientById[clientId];
-	return c ? `${c['First Name']} ${c['Last Name']}` : clientId;
+	return c ? `${c['First Name']} ${c['Last Name']}`.trim() : clientId;
 }
 function addressFor(propertyId: string): string {
 	const p = propertyById[propertyId];
 	return p ? fullAddress(p) : '';
 }
+/** Where to go to *manage* a job — scheduling, invoicing and the
+ * QuickBooks link all live on the quote's own detail page. /jobs/:id is
+ * Job Day mode (the in-the-field timer), so it's only linked from Today,
+ * and it's the fallback for legacy rows that have no quote. */
+function jobHref(j: (typeof jobs)[number]): string {
+	return j['Quote ID'] ? `/quotes/${j['Quote ID']}` : `/jobs/${j['Job ID']}`;
+}
 
-const COMPLETED_JOB_STATUSES = new Set(['Completed', 'Invoiced', 'Paid']);
-const completedJobs = jobs.filter((j) => COMPLETED_JOB_STATUSES.has(j['Job Status']));
+/** The one-tap contact shortcut used throughout Today: the client's own
+ * record plus a `tel:` link when a number is on file. Null when the row
+ * isn't linked to a client at all, rather than a half-filled placeholder. */
+interface Contact {
+	clientId: string;
+	name: string;
+	phone: string;
+}
+function contactFor(clientId: string): Contact | null {
+	const c = clientById[clientId];
+	if (!c) return null;
+	return { clientId, name: `${c['First Name']} ${c['Last Name']}`.trim(), phone: c.Phone };
+}
+function contactForProperty(propertyId: string): Contact | null {
+	const p = propertyById[propertyId];
+	return p ? contactFor(p['Client ID']) : null;
+}
 
-// --- Today -----------------------------------------------------------------
+// --- 1. Today ----------------------------------------------------------------
+
+// Anything still flagged Scheduled on or before today — a job that slipped a
+// day is exactly what needs to be on today's list, not silently dropped.
+const todayJobs = jobs
+	.filter((j) => j['Job Status'] === 'Scheduled' && j['Scheduled Date'] && j['Scheduled Date'] <= today)
+	.map((j) => ({
+		jobId: j['Job ID'],
+		address: j['Property Address'] || addressFor(j['Property ID']),
+		scheduledDate: j['Scheduled Date'],
+		contact: contactForProperty(j['Property ID']),
+	}));
+
+const todayWalkthroughs = walkthroughs
+	.filter((w) => w['Walkthrough Date'] === today && w.Status !== 'Cancelled')
+	.map((w) => ({
+		walkthroughId: w['Walkthrough ID'],
+		status: w.Status,
+		address: addressFor(w['Property ID']),
+		contact: contactFor(w['Client ID']),
+	}));
+
+const hasToday = todayCalendarEvents.length > 0 || todayJobs.length > 0 || todayWalkthroughs.length > 0;
+const showTodaySection = hasToday || weekEventCount > 0 || Boolean(calendarError);
+
+// --- 2. Needs Attention ------------------------------------------------------
 
 // Imported, not re-declared — this list drifted out of step with the model
 // the last time the stage set changed.
 const OPEN_STAGES = new Set<string>(OPEN_PIPELINE_STAGES);
-const quoteFollowUps = opportunities
+const opportunityFollowUps = opportunities
 	.filter((o) => OPEN_STAGES.has(o.Stage) && o['Next Follow-up Date'] && o['Next Follow-up Date'] <= today)
 	.sort((a, b) => a['Next Follow-up Date'].localeCompare(b['Next Follow-up Date']));
 
-// Lead follow-up: same pattern as Pipeline's own quote follow-ups above,
-// against the new Leads tab (see lib/models/lead.ts) — open stages only,
-// Won/Lost leads are already archived out of listActiveRows.
+// Same pattern against the Leads tab (see lib/models/lead.ts) — Won/Lost
+// leads are already archived out of listActiveRows.
 const leadFollowUps = leads
 	.filter((l) => l['Next Follow-up Date'] && l['Next Follow-up Date'] <= today)
 	.sort((a, b) => a['Next Follow-up Date'].localeCompare(b['Next Follow-up Date']));
 
-const scheduledJobsToday = jobs.filter((j) => j['Job Status'] === 'Scheduled' && j['Scheduled Date'] && j['Scheduled Date'] <= today);
-
-// Walkthrough follow-up: a walkthrough that happened but never became a
-// quote — no arbitrary "days since" threshold, purely status-derived.
+// A walkthrough that happened but never became a quote — no arbitrary "days
+// since" threshold, purely status-derived. Dismissed by the POST handler above.
 const walkthroughFollowUps = walkthroughs.filter(
 	(w) => w.Status === 'Completed' && !w['Quote ID'] && w['Follow-up Dismissed (Y/N)'] !== 'Y'
 );
 
-// Collect payment: work is done but payment isn't confirmed in full yet.
-const unpaidJobs = jobs.filter(
-	(j) => (j['Job Status'] === 'Completed' || j['Job Status'] === 'Invoiced') && !isJobPaid(j)
-);
+// Accepted quotes not yet scheduled: quote acceptance is what creates the
+// Job row, so an Unscheduled job *is* an accepted quote with no date on it.
+const unscheduledJobs = jobs.filter((j) => j['Job Status'] === 'Unscheduled');
 
-// Request review: completed work with no review requested yet, or
-// requested but no answer recorded.
-const reviewReminders = jobs.filter(
-	(j) => COMPLETED_JOB_STATUSES.has(j['Job Status']) && (!j['Review Requested At'] || (!j['Review Left'] || j['Review Left'] === 'Unknown'))
-);
+// QuickBooks is the source of truth for invoices, so "not invoiced" means
+// "no QuickBooks invoice linked to this job" (see lib/qb/recordLinking.ts).
+const uninvoicedJobs = jobs.filter((j) => j['Job Status'] === 'Completed' && !j['QB Invoice ID']);
+
+const unpaidInvoices = qbInvoices
+	.filter((i) => Number(i.Balance) > 0)
+	.sort((a, b) => (a['Due Date'] || '').localeCompare(b['Due Date'] || ''));
+
+// Sync failures newer than the last success. logActivity writes both
+// outcomes to ActivityLog under Entity Type "QBSync" (see lib/qb/sync.ts);
+// once a later sync succeeds, the earlier failure is resolved and drops off.
+let qbSyncErrors: Array<{ timestamp: string; notes: string }> = [];
+try {
+	const qbSyncLog = (await readRows(env, 'ActivityLog', { idColumn: 'Activity ID' }))
+		.map((r) => r.data)
+		.filter((r) => r['Entity Type'] === 'QBSync')
+		.sort((a, b) => String(b.Timestamp ?? '').localeCompare(String(a.Timestamp ?? '')));
+	const lastSuccessAt = String(qbSyncLog.find((r) => String(r.Action ?? '').includes('succeeded'))?.Timestamp ?? '');
+	qbSyncErrors = qbSyncLog
+		.filter((r) => String(r.Action ?? '').includes('failed') && String(r.Timestamp ?? '') > lastSuccessAt)
+		.map((r) => ({ timestamp: String(r.Timestamp ?? ''), notes: String(r.Notes ?? '') }));
+} catch {
+	// ActivityLog is a plain read — a transient Sheets blip here shouldn't
+	// take the whole Dashboard down, it just means no error rows this load.
+	qbSyncErrors = [];
+}
 
 // Seasonal service reminder: Jobs' own maintenance follow-up date/status,
 // set at job completion from the linked Client's Desired Maintenance
 // Frequency (see jobLifecycle.ts's computeNextMaintenanceFollowUpDate).
-// Data-ownership separation: this used to also fall back to Properties'
-// manually-typed 'Next Recommended Service Date' for properties with no
-// completed-job history yet — that field is deprecated (see property.ts),
-// and there's no other data to derive a reminder from for a property with
-// zero completed jobs, so that fallback is simply gone rather than faked.
+// Kept here rather than dropped because it's genuinely date-gated — it only
+// ever lists work that is due now, the same shape as the follow-ups above.
 const CLOSED_MAINTENANCE_STATUSES = new Set(['Scheduled', 'Declined']);
 const maintenanceFollowUps = jobs
 	.filter((j) => j['Next Maintenance Follow-up Date'] && j['Next Maintenance Follow-up Date'] <= today && !CLOSED_MAINTENANCE_STATUSES.has(j['Maintenance Follow-up Status']))
 	.sort((a, b) => a['Next Maintenance Follow-up Date'].localeCompare(b['Next Maintenance Follow-up Date']));
 
-// --- Pipeline ----------------------------------------------------------------
+const needsAttentionCount =
+	opportunityFollowUps.length +
+	leadFollowUps.length +
+	walkthroughFollowUps.length +
+	unscheduledJobs.length +
+	uninvoicedJobs.length +
+	unpaidInvoices.length +
+	qbSyncErrors.length +
+	maintenanceFollowUps.length;
 
-const newLeadCount = opportunities.filter((o) => o.Stage === 'New Lead').length;
-const walkthroughScheduledCount = opportunities.filter((o) => o.Stage === 'Walkthrough or Quote Needed').length;
-const quotesAwaitingResponse = quotes.filter((q) => q['Quote Status'] === 'Sent').length;
-const acceptedJobsAwaitingScheduling = jobs.filter((j) => j['Job Status'] === 'Unscheduled');
+// --- 3. Pipeline Snapshot ----------------------------------------------------
 
-// --- Recent performance (revenue line chart, toggleable time frame) --------
-
-const RANGE_OPTIONS = ['week', 'month', 'quarter', 'ytd'] as const;
-type RangeOption = (typeof RANGE_OPTIONS)[number];
-const RANGE_LABELS: Record<RangeOption, string> = { week: 'Last Week', month: 'Last Month', quarter: 'Last Quarter', ytd: 'YTD' };
-const requestedRange = Astro.url.searchParams.get('range');
-const selectedRange: RangeOption = (RANGE_OPTIONS as readonly string[]).includes(requestedRange ?? '')
-	? (requestedRange as RangeOption)
-	: 'month';
-
-const todayDate = new Date(`${today}T00:00:00.000Z`);
-function daysAgo(n: number): Date {
-	const d = new Date(todayDate);
-	d.setUTCDate(d.getUTCDate() - n);
-	return d;
-}
-// Rolling windows for week/month/quarter (matches how most small-business
-// dashboards frame "recent" — not calendar-aligned); YTD is the one
-// unambiguous calendar-aligned option.
-const RANGE_START: Record<RangeOption, Date> = {
-	week: daysAgo(6),
-	month: daysAgo(29),
-	quarter: daysAgo(89),
-	ytd: new Date(`${today.slice(0, 4)}-01-01T00:00:00.000Z`),
-};
-const rangeStart = RANGE_START[selectedRange];
-const rangeStartStr = rangeStart.toISOString().slice(0, 10);
-
-const rangeJobs = completedJobs.filter((j) => (j['Date Completed'] || '') >= rangeStartStr && (j['Date Completed'] || '') <= today);
-const rangeRevenue = rangeJobs.reduce((sum, j) => sum + (Number(j['Final Price ($)']) || Number((j as Record<string, string>)['Total Revenue ($)']) || 0), 0);
-const rangeOnSiteHours = rangeJobs.reduce((sum, j) => sum + (Number(j['Actual Time (hrs)']) || 0), 0);
-const rangeRevenuePerHour = rangeOnSiteHours > 0 ? rangeRevenue / rangeOnSiteHours : 0;
-const rangeCallbacks = rangeJobs.filter((j) => j['Callback Required (Y/N)']?.toUpperCase() === 'Y').length;
-
-// Bucketing for the chart: daily for week/month (few enough points to read),
-// weekly for quarter (~13 points instead of ~90 daily ones), monthly for YTD
-// (up to 12). Buckets are built across the whole range up front — including
-// zero-revenue days — so the line reflects real gaps instead of skipping them.
-const BUCKET_UNIT: Record<RangeOption, 'day' | 'week' | 'month'> = { week: 'day', month: 'day', quarter: 'week', ytd: 'month' };
-const bucketUnit = BUCKET_UNIT[selectedRange];
-
-interface RevenueBucket {
-	key: string;
-	label: string;
-	revenue: number;
-}
-const buckets: RevenueBucket[] = [];
-if (bucketUnit === 'day') {
-	const numDays = Math.round((todayDate.getTime() - rangeStart.getTime()) / 86400000) + 1;
-	for (let i = 0; i < numDays; i++) {
-		const d = daysAgo(numDays - 1 - i);
-		buckets.push({ key: d.toISOString().slice(0, 10), label: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), revenue: 0 });
-	}
-} else if (bucketUnit === 'week') {
-	const numDays = Math.round((todayDate.getTime() - rangeStart.getTime()) / 86400000) + 1;
-	const numWeeks = Math.ceil(numDays / 7);
-	for (let i = 0; i < numWeeks; i++) {
-		const weekStart = new Date(rangeStart);
-		weekStart.setUTCDate(weekStart.getUTCDate() + i * 7);
-		buckets.push({ key: `w${i}`, label: weekStart.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), revenue: 0 });
-	}
-} else {
-	const startYear = rangeStart.getUTCFullYear();
-	const startMonth = rangeStart.getUTCMonth();
-	const numMonths = (todayDate.getUTCFullYear() - startYear) * 12 + (todayDate.getUTCMonth() - startMonth) + 1;
-	for (let i = 0; i < numMonths; i++) {
-		const d = new Date(Date.UTC(startYear, startMonth + i, 1));
-		buckets.push({ key: `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`, label: d.toLocaleDateString('en-US', { month: 'short' }), revenue: 0 });
-	}
-}
-const bucketByKey = new Map(buckets.map((b) => [b.key, b]));
-function bucketKeyFor(dateStr: string): string {
-	if (bucketUnit === 'month') return dateStr.slice(0, 7);
-	if (bucketUnit === 'day') return dateStr;
-	const d = new Date(`${dateStr}T00:00:00.000Z`);
-	const daysSinceStart = Math.floor((d.getTime() - rangeStart.getTime()) / 86400000);
-	return `w${Math.floor(daysSinceStart / 7)}`;
-}
-for (const j of rangeJobs) {
-	const dateStr = j['Date Completed'] || '';
-	if (!dateStr) continue;
-	const bucket = bucketByKey.get(bucketKeyFor(dateStr));
-	if (bucket) bucket.revenue += Number(j['Final Price ($)']) || Number((j as Record<string, string>)['Total Revenue ($)']) || 0;
-}
-
-// Plain inline SVG (no charting library, matching this app's zero-JS
-// convention) — a single-series line needs no legend per the dataviz
-// house style, just a title naming what's plotted.
-const chartWidth = 640;
-const chartHeight = 200;
-const chartPad = { top: 16, right: 16, bottom: 8, left: 52 };
-const plotWidth = chartWidth - chartPad.left - chartPad.right;
-const plotHeight = chartHeight - chartPad.top - chartPad.bottom;
-function niceMax(value: number): number {
-	if (value <= 0) return 100;
-	const magnitude = 10 ** Math.floor(Math.log10(value));
-	const normalized = value / magnitude;
-	const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
-	return step * magnitude;
-}
-const chartAxisMax = niceMax(Math.max(...buckets.map((b) => b.revenue), 0));
-const chartPoints = buckets.map((b, i) => ({
-	...b,
-	x: chartPad.left + (buckets.length > 1 ? (i / (buckets.length - 1)) * plotWidth : plotWidth / 2),
-	y: chartPad.top + plotHeight - (b.revenue / chartAxisMax) * plotHeight,
-}));
-const chartPolyline = chartPoints.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
-const chartYTicks = [0, 0.5, 1].map((f) => ({ value: chartAxisMax * f, y: chartPad.top + plotHeight - f * plotHeight }));
-
-const targetHourlyRate = Number(pricingConfig?.['Target Hourly Rate'] ?? 0);
-
-// --- Calibration summary -----------------------------------------------------
-
-const eligibleJobs = completedJobs.filter(isCalibrationEligible);
-const excludedCount = completedJobs.length - eligibleJobs.length;
-const perHourRates = eligibleJobs.map((j) => Number(j['Final Price ($)']) || 0).map((revenue, i) => {
-	const hours = Number(eligibleJobs[i]['Actual Time (hrs)']) || 0;
-	return hours > 0 ? revenue / hours : 0;
+// Built from the model's own stage constants rather than a hand-written list
+// of six labels — the last time the stage set changed, every hardcoded copy
+// of it on this page silently stopped matching.
+const SNAPSHOT_STAGES = [...OPEN_PIPELINE_STAGES, ...WON_PIPELINE_STAGES];
+const pipelineSnapshot = SNAPSHOT_STAGES.map((stage) => {
+	const rows = opportunities.filter((o) => o.Stage === stage);
+	return {
+		stage,
+		count: rows.length,
+		value: rows.reduce((sum, o) => sum + (Number(o['Estimated Value']) || 0), 0),
+	};
 });
+const pipelineTotalCount = pipelineSnapshot.reduce((n, s) => n + s.count, 0);
 
-// --- Data quality ------------------------------------------------------------
+// --- 4. This Month -----------------------------------------------------------
 
-const jobsMissingLaborTime = completedJobs.filter((j) => !(Number(j['Actual Time (hrs)']) > 0));
-const jobsMissingDirectCosts = completedJobs.filter((j) => !(Number(j['Total Job Cost']) > 0) && !(Number(j['Supplies Cost']) || Number(j.Gas) || Number(j['Other Expenses'])));
-const jobsMissingCallbackInfo = completedJobs.filter((j) => !j['Callback Required (Y/N)']);
-const jobsMissingFinalRevenue = completedJobs.filter((j) => !(Number(j['Final Price ($)']) > 0) && !(Number((j as Record<string, string>)['Total Revenue ($)']) > 0));
-const propertiesMissingCounts = properties.filter((p) => !(Number(p['Total Window Units']) > 0));
-const walkthroughsNotClosed = walkthroughs.filter((w) => w.Status !== 'Converted to Quote' && w.Status !== 'Cancelled');
+// Pinned to the calendar month — the Dashboard no longer offers a range
+// selector, so there is exactly one "recent" window and it's the one the
+// section is named after.
+const monthPrefix = today.slice(0, 7);
+const monthLabel = new Date(`${today}T00:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+function inThisMonth(dateStr: string): boolean {
+	return Boolean(dateStr) && dateStr.slice(0, 7) === monthPrefix;
+}
+function sumOf<T>(rows: T[], amount: (row: T) => number): number {
+	return rows.reduce((sum, row) => sum + (amount(row) || 0), 0);
+}
+
+const quotedThisMonth = quotes.filter((q) => inThisMonth(q['Sent At']));
+const approvedThisMonth = quotes.filter((q) => inThisMonth(q['Accepted At']));
+const completedThisMonth = jobs.filter((j) => inThisMonth(j['Date Completed']));
+const invoicedThisMonth = qbInvoices.filter((i) => inThisMonth(i['Txn Date']));
+const collectedThisMonth = qbPayments.filter((p) => inThisMonth(p['Payment Date']));
+
+const totalQuoted = sumOf(quotedThisMonth, (q) => Number(q['Final Quoted Price']));
+const totalApproved = sumOf(approvedThisMonth, (q) => Number(q['Final Quoted Price']));
+// 'Total Revenue ($)' is the legacy Jobs column that predates 'Final Price ($)'
+// — read through the passthrough schema so historical rows still count.
+const totalCompleted = sumOf(completedThisMonth, (j) => Number(j['Final Price ($)']) || Number((j as Record<string, string>)['Total Revenue ($)']));
+const totalInvoiced = sumOf(invoicedThisMonth, (i) => Number(i.Total));
+const totalCollected = sumOf(collectedThisMonth, (p) => Number(p.Total));
+const monthLaborHours = sumOf(completedThisMonth, (j) => Number(j['Actual Time (hrs)']));
+const monthRevenuePerHour = monthLaborHours > 0 ? totalCompleted / monthLaborHours : 0;
+
+const monthRowCount = quotedThisMonth.length + approvedThisMonth.length + completedThisMonth.length + invoicedThisMonth.length + collectedThisMonth.length;
+
+const nothingToShow = !showTodaySection && needsAttentionCount === 0 && pipelineTotalCount === 0 && monthRowCount === 0;
+
+function money(amount: number): string {
+	return `$${Math.round(amount).toLocaleString()}`;
+}
 ---
 
 <BaseLayout title="Dashboard">
 	<main>
 		<h1>Dashboard</h1>
-		<p><a href="/historical-entry">+ Add historical record</a> · <a href="/historical-records">View historical records</a></p>
 
-		<section class="card">
-			<h2>Today</h2>
+		{nothingToShow && (
+			<p class="field-hint">Nothing scheduled, nothing waiting, and no activity yet this month.</p>
+		)}
 
-			{calendarError ? (
-				<p class="field-hint">Calendar unavailable — check today's appointments directly in Google Calendar.</p>
-			) : todayCalendarEvents.length > 0 ? (
-				<>
-					<h3>Appointments today ({todayCalendarEvents.length})</h3>
-					<ul>
-						{todayCalendarEvents.map((e) => (
-							<li>
-								<strong>{eventTimeLabel(e)}</strong> —{' '}
-								{e.htmlLink ? (
-									<a href={e.htmlLink} target="_blank" rel="noopener noreferrer">{e.summary}</a>
-								) : (
-									e.summary
-								)}
-								{e.location && <> · {e.location}</>}
-							</li>
-						))}
-					</ul>
-				</>
-			) : (
-				<p class="field-hint">Appointments today: nothing on the calendar.</p>
-			)}
-
-			{scheduledJobsToday.length > 0 ? (
-				<>
-					<h3>Scheduled jobs ({scheduledJobsToday.length})</h3>
-					<ul>
-						{scheduledJobsToday.map((j) => (
-							<li>
-								{j['Property Address'] && <a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>}
-								{' · '}<a href={`/jobs/${j['Job ID']}`}>Job Day</a>
-							</li>
-						))}
-					</ul>
-				</>
-			) : (
-				<p class="field-hint">Scheduled jobs: none due today.</p>
-			)}
-
-			{walkthroughFollowUps.length > 0 ? (
-				<>
-					<h3>Walkthroughs needing follow-up ({walkthroughFollowUps.length})</h3>
-					<ul>
-						{walkthroughFollowUps.map((w) => (
-							<li>
-								{clientNameFor(w['Client ID'])} — {addressFor(w['Property ID'])} · <a href={`/walkthroughs/${w['Walkthrough ID']}`}>view</a>
-								{' · '}
-								<form method="POST" class="inline-field-form" style="display: inline">
-									<input type="hidden" name="_action" value="dismiss-walkthrough-followup" />
-									<input type="hidden" name="walkthroughId" value={w['Walkthrough ID']} />
-									<button type="submit" class="btn-secondary">Mark quote sent</button>
-								</form>
-							</li>
-						))}
-					</ul>
-				</>
-			) : (
-				<p class="field-hint">Walkthroughs needing follow-up: none waiting.</p>
-			)}
-
-			{quoteFollowUps.length > 0 ? (
-				<>
-					<h3>Open follow-ups ({quoteFollowUps.length})</h3>
-					<ul>
-						{quoteFollowUps.map((o) => (
-							<li>
-								<strong>{o['Next Follow-up Date']}</strong> —{' '}
-								{addressFor(o['Property ID']) ? (
-									<a href={googleMapsUrl(addressFor(o['Property ID']))} target="_blank" rel="noopener noreferrer">{addressFor(o['Property ID'])}</a>
-								) : (
-									o['Property ID']
-								)}
-								{' '}({clientNameFor(o['Client ID'])}) — <span class="badge">{o.Stage}</span>
-							</li>
-						))}
-					</ul>
-				</>
-			) : (
-				<p class="field-hint">Open follow-ups: nothing overdue.</p>
-			)}
-
-			{leadFollowUps.length > 0 ? (
-				<>
-					<h3>Leads needing follow-up ({leadFollowUps.length})</h3>
-					<ul>
-						{leadFollowUps.map((l) => (
-							<li>
-								<strong>{l['Next Follow-up Date']}</strong> —{' '}
-								<a href={`/leads/${l['Lead ID']}`}>{l['First Name']} {l['Last Name']}</a>
-								{' '}— <span class="badge">{l.Stage}</span>
-							</li>
-						))}
-					</ul>
-				</>
-			) : (
-				<p class="field-hint">Leads needing follow-up: nothing overdue.</p>
-			)}
-
-			{unpaidJobs.length > 0 ? (
-				<>
-					<h3>Unpaid jobs ({unpaidJobs.length})</h3>
-					<ul>
-						{unpaidJobs.map((j) => {
-							const linkedInvoice = j['QB Invoice ID'] ? qbInvoiceById.get(j['QB Invoice ID']) : undefined;
-							const label = linkedInvoice
-								? `QuickBooks: ${linkedInvoice.Status || 'Open'} · balance $${Number(linkedInvoice.Balance).toFixed(2)}`
-								: j['Payment Status'] || 'unknown';
-							return (
-								<li>
-									{j['Property Address']} — <span class="badge">{label}</span> · <a href={`/quotes/${j['Quote ID']}`}>view</a>
-								</li>
-							);
-						})}
-					</ul>
-				</>
-			) : (
-				<p class="field-hint">Unpaid jobs: nothing outstanding.</p>
-			)}
-		</section>
-
-		<section class="card">
-			<h2>This week</h2>
-			{calendarError ? (
-				<p class="field-hint">Calendar unavailable: could not load this week's appointments.</p>
-			) : (
-				<div class="week-glance">
-					{weekDates.map((date, i) => {
-						const dayEvents = calendarEventsByDate.get(date) ?? [];
-						const isToday = date === todayInCalendarTz;
-						return (
-							<div class={`week-glance-day${isToday ? ' week-glance-day-today' : ''}`}>
-								<div class="week-glance-day-label">
-									{WEEKDAY_LABELS[i]} {date.slice(5).replace('-', '/')}
-								</div>
-								{dayEvents.length > 0 ? (
-									<ul>
-										{dayEvents.map((e) => (
-											<li>
-												<strong>{eventTimeLabel(e)}</strong>{' '}
-												{e.htmlLink ? (
-													<a href={e.htmlLink} target="_blank" rel="noopener noreferrer">{e.summary}</a>
-												) : (
-													e.summary
-												)}
-											</li>
-										))}
-									</ul>
-								) : (
-									<p class="field-hint">Nothing scheduled.</p>
-								)}
-							</div>
-						);
-					})}
-				</div>
-			)}
-		</section>
-
-		<div class="card-grid">
+		{showTodaySection && (
 			<section class="card">
-				<h2>Pipeline</h2>
-				<ul>
-					<li>New leads: {newLeadCount}</li>
-					<li>Walkthroughs scheduled: {walkthroughScheduledCount}</li>
-					<li>Quotes awaiting response: {quotesAwaitingResponse}</li>
-					<li>Accepted jobs awaiting scheduling: {acceptedJobsAwaitingScheduling.length}</li>
-				</ul>
-				{acceptedJobsAwaitingScheduling.length > 0 && (
-					<ul>
-						{acceptedJobsAwaitingScheduling.map((j) => (
-							<li>{j['Property Address']} · <a href={`/quotes/${j['Quote ID']}`}>schedule</a></li>
-						))}
-					</ul>
+				<h2>Today</h2>
+
+				{calendarError && (
+					<p class="field-hint">Calendar unavailable — check appointments directly in Google Calendar.</p>
 				)}
-			</section>
 
-			<section class="card">
-				<h2>Recent performance</h2>
-				<div class="button-row" role="tablist" aria-label="Time frame">
-					{RANGE_OPTIONS.map((r) => (
-						<a
-							href={`/?range=${r}`}
-							class={selectedRange === r ? 'badge badge-accent' : 'badge'}
-							style="text-decoration: none;"
-							aria-current={selectedRange === r ? 'true' : undefined}
-						>
-							{RANGE_LABELS[r]}
-						</a>
-					))}
-				</div>
-				<svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} width="100%" role="img" aria-label={`Revenue by ${bucketUnit}, ${RANGE_LABELS[selectedRange]}`}>
-					{chartYTicks.map((t) => (
-						<>
-							<line x1={chartPad.left} y1={t.y} x2={chartWidth - chartPad.right} y2={t.y} stroke="#d8c6ac" stroke-width="1" />
-							<text x={chartPad.left - 8} y={t.y + 4} text-anchor="end" font-size="11" fill="#4c545b">${Math.round(t.value).toLocaleString()}</text>
-						</>
-					))}
-					<polyline points={chartPolyline} fill="none" stroke="#012441" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
-					{chartPoints.map((p, i) => (
-						<circle cx={p.x} cy={p.y} r={i === chartPoints.length - 1 ? 5 : 3} fill="#012441" stroke="#faf5eb" stroke-width="2">
-							<title>{p.label}: ${p.revenue.toFixed(0)}</title>
-						</circle>
-					))}
-					{chartPoints.length > 0 && (
-						<text
-							x={chartPoints[chartPoints.length - 1].x}
-							y={Math.max(12, chartPoints[chartPoints.length - 1].y - 10)}
-							text-anchor="end"
-							font-size="12"
-							font-weight="600"
-							fill="#012441"
-						>
-							${chartPoints[chartPoints.length - 1].revenue.toFixed(0)}
-						</text>
-					)}
-				</svg>
-				<div class="stats-grid stats-grid-compact" style="margin-bottom: 0;">
-					<div class="card"><span class="stat">{rangeJobs.length}</span><span class="stat-label">Completed jobs</span></div>
-					<div class="card"><span class="stat">${rangeRevenue.toFixed(0)}</span><span class="stat-label">Revenue</span></div>
-					<div class="card"><span class="stat">{rangeOnSiteHours.toFixed(1)}</span><span class="stat-label">On-site hours</span></div>
-					<div class="card"><span class="stat">${rangeRevenuePerHour.toFixed(2)}</span><span class="stat-label">Revenue/on-site hr</span></div>
-					<div class="card"><span class="stat">{rangeCallbacks}</span><span class="stat-label">Callbacks</span></div>
-				</div>
-			</section>
-		</div>
-
-		<div class="card-grid">
-			<section class="card">
-				<h2>Calibration</h2>
-				{snapshot ? (
+				{todayCalendarEvents.length > 0 && (
 					<>
-						<p><span class="badge badge-accent">{snapshot['Confidence Level']}</span> — {snapshot['Comparable Job Count']} comparable jobs — {excludedCount} excluded</p>
-						<p>
-							Target: ${targetHourlyRate}/on-site hour — Observed average: ${Number(snapshot['Observed Revenue Per Hour']).toFixed(2)}/hour
-							{' '}— Observed median: ${median(perHourRates).toFixed(2)}/hour
-						</p>
-						<p class="field-hint">No automatic pricing changes — see <a href="/calibration">Calibration</a> to review and, if warranted, create a draft PricingConfig for explicit review and activation.</p>
+						<h3>Appointments ({todayCalendarEvents.length})</h3>
+						<ul>
+							{todayCalendarEvents.map((e) => (
+								<li>
+									<strong>{eventTimeLabel(e)}</strong> —{' '}
+									{e.htmlLink ? (
+										<a href={e.htmlLink} target="_blank" rel="noopener noreferrer">{e.summary}</a>
+									) : (
+										e.summary
+									)}
+									{e.location && <> · <a href={googleMapsUrl(e.location)} target="_blank" rel="noopener noreferrer">{e.location}</a></>}
+								</li>
+							))}
+						</ul>
 					</>
-				) : (
-					<p>No calibration data yet — <a href="/calibration">recalculate</a> once jobs are completed.</p>
+				)}
+
+				{todayWalkthroughs.length > 0 && (
+					<>
+						<h3>Walkthroughs ({todayWalkthroughs.length})</h3>
+						<ul>
+							{todayWalkthroughs.map((w) => (
+								<li>
+									{w.address ? (
+										<a href={googleMapsUrl(w.address)} target="_blank" rel="noopener noreferrer">{w.address}</a>
+									) : (
+										w.walkthroughId
+									)}
+									{w.contact && (
+										<>
+											{' · '}<a href={`/clients/${w.contact.clientId}`}>{w.contact.name}</a>
+											{w.contact.phone && <> · <a href={`tel:${w.contact.phone}`}>{w.contact.phone}</a></>}
+										</>
+									)}
+									{' · '}<span class="badge">{w.status}</span>
+									{' · '}<a href={`/walkthroughs/${w.walkthroughId}`}>Open walkthrough</a>
+								</li>
+							))}
+						</ul>
+					</>
+				)}
+
+				{todayJobs.length > 0 && (
+					<>
+						<h3>Jobs ({todayJobs.length})</h3>
+						<ul>
+							{todayJobs.map((j) => (
+								<li>
+									{j.address ? (
+										<a href={googleMapsUrl(j.address)} target="_blank" rel="noopener noreferrer">{j.address}</a>
+									) : (
+										j.jobId
+									)}
+									{j.scheduledDate < today && <> · <span class="badge">Scheduled {j.scheduledDate}</span></>}
+									{j.contact && (
+										<>
+											{' · '}<a href={`/clients/${j.contact.clientId}`}>{j.contact.name}</a>
+											{j.contact.phone && <> · <a href={`tel:${j.contact.phone}`}>{j.contact.phone}</a></>}
+										</>
+									)}
+									{' · '}<a href={`/jobs/${j.jobId}`}>Open Job Day</a>
+								</li>
+							))}
+						</ul>
+						<p class="field-hint">Arrival times live on Google Calendar — Jobs carry a scheduled date only.</p>
+					</>
+				)}
+
+				{weekEventCount > 0 && (
+					<>
+						<h3>This week</h3>
+						<div class="week-glance">
+							{weekDates.map((date, i) => {
+								const dayEvents = calendarEventsByDate.get(date) ?? [];
+								const isToday = date === todayInCalendarTz;
+								return (
+									<div class={`week-glance-day${isToday ? ' week-glance-day-today' : ''}`}>
+										<div class="week-glance-day-label">
+											{WEEKDAY_LABELS[i]} {date.slice(5).replace('-', '/')}
+										</div>
+										{dayEvents.length > 0 && (
+											<ul>
+												{dayEvents.map((e) => (
+													<li>
+														<strong>{eventTimeLabel(e)}</strong>{' '}
+														{e.htmlLink ? (
+															<a href={e.htmlLink} target="_blank" rel="noopener noreferrer">{e.summary}</a>
+														) : (
+															e.summary
+														)}
+													</li>
+												))}
+											</ul>
+										)}
+									</div>
+								);
+							})}
+						</div>
+					</>
 				)}
 			</section>
+		)}
 
+		{needsAttentionCount > 0 && (
 			<section class="card">
-				<h2>Data quality</h2>
-				<ul>
-					<li>
-						Jobs missing labor time: {jobsMissingLaborTime.length}
-						{jobsMissingLaborTime.length > 0 && (
-							<>
-								{' — '}
-								{jobsMissingLaborTime.map((j, i) => (
-									<>
-										{i > 0 && ', '}
-										<a href={`/jobs/${j['Job ID']}`}>{j['Property Address'] || j['Job ID']}</a>
-									</>
-								))}
-							</>
-						)}
-					</li>
-					<li>Jobs missing direct costs: {jobsMissingDirectCosts.length}</li>
-					<li>Jobs missing callback information: {jobsMissingCallbackInfo.length}</li>
-					<li>Jobs missing final revenue: {jobsMissingFinalRevenue.length}</li>
-					<li>
-						Properties missing window counts: {propertiesMissingCounts.length}
-						{propertiesMissingCounts.length > 0 && (
-							<>
-								{' — '}
-								{propertiesMissingCounts.map((p, i) => (
-									<>
-										{i > 0 && ', '}
-										<a href={`/properties/${p['Property ID']}`}>{p['Street Address'] || p['Property ID']}</a>
-									</>
-								))}
-							</>
-						)}
-					</li>
-					<li>
-						Walkthroughs not converted or closed: {walkthroughsNotClosed.length}
-						{walkthroughsNotClosed.length > 0 && (
-							<>
-								{' — '}
-								{walkthroughsNotClosed.map((w, i) => (
-									<>
-										{i > 0 && ', '}
-										<a href={`/walkthroughs/${w['Walkthrough ID']}`}>{addressFor(w['Property ID']) || w['Walkthrough ID']}</a>
-									</>
-								))}
-							</>
-						)}
-					</li>
-				</ul>
-			</section>
-		</div>
+				<h2>Needs Attention ({needsAttentionCount})</h2>
 
-		<div class="card-grid">
-			<section class="card">
-				<h2>Maintenance follow-ups due ({maintenanceFollowUps.length})</h2>
-				{maintenanceFollowUps.length === 0 ? (
-					<p class="field-hint">Nothing due.</p>
-				) : (
-					<ul>
-						{maintenanceFollowUps.map((j) => (
-							<li>
-								<strong>{j['Next Maintenance Follow-up Date']}</strong> —{' '}
-								{j['Property Address'] && <a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>}
-								{' '}— <span class="badge">{j['Maintenance Follow-up Status'] || 'Not yet due'}</span>
-								{' · '}<a href={`/quotes/${j['Quote ID']}`}>view job</a>
-							</li>
-						))}
-					</ul>
+				{opportunityFollowUps.length > 0 && (
+					<>
+						<h3>Opportunity follow-ups due ({opportunityFollowUps.length})</h3>
+						<ul>
+							{opportunityFollowUps.map((o) => (
+								<li>
+									<strong>{o['Next Follow-up Date']}</strong> —{' '}
+									{addressFor(o['Property ID']) ? (
+										<a href={googleMapsUrl(addressFor(o['Property ID']))} target="_blank" rel="noopener noreferrer">{addressFor(o['Property ID'])}</a>
+									) : (
+										o['Property ID']
+									)}
+									{' '}({clientNameFor(o['Client ID'])}) — <span class="badge">{o.Stage}</span>
+								</li>
+							))}
+						</ul>
+					</>
+				)}
+
+				{leadFollowUps.length > 0 && (
+					<>
+						<h3>Lead follow-ups due ({leadFollowUps.length})</h3>
+						<ul>
+							{leadFollowUps.map((l) => (
+								<li>
+									<strong>{l['Next Follow-up Date']}</strong> —{' '}
+									<a href={`/leads/${l['Lead ID']}`}>{l['First Name']} {l['Last Name']}</a>
+									{' '}— <span class="badge">{l.Stage}</span>
+								</li>
+							))}
+						</ul>
+					</>
+				)}
+
+				{walkthroughFollowUps.length > 0 && (
+					<>
+						<h3>Walkthroughs with no quote yet ({walkthroughFollowUps.length})</h3>
+						<ul>
+							{walkthroughFollowUps.map((w) => (
+								<li>
+									{clientNameFor(w['Client ID'])} — {addressFor(w['Property ID'])} · <a href={`/walkthroughs/${w['Walkthrough ID']}`}>view</a>
+									{' · '}
+									<form method="POST" class="inline-field-form" style="display: inline">
+										<input type="hidden" name="_action" value="dismiss-walkthrough-followup" />
+										<input type="hidden" name="walkthroughId" value={w['Walkthrough ID']} />
+										<button type="submit" class="btn-secondary">Mark quote sent</button>
+									</form>
+								</li>
+							))}
+						</ul>
+					</>
+				)}
+
+				{unscheduledJobs.length > 0 && (
+					<>
+						<h3>Accepted, not scheduled ({unscheduledJobs.length})</h3>
+						<ul>
+							{unscheduledJobs.map((j) => (
+								<li>
+									{j['Property Address'] || addressFor(j['Property ID']) || j['Job ID']}
+									{' · '}<a href={jobHref(j)}>schedule</a>
+								</li>
+							))}
+						</ul>
+					</>
+				)}
+
+				{uninvoicedJobs.length > 0 && (
+					<>
+						<h3>Completed, not invoiced ({uninvoicedJobs.length})</h3>
+						<p class="field-hint">No QuickBooks invoice linked as of {qbAsOf}.</p>
+						<ul>
+							{uninvoicedJobs.map((j) => (
+								<li>
+									{j['Property Address'] || addressFor(j['Property ID']) || j['Job ID']}
+									{j['Date Completed'] && <> — completed {j['Date Completed']}</>}
+									{' · '}<a href={jobHref(j)}>view job</a>
+								</li>
+							))}
+						</ul>
+					</>
+				)}
+
+				{unpaidInvoices.length > 0 && (
+					<>
+						<h3>Unpaid invoices ({unpaidInvoices.length})</h3>
+						<p class="field-hint">Balances per {qbAsOf} — they may have been paid in QuickBooks since.</p>
+						<ul>
+							{unpaidInvoices.map((i) => {
+								const linkedJob = jobByQBInvoiceId.get(i['QB Invoice ID']);
+								return (
+									<li>
+										{linkedJob?.['Property Address'] || `Invoice ${i['Doc Number'] || i['QB Invoice ID']}`}
+										{' — '}<span class="badge">{i.Status || 'Open'} · balance {money(Number(i.Balance))}</span>
+										{i['Due Date'] && <> — due {i['Due Date']}</>}
+										{linkedJob && <> · <a href={jobHref(linkedJob)}>view job</a></>}
+									</li>
+								);
+							})}
+						</ul>
+					</>
+				)}
+
+				{qbSyncErrors.length > 0 && (
+					<>
+						<h3>QuickBooks sync errors ({qbSyncErrors.length})</h3>
+						<ul>
+							{qbSyncErrors.map((e) => (
+								<li>
+									<strong>{formatTimestamp(e.timestamp)}</strong> — {e.notes}
+								</li>
+							))}
+						</ul>
+						<p><a href="/qb-settings">Go to QuickBooks Settings →</a></p>
+					</>
+				)}
+
+				{maintenanceFollowUps.length > 0 && (
+					<>
+						<h3>Maintenance follow-ups due ({maintenanceFollowUps.length})</h3>
+						<ul>
+							{maintenanceFollowUps.map((j) => (
+								<li>
+									<strong>{j['Next Maintenance Follow-up Date']}</strong> —{' '}
+									{j['Property Address'] && <a href={googleMapsUrl(j['Property Address'])} target="_blank" rel="noopener noreferrer">{j['Property Address']}</a>}
+									{' '}— <span class="badge">{j['Maintenance Follow-up Status'] || 'Due'}</span>
+									{' · '}<a href={jobHref(j)}>view job</a>
+								</li>
+							))}
+						</ul>
+					</>
 				)}
 			</section>
+		)}
 
+		{pipelineTotalCount > 0 && (
 			<section class="card">
-				<h2>Requesting reviews ({reviewReminders.length})</h2>
-				{reviewReminders.length === 0 ? <p class="field-hint">Nothing pending.</p> : (
-					<ul>
-						{reviewReminders.map((j) => (
-							<li>
-								{j['Property Address']} — {j['Review Requested At'] ? `requested ${j['Review Requested At']}, no answer yet` : 'not yet requested'}
-								{' · '}<a href={`/quotes/${j['Quote ID']}`}>view job</a>
-							</li>
-						))}
-					</ul>
-				)}
+				<h2>Pipeline Snapshot</h2>
+				<div class="stats-grid" style="margin-bottom: 0;">
+					{pipelineSnapshot.map((s) => (
+						<div class="card">
+							<span class="stat">{s.count}</span>
+							<span class="stat-label">{s.stage} · {money(s.value)}</span>
+						</div>
+					))}
+				</div>
 			</section>
-		</div>
+		)}
+
+		{monthRowCount > 0 && (
+			<section class="card">
+				<h2>This Month ({monthLabel})</h2>
+				<p class="field-hint">Invoiced and Collected come from QuickBooks per {qbAsOf}; everything else is this app's own data.</p>
+				<div class="stats-grid" style="margin-bottom: 0;">
+					<div class="card"><span class="stat">{money(totalQuoted)}</span><span class="stat-label">Quoted</span></div>
+					<div class="card"><span class="stat">{money(totalApproved)}</span><span class="stat-label">Approved</span></div>
+					<div class="card"><span class="stat">{money(totalCompleted)}</span><span class="stat-label">Completed</span></div>
+					<div class="card"><span class="stat">{money(totalInvoiced)}</span><span class="stat-label">Invoiced (QuickBooks)</span></div>
+					<div class="card"><span class="stat">{money(totalCollected)}</span><span class="stat-label">Collected (QuickBooks)</span></div>
+					<div class="card"><span class="stat">{monthLaborHours.toFixed(1)}</span><span class="stat-label">Actual labor hours</span></div>
+					<div class="card"><span class="stat">${monthRevenuePerHour.toFixed(2)}</span><span class="stat-label">Revenue per labor hour</span></div>
+				</div>
+			</section>
+		)}
 	</main>
 </BaseLayout>
