@@ -81,14 +81,21 @@ const inAdmin = ADMIN_LINKS.some((l) => currentPath === l.href);
 								</a>
 							</li>
 						))}
-						{/* Native disclosure, no JS — the same <details> pattern used
-						    for collapsible sections elsewhere in the app, positioned
-						    as a dropdown by .nav-menu in global.css. */}
+						{/* Native disclosure — the same <details> pattern used for
+						    collapsible sections elsewhere in the app, positioned as a
+						    dropdown by .nav-menu in global.css.
+
+						    The shared name= makes them an exclusive group, so opening
+						    one closes the other. Without it both stayed open and the
+						    Admin panel rendered straight over the Create panel's
+						    items. That's plain HTML, not script: the browser enforces
+						    it, and a browser too old to know the attribute simply
+						    behaves the way it did before. */}
 						{/* Everything from here on is an action or a setting, not a
 						    place — pushed to the right so the bar reads as
 						    "7 destinations + 3 controls" rather than 10 equal items. */}
 						<li class="nav-actions-start">
-							<details class="nav-menu">
+							<details class="nav-menu" name="nav-menu">
 								<summary>Create</summary>
 								<ul>
 									{CREATE_LINKS.map((link) => (
@@ -98,7 +105,7 @@ const inAdmin = ADMIN_LINKS.some((l) => currentPath === l.href);
 							</details>
 						</li>
 						<li>
-							<details class="nav-menu">
+							<details class="nav-menu" name="nav-menu">
 								<summary aria-current={inAdmin ? 'page' : undefined}>Admin</summary>
 								<ul>
 									{ADMIN_LINKS.map((link) => (
@@ -117,5 +124,29 @@ const inAdmin = ADMIN_LINKS.some((l) => currentPath === l.href);
 			</header>
 		)}
 		<slot />
+		{nav && (
+			<script>
+				// Dismissing a menu. Everything else about these dropdowns is
+				// native <details>, but "click away to close" and Escape have no
+				// HTML equivalent, and a menu that only closes by re-clicking the
+				// exact word that opened it is a menu people leave open by
+				// accident — which is how the overlap above got noticed.
+				//
+				// Progressive enhancement: without this the menus still open and
+				// close from the summary, exactly as they always did.
+				document.addEventListener('click', (event) => {
+					for (const menu of document.querySelectorAll('details.nav-menu[open]')) {
+						if (!menu.contains(event.target as Node)) menu.open = false;
+					}
+				});
+				document.addEventListener('keydown', (event) => {
+					if (event.key !== 'Escape') return;
+					for (const menu of document.querySelectorAll('details.nav-menu[open]')) {
+						menu.open = false;
+						menu.querySelector('summary')?.focus();
+					}
+				});
+			</script>
+		)}
 	</body>
 </html>

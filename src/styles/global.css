@@ -625,7 +625,11 @@ tr:last-child td {
 .app-nav nav .nav-menu > ul {
 	position: absolute;
 	top: calc(100% + 0.6rem);
-	left: 0;
+	/* Anchored to the panel's RIGHT edge, not its left. Both menus sit in the
+	   right-hand action cluster, so opening rightward pushed them off screen —
+	   at 1280px the Admin panel ended 86px past the viewport, clipping its last
+	   two items with no way to scroll to them. */
+	right: 0;
 	z-index: 20;
 	display: block;
 	min-width: 14rem;
@@ -2186,11 +2190,26 @@ details.card[open] > summary {
 		white-space: nowrap;
 	}
 
-	/* The dropdown panels have to stay positioned here — in-flow inside a
-	 * horizontally scrolling bar would push the whole strip sideways. */
+	/* Fixed, not absolute, and this is the whole reason the menus work on a
+	 * phone at all.
+	 *
+	 * .app-nav sets overflow-x: auto for the scrolling strip, which computes
+	 * overflow-y to auto as well — making the bar a scroll container that
+	 * clips anything hanging below it. An absolutely-positioned panel was
+	 * being cut off at the bar's own bottom edge, leaving a few pixels of a
+	 * menu that elementFromPoint couldn't even hit. Fixed positioning escapes
+	 * ancestor overflow, so the panel drops below the bar and stays put while
+	 * the strip scrolls under it.
+	 *
+	 * Anchored to the viewport's right edge rather than the summary's, since
+	 * at this width the summary may be scrolled anywhere along the strip. */
 	.app-nav nav .nav-menu > ul {
-		position: absolute;
+		position: fixed;
+		top: 52px;
+		right: 0;
+		left: auto;
 		min-width: 12rem;
+		max-width: min(18rem, calc(100vw - 1rem));
 		border: 2px solid var(--color-tan);
 		padding: 0.5rem 0;
 	}
