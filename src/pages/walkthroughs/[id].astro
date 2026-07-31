@@ -437,15 +437,19 @@ const COMPONENT_CONDITION_ROWS = [
 				<h2>Restoration &amp; property factors</h2>
 				<table>
 					<thead>
-						<tr><th>Kind</th><th>Item</th><th>Units</th><th>Panes</th><th>Added time</th><th>Notes</th></tr>
+						{/* Severity belongs next to the pane count, because together they
+						    ARE the price: restoration costs panes × the rate for that
+						    severity. Without it the row reads "12 panes, 144 min" and
+						    gives no way to tell light work from a razor job. */}
+						<tr><th>Kind</th><th>Item</th><th>Panes</th><th>Severity</th><th>Added time</th><th>Notes</th></tr>
 					</thead>
 					<tbody>
 						{adjustments.map((a) => (
 							<tr>
 								<td>{a.Kind}</td>
 								<td>{a.Label}</td>
-								<td>{a['Affected Units'] || '—'}</td>
 								<td>{a['Affected Panes'] || '—'}</td>
+								<td>{a.Severity || '—'}</td>
 								<td>{a['Additional Minutes'] ? `${a['Additional Minutes']} min` : '—'}</td>
 								<td>{a.Notes}</td>
 							</tr>
