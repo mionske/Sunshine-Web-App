@@ -85,21 +85,32 @@ const todayInCalendarTz = denverDateStr(new Date());
 // event times need the explicit America/Denver conversion above.
 const todayWeekday = new Date(`${todayInCalendarTz}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
 const daysSinceMonday = (todayWeekday + 6) % 7;
-const weekDates: string[] = Array.from({ length: 7 }, (_, i) => {
+// Two weeks, because by Thursday "this week" is mostly answered and the
+// question that matters is what's coming. Rendered as two rows of seven
+// rather than one row of fourteen: at fourteen columns a day cell is too
+// narrow to hold an appointment title, which is the only thing the strip is
+// for.
+const CALENDAR_DAYS = 14;
+const calendarDates: string[] = Array.from({ length: CALENDAR_DAYS }, (_, i) => {
 	const d = new Date(`${todayInCalendarTz}T00:00:00Z`);
 	d.setUTCDate(d.getUTCDate() - daysSinceMonday + i);
 	return d.toISOString().slice(0, 10);
 });
+const weekDates = calendarDates.slice(0, 7);
+const nextWeekDates = calendarDates.slice(7);
 const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-const calendarEventsByDate = new Map<string, CalendarEvent[]>(weekDates.map((d) => [d, []]));
+const calendarEventsByDate = new Map<string, CalendarEvent[]>(calendarDates.map((d) => [d, []]));
 let calendarError = '';
 try {
-	// Padded a day on each side of the week so no DST/offset edge case can
+	// Padded a day on each side of the range so no DST/offset edge case can
 	// clip an event out of the fetch window before it's bucketed by its real
-	// America/Denver calendar date below.
-	const timeMin = `${weekDates[0]}T00:00:00Z`;
-	const timeMax = new Date(new Date(`${weekDates[6]}T00:00:00Z`).getTime() + 2 * 24 * 60 * 60 * 1000).toISOString();
+	// America/Denver calendar date below. Widening from one week to two costs
+	// no extra request — it's the same single call with a longer window.
+	const timeMin = `${calendarDates[0]}T00:00:00Z`;
+	const timeMax = new Date(
+		new Date(`${calendarDates[CALENDAR_DAYS - 1]}T00:00:00Z`).getTime() + 2 * 24 * 60 * 60 * 1000
+	).toISOString();
 	const events = await listEventsInRange(env, timeMin, timeMax);
 	for (const e of events) {
 		const eventDate = e.allDay ? e.start.slice(0, 10) : denverDateStr(new Date(e.start));
@@ -110,6 +121,16 @@ try {
 }
 const todayCalendarEvents = calendarEventsByDate.get(todayInCalendarTz) ?? [];
 const weekEventCount = weekDates.reduce((n, d) => n + (calendarEventsByDate.get(d)?.length ?? 0), 0);
+const nextWeekEventCount = nextWeekDates.reduce((n, d) => n + (calendarEventsByDate.get(d)?.length ?? 0), 0);
+const calendarEventCount = weekEventCount + nextWeekEventCount;
+
+// Both rows render whenever either has anything, so the strip doesn't change
+// shape as the week empties out — and "nothing left this week" is itself
+// worth seeing next to what's coming.
+const CALENDAR_ROWS = [
+	{ heading: 'This week', dates: weekDates },
+	{ heading: 'Next week', dates: nextWeekDates },
+];
 function eventTimeLabel(e: CalendarEvent): string {
 	if (e.allDay) return 'All day';
 	return new Date(e.start).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: CALENDAR_TZ });
@@ -195,7 +216,7 @@ const todayWalkthroughs = walkthroughs
 	}));
 
 const hasToday = todayCalendarEvents.length > 0 || todayJobs.length > 0 || todayWalkthroughs.length > 0;
-const showTodaySection = hasToday || weekEventCount > 0 || Boolean(calendarError);
+const showTodaySection = hasToday || calendarEventCount > 0 || Boolean(calendarError);
 
 // --- 2. Needs Attention ------------------------------------------------------
 
@@ -410,38 +431,39 @@ function money(amount: number): string {
 					</>
 				)}
 
-				{weekEventCount > 0 && (
-					<>
-						<h3>This week</h3>
-						<div class="week-glance">
-							{weekDates.map((date, i) => {
-								const dayEvents = calendarEventsByDate.get(date) ?? [];
-								const isToday = date === todayInCalendarTz;
-								return (
-									<div class={`week-glance-day${isToday ? ' week-glance-day-today' : ''}`}>
-										<div class="week-glance-day-label">
-											{WEEKDAY_LABELS[i]} {date.slice(5).replace('-', '/')}
+				{calendarEventCount > 0 &&
+					CALENDAR_ROWS.map((row) => (
+						<div class="week-glance-block">
+							<h3>{row.heading}</h3>
+							<div class="week-glance">
+								{row.dates.map((date, i) => {
+									const dayEvents = calendarEventsByDate.get(date) ?? [];
+									const isToday = date === todayInCalendarTz;
+									return (
+										<div class={`week-glance-day${isToday ? ' week-glance-day-today' : ''}`}>
+											<div class="week-glance-day-label">
+												{WEEKDAY_LABELS[i]} {date.slice(5).replace('-', '/')}
+											</div>
+											{dayEvents.length > 0 && (
+												<ul>
+													{dayEvents.map((e) => (
+														<li class={isPastEvent(e) ? 'event-past' : undefined}>
+															<strong>{eventTimeLabel(e)}</strong>{' '}
+															{e.htmlLink ? (
+																<a href={e.htmlLink} target="_blank" rel="noopener noreferrer">{e.summary}</a>
+															) : (
+																e.summary
+															)}
+														</li>
+													))}
+												</ul>
+											)}
 										</div>
-										{dayEvents.length > 0 && (
-											<ul>
-												{dayEvents.map((e) => (
-													<li class={isPastEvent(e) ? 'event-past' : undefined}>
-														<strong>{eventTimeLabel(e)}</strong>{' '}
-														{e.htmlLink ? (
-															<a href={e.htmlLink} target="_blank" rel="noopener noreferrer">{e.summary}</a>
-														) : (
-															e.summary
-														)}
-													</li>
-												))}
-											</ul>
-										)}
-									</div>
-								);
-							})}
+									);
+								})}
+							</div>
 						</div>
-					</>
-				)}
+					))}
 			</section>
 		)}
 

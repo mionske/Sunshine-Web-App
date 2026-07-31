@@ -2312,3 +2312,19 @@ details.card[open] > summary {
 	color: var(--color-navy);
 	margin: 0 0 0.25rem;
 }
+
+/* On a phone the week strip is a vertical list, not a grid, so an empty day
+   is seven lines of nothing between you and the rest of the dashboard —
+   fourteen days of it pushed Needs Attention most of a screen further down.
+   The grid shape is worth keeping on a wide screen, where a blank Thursday
+   reads as "free"; stacked, it reads as filler. A week with nothing in it
+   hides entirely rather than leaving a heading over an empty box. */
+@media (max-width: 640px) {
+	.week-glance-day:not(:has(ul)) {
+		display: none;
+	}
+
+	.week-glance-block:not(:has(.week-glance-day ul)) {
+		display: none;
+	}
+}
